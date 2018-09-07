@@ -6,7 +6,7 @@ AC_DEFUN([MOZ_ANDROID_NDK],
 [
 
 case "$target" in
-*-android*|*-linuxandroid*)
+*-android__*|*-linuxandroid__*)
     dnl $android_platform will be set for us by Python configure.
     directory_include_args="-isystem $android_system -isystem $android_sysroot/usr/include"
 
@@ -62,7 +62,7 @@ fi
 AC_DEFUN([MOZ_ANDROID_STLPORT],
 [
 
-if test "$OS_TARGET" = "Android"; then
+if test "$OS_TARGET" = "Android__"; then
     if test -z "$STLPORT_LIBS"; then
         # android-ndk-r8b and later
         cxx_libs="$android_ndk/sources/cxx-stl/llvm-libc++/libs/$ANDROID_CPU_ARCH"

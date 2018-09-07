@@ -116,6 +116,8 @@ set_config('ANDROID_NDK_MINOR_VERSION', ndk_minor_version)
 @checking('for android platform directory')
 @imports(_from='os.path', _import='isdir')
 def android_platform(target, android_version, ndk, _):
+    return
+
     if target.os != 'Android':
         return
 
@@ -156,6 +158,8 @@ add_old_configure_assignment('android_platform', android_platform)
 @checking('for android sysroot directory')
 @imports(_from='os.path', _import='isdir')
 def android_sysroot(android_platform, ndk, target, _):
+    return
+
     if target.os != 'Android':
         return
 
@@ -182,6 +186,8 @@ add_old_configure_assignment('android_sysroot', android_sysroot)
 @checking('for android system directory')
 @imports(_from='os.path', _import='isdir')
 def android_system(android_platform, ndk, target, _):
+    return
+    
     if target.os != 'Android':
         return
 

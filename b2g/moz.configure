@@ -16,12 +16,13 @@ add_old_configure_assignment('gonkdir', gonkdir)
 set_config('ANDROID_NDK__',
            depends_if(gonkdir)(lambda x: os.path.join(x, 'ndk')))
 
+set_config('ANDROID_NDK', "/home/fabrice/dev/kaios/qrd256/ndk/")
+
 @depends_if('--with-gonk-gfx')
 def gonk_toolkit(_):
     return 'cairo-gonk'
 
 imply_option('--enable-default-toolkit', gonk_toolkit)
-
 
 option('--with-gonk-toolchain-prefix', nargs=1,
        help='Prefix to gonk toolchain commands')
