@@ -682,14 +682,14 @@ var SessionStoreInternal = {
               // replace the crashed session with a restore-page-only session
               let url = "about:sessionrestore";
               let formdata = {id: {sessionData: state}, url};
-              let entry = {url, triggeringPrincipal_base64: Utils.SERIALIZED_SYSTEMPRINCIPAL };
+              let entry = {url, triggeringPrincipal_base64: E10SUtils.SERIALIZED_SYSTEMPRINCIPAL };
               state = { windows: [{ tabs: [{ entries: [entry], formdata }] }] };
             } else if (this._hasSingleTabWithURL(state.windows,
                                                  "about:welcomeback")) {
               // On a single about:welcomeback URL that crashed, replace about:welcomeback
               // with about:sessionrestore, to make clear to the user that we crashed.
               state.windows[0].tabs[0].entries[0].url = "about:sessionrestore";
-              state.windows[0].tabs[0].entries[0].triggeringPrincipal_base64 = Utils.SERIALIZED_SYSTEMPRINCIPAL;
+              state.windows[0].tabs[0].entries[0].triggeringPrincipal_base64 = E10SUtils.SERIALIZED_SYSTEMPRINCIPAL;
             }
           }
 
@@ -3345,7 +3345,7 @@ var SessionStoreInternal = {
     let tabbrowser = aWindow.gBrowser;
     let startupPref = this._prefBranch.getIntPref("startup.page");
     if (startupPref == 1)
-      homePages = homePages.concat(HomePage.get().split("|"));
+      homePages = homePages.concat(HomePage.get(aWindow).split("|"));
 
     for (let i = tabbrowser._numPinnedTabs; i < tabbrowser.tabs.length; i++) {
       let tab = tabbrowser.tabs[i];
@@ -3379,6 +3379,9 @@ var SessionStoreInternal = {
     WINDOW_ATTRIBUTES.forEach(function(aAttr) {
       winData[aAttr] = this._getWindowDimension(aWindow, aAttr);
     }, this);
+
+    if (winData.sizemode != "minimized")
+      winData.sizemodeBeforeMinimized = winData.sizemode;
 
     var hidden = WINDOW_HIDEABLE_FEATURES.filter(function(aItem) {
       return aWindow[aItem] && !aWindow[aItem].visible;
@@ -4338,7 +4341,8 @@ var SessionStoreInternal = {
         +(aWinData.height || 0),
         "screenX" in aWinData ? +aWinData.screenX : NaN,
         "screenY" in aWinData ? +aWinData.screenY : NaN,
-        aWinData.sizemode || "", aWinData.sidebar || "");
+        aWinData.sizemode || "", aWinData.sizemodeBeforeMinimized || "",
+        aWinData.sidebar || "");
     }, 0);
   },
 
@@ -4354,10 +4358,12 @@ var SessionStoreInternal = {
    *        Window top
    * @param aSizeMode
    *        Window size mode (eg: maximized)
+   * @param aSizeModeBeforeMinimized
+   *        Window size mode before window got minimized (eg: maximized)
    * @param aSidebar
    *        Sidebar command
    */
-  restoreDimensions: function ssi_restoreDimensions(aWindow, aWidth, aHeight, aLeft, aTop, aSizeMode, aSidebar) {
+  restoreDimensions: function ssi_restoreDimensions(aWindow, aWidth, aHeight, aLeft, aTop, aSizeMode, aSizeModeBeforeMinimized, aSidebar) {
     var win = aWindow;
     var _this = this;
     function win_(aName) { return _this._getWindowDimension(win, aName); }
@@ -4426,12 +4432,15 @@ var SessionStoreInternal = {
           aWindow.resizeTo(aWidth, aHeight);
         }
       }
+      this._windows[aWindow.__SSi].sizemodeBeforeMinimized = aSizeModeBeforeMinimized;
       if (aSizeMode && win_("sizemode") != aSizeMode && !gResistFingerprintingEnabled) {
         switch (aSizeMode) {
         case "maximized":
           aWindow.maximize();
           break;
         case "minimized":
+          if (aSizeModeBeforeMinimized == "maximized")
+            aWindow.maximize();
           aWindow.minimize();
           break;
         case "normal":

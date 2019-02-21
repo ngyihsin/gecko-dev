@@ -3596,14 +3596,15 @@ bool ContentParent::DeallocPPSMContentDownloaderParent(
 }
 
 PExternalHelperAppParent* ContentParent::AllocPExternalHelperAppParent(
-    const OptionalURIParams& uri, const nsCString& aMimeContentType,
-    const nsCString& aContentDisposition,
+    const OptionalURIParams& uri,
+    const mozilla::net::OptionalLoadInfoArgs& aLoadInfoArgs,
+    const nsCString& aMimeContentType, const nsCString& aContentDisposition,
     const uint32_t& aContentDispositionHint,
     const nsString& aContentDispositionFilename, const bool& aForceSave,
     const int64_t& aContentLength, const bool& aWasFileChannel,
     const OptionalURIParams& aReferrer, PBrowserParent* aBrowser) {
   ExternalHelperAppParent* parent = new ExternalHelperAppParent(
-      uri, aContentLength, aWasFileChannel, aContentDisposition,
+      uri, aLoadInfoArgs, aContentLength, aWasFileChannel, aContentDisposition,
       aContentDispositionHint, aContentDispositionFilename);
   parent->AddRef();
   parent->Init(this, aMimeContentType, aForceSave, aReferrer, aBrowser);
@@ -4976,17 +4977,6 @@ mozilla::ipc::IPCResult ContentParent::RecvEndDriverCrashGuard(
     const uint32_t& aGuardType) {
   mDriverCrashGuard = nullptr;
   return IPC_OK();
-}
-
-mozilla::ipc::IPCResult ContentParent::RecvGetAndroidSystemInfo(
-    AndroidSystemInfo* aInfo) {
-#ifdef MOZ_WIDGET_ANDROID
-  nsSystemInfo::GetAndroidSystemInfo(aInfo);
-  return IPC_OK();
-#else
-  MOZ_CRASH("wrong platform!");
-  return IPC_FAIL_NO_REASON(this);
-#endif
 }
 
 mozilla::ipc::IPCResult ContentParent::RecvNotifyBenchmarkResult(

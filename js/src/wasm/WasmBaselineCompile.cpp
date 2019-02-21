@@ -6450,80 +6450,27 @@ class BaseCompiler final : public BaseCompilerInterface {
 
   void emitPreBarrier(RegPtr valueAddr) {
     Label skipBarrier;
-
-    MOZ_ASSERT(valueAddr == PreBarrierReg);
-
     ScratchPtr scratch(*this);
 
-    // If no incremental GC has started, we don't need the barrier.
     masm.loadWasmTlsRegFromFrame(scratch);
-    masm.loadPtr(
-        Address(scratch, offsetof(TlsData, addressOfNeedsIncrementalBarrier)),
-        scratch);
-    masm.branchTest32(Assembler::Zero, Address(scratch, 0), Imm32(0x1),
-                      &skipBarrier);
+    EmitWasmPreBarrierGuard(masm, scratch, scratch, valueAddr, &skipBarrier);
 
-    // If the previous value is null, we don't need the barrier.
-    masm.loadPtr(Address(valueAddr, 0), scratch);
-    masm.branchTestPtr(Assembler::Zero, scratch, scratch, &skipBarrier);
-
-    // Call the barrier. This assumes PreBarrierReg contains the address of
-    // the stored value.
-    //
-    // PreBarrierReg is volatile and is preserved by the barrier.
     masm.loadWasmTlsRegFromFrame(scratch);
-    masm.loadPtr(Address(scratch, offsetof(TlsData, instance)), scratch);
-    masm.loadPtr(Address(scratch, Instance::offsetOfPreBarrierCode()), scratch);
 #ifdef JS_CODEGEN_ARM64
-    // The prebarrier stub assumes the PseudoStackPointer is set up.  We do
-    // not need to save and restore x28 because it is not yet allocatable.
+    // The prebarrier stub assumes the PseudoStackPointer is set up.  It is OK
+    // to just move the sp to x28 here because x28 is not being used by the
+    // baseline compiler and need not be saved or restored.
     MOZ_ASSERT(!GeneralRegisterSet::All().hasRegisterIndex(x28.asUnsized()));
     masm.Mov(x28, sp);
 #endif
-    masm.call(scratch);
+    EmitWasmPreBarrierCall(masm, scratch, scratch, valueAddr);
 
     masm.bind(&skipBarrier);
   }
 
-  // Emit a GC post-write barrier.  The barrier is needed to ensure that the
-  // GC is aware of slots of tenured things containing references to nursery
-  // values.
-  //
-  // The barrier has five easy steps:
-  //
-  //   Label skipBarrier;
-  //   sync();
-  //   emitPostBarrierGuard(..., &skipBarrier);
-  //   emitPostBarrier(...);
-  //   bind(&skipBarrier);
-  //
-  // These are divided up to allow other actions to be placed between them,
-  // such as saving and restoring live registers.  postBarrier() will make a
-  // call to C++ and will kill all live registers.  The initial sync() is
-  // required to make sure all paths sync the same amount.
-
-  // Pass None for `object` when the field's owner object is known to be
-  // tenured or heap-allocated.
-
-  void emitPostBarrierGuard(const Maybe<RegPtr>& object, RegPtr otherScratch,
-                            RegPtr setValue, Label* skipBarrier) {
-    // If the pointer being stored is null, no barrier.
-    masm.branchTestPtr(Assembler::Zero, setValue, setValue, skipBarrier);
-
-    // If there is a containing object and it is in the nursery, no barrier.
-    if (object) {
-      masm.branchPtrInNurseryChunk(Assembler::Equal, *object, otherScratch,
-                                   skipBarrier);
-    }
-
-    // If the pointer being stored is to a tenured object, no barrier.
-    masm.branchPtrInNurseryChunk(Assembler::NotEqual, setValue, otherScratch,
-                                 skipBarrier);
-  }
-
   // This frees the register `valueAddr`.
 
-  MOZ_MUST_USE bool emitPostBarrier(RegPtr valueAddr) {
+  MOZ_MUST_USE bool emitPostBarrierCall(RegPtr valueAddr) {
     uint32_t bytecodeOffset = iter_.lastOpcodeOffset();
 
     // The `valueAddr` is a raw pointer to the cell within some GC object or
@@ -6561,10 +6508,10 @@ class BaseCompiler final : public BaseCompilerInterface {
     sync();
 
     RegPtr otherScratch = needRef();
-    emitPostBarrierGuard(object, otherScratch, value, &skipBarrier);
+    EmitWasmPostBarrierGuard(masm, object, otherScratch, value, &skipBarrier);
     freeRef(otherScratch);
 
-    if (!emitPostBarrier(valueAddr)) {
+    if (!emitPostBarrierCall(valueAddr)) {
       return false;
     }
     masm.bind(&skipBarrier);
@@ -8395,6 +8342,12 @@ bool BaseCompiler::emitEnd() {
   }
 
   switch (kind) {
+    case LabelKind::Body:
+      endBlock(type);
+      iter_.popEnd();
+      MOZ_ASSERT(iter_.controlStackEmpty());
+      doReturn(type, PopStack(false));
+      return iter_.readFunctionEnd(iter_.end());
     case LabelKind::Block:
       endBlock(type);
       break;
@@ -8558,6 +8511,9 @@ bool BaseCompiler::emitDrop() {
 }
 
 void BaseCompiler::doReturn(ExprType type, bool popStack) {
+  if (deadCode_) {
+    return;
+  }
   switch (type.code()) {
     case ExprType::Void: {
       returnCleanup(popStack);
@@ -10566,7 +10522,7 @@ bool BaseCompiler::emitStructNew() {
         }
 
         RegPtr otherScratch = needRef();
-        emitPostBarrierGuard(Some(rowner), otherScratch, value, &skipBarrier);
+        EmitWasmPostBarrierGuard(masm, Some(rowner), otherScratch, value, &skipBarrier);
         freeRef(otherScratch);
 
         if (!structType.isInline_) {
@@ -10582,7 +10538,7 @@ bool BaseCompiler::emitStructNew() {
         pushRef(rp);  // Save rp across the call
         RegPtr valueAddr = needRef();
         masm.computeEffectiveAddress(Address(rdata, offs), valueAddr);
-        if (!emitPostBarrier(valueAddr)) {  // Consumes valueAddr
+        if (!emitPostBarrierCall(valueAddr)) {  // Consumes valueAddr
           return false;
         }
         popRef(rp);  // Restore rp
@@ -10944,12 +10900,8 @@ bool BaseCompiler::emitBody() {
         if (!emitEnd()) {
           return false;
         }
-
         if (iter_.controlStackEmpty()) {
-          if (!deadCode_) {
-            doReturn(funcType().ret(), PopStack(false));
-          }
-          return iter_.readFunctionEnd(iter_.end());
+          return true;
         }
         NEXT();
 

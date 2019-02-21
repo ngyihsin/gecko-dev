@@ -902,6 +902,15 @@ Instance::postBarrier(Instance* instance, gc::Cell** location) {
   TlsContext.get()->runtime()->gc.storeBuffer().putCell(location);
 }
 
+/* static */ void /* infallible */
+Instance::postBarrierFiltering(Instance* instance, gc::Cell** location) {
+  MOZ_ASSERT(location);
+  if (*location == nullptr || !gc::IsInsideNursery(*location)) {
+    return;
+  }
+  TlsContext.get()->runtime()->gc.storeBuffer().putCell(location);
+}
+
 // The typeIndex is an index into the structTypeDescrs_ table in the instance.
 // That table holds TypeDescr objects.
 //
@@ -1212,9 +1221,9 @@ bool Instance::init(JSContext* cx, const DataSegmentVector& dataSegments,
   }
 
   JitRuntime* jitRuntime = cx->runtime()->jitRuntime();
-  jsJitArgsRectifier_ = jitRuntime->getArgumentsRectifier();
-  jsJitExceptionHandler_ = jitRuntime->getExceptionTail();
-  preBarrierCode_ = jitRuntime->preBarrier(MIRType::Object);
+  jsJitArgsRectifier_ = jitRuntime->getArgumentsRectifier().value;
+  jsJitExceptionHandler_ = jitRuntime->getExceptionTail().value;
+  preBarrierCode_ = jitRuntime->preBarrier(MIRType::Object).value;
 
   if (!passiveDataSegments_.resize(dataSegments.length())) {
     return false;

@@ -894,6 +894,7 @@ parent:
     async PPSMContentDownloader(uint32_t aCertType);
 
     async PExternalHelperApp(OptionalURIParams uri,
+                             OptionalLoadInfoArgs loadInfoArgs,
                              nsCString aMimeContentType,
                              nsCString aContentDisposition,
                              uint32_t aContentDispositionHint,
@@ -1132,9 +1133,6 @@ parent:
       nsString aName,
       Principal aTriggeringPrincipal,
       uint32_t aReferrerPolicy);
-
-    sync GetAndroidSystemInfo()
-        returns (AndroidSystemInfo info);
 
     /**
      * Tells the parent to ungrab the pointer on the default display.
