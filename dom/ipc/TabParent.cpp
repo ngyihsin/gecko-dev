@@ -1218,11 +1218,6 @@ void TabParent::SendRealDragEvent(WidgetDragEvent& aEvent, uint32_t aDragAction,
   MOZ_ASSERT(!ret || aEvent.HasBeenPostedToRemoteProcess());
 }
 
-LayoutDevicePoint TabParent::AdjustTapToChildWidget(
-    const LayoutDevicePoint& aPoint) {
-  return aPoint + LayoutDevicePoint(GetChildProcessOffset());
-}
-
 void TabParent::SendMouseWheelEvent(WidgetWheelEvent& aEvent) {
   if (mIsDestroyed || !mIsReadyToHandleInputEvents) {
     return;
@@ -2148,9 +2143,6 @@ mozilla::ipc::IPCResult TabParent::RecvOnContentBlockingEvent(
           aRequestData.originalRequestURI(), aRequestData.matchedList(),
           aEvent);
     } else {
-      if (aWebProgressData.get_WebProgressData().isTopLevel()) {
-        Unused << browser->UpdateSecurityUIForContentBlockingEvent(aEvent);
-      }
       Unused << browser->CallWebProgressContentBlockingEventListeners(
           true, aWebProgressData.get_WebProgressData().isTopLevel(),
           aWebProgressData.get_WebProgressData().isLoadingDocument(),

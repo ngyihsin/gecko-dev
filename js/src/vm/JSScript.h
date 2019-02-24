@@ -1725,15 +1725,11 @@ class JSScript : public js::gc::TenuredCell {
     // Script came from eval().
     IsForEval = 1 << 22,
 
-    // Whether the record/replay execution progress counter (see RecordReplay.h)
-    // should be updated as this script runs.
-    TrackRecordReplayProgress = 1 << 23,
-
     // Whether this is a top-level module script.
-    IsModule = 1 << 24,
+    IsModule = 1 << 23,
 
     // Whether this function needs a call object or named lambda environment.
-    NeedsFunctionEnvironmentObjects = 1 << 25,
+    NeedsFunctionEnvironmentObjects = 1 << 24,
   };
 
  private:
@@ -1754,7 +1750,11 @@ class JSScript : public js::gc::TenuredCell {
     // Script has been reused for a clone.
     HasBeenCloned = 1 << 2,
 
-    // (1 << 3) and (1 << 4) are unused.
+    // Whether the record/replay execution progress counter (see RecordReplay.h)
+    // should be updated as this script runs.
+    TrackRecordReplayProgress = 1 << 3,
+
+    // (1 << 4) is unused.
 
     // Script has an entry in Realm::scriptCountsMap.
     HasScriptCounts = 1 << 5,
@@ -1896,6 +1896,7 @@ class JSScript : public js::gc::TenuredCell {
  private:
   // Assert that jump targets are within the code array of the script.
   void assertValidJumpTargets() const;
+ public:
 #endif
 
   // MutableFlags accessors.
@@ -2800,7 +2801,7 @@ class JSScript : public js::gc::TenuredCell {
   };
 
   bool trackRecordReplayProgress() const {
-    return hasFlag(ImmutableFlags::TrackRecordReplayProgress);
+    return hasFlag(MutableFlags::TrackRecordReplayProgress);
   }
 };
 
@@ -2811,10 +2812,37 @@ static_assert(
 
 namespace js {
 
+struct FieldInitializers {
+#ifdef DEBUG
+  bool valid;
+#endif
+  // This struct will eventually have a vector of constant values for optimizing
+  // field initializers.
+  size_t numFieldInitializers;
+
+  explicit FieldInitializers(size_t numFieldInitializers)
+      :
+#ifdef DEBUG
+        valid(true),
+#endif
+        numFieldInitializers(numFieldInitializers) {
+  }
+
+  static FieldInitializers Invalid() { return FieldInitializers(); }
+
+ private:
+  FieldInitializers()
+      :
+#ifdef DEBUG
+        valid(false),
+#endif
+        numFieldInitializers(0) {
+  }
+};
+
 // Information about a script which may be (or has been) lazily compiled to
 // bytecode from its source.
 class LazyScript : public gc::TenuredCell {
- private:
   // If non-nullptr, the script has been compiled and this is a forwarding
   // pointer to the result. This is a weak pointer: after relazification, we
   // can collect the script if there are no other pointers to it.
@@ -2907,7 +2935,6 @@ class LazyScript : public gc::TenuredCell {
   // Heap allocated table with any free variables or inner functions.
   void* table_;
 
- private:
   static const uint32_t NumClosedOverBindingsBits = 20;
   static const uint32_t NumInnerFunctionsBits = 20;
 
@@ -2944,6 +2971,8 @@ class LazyScript : public gc::TenuredCell {
     PackedView p_;
     uint64_t packedFields_;
   };
+
+  FieldInitializers fieldInitializers_;
 
   // Source location for the script.
   // See the comment in JSScript for the details
@@ -3133,6 +3162,12 @@ class LazyScript : public gc::TenuredCell {
 
   bool hasThisBinding() const { return p_.hasThisBinding; }
   void setHasThisBinding() { p_.hasThisBinding = true; }
+
+  void setFieldInitializers(FieldInitializers fieldInitializers) {
+    fieldInitializers_ = fieldInitializers;
+  }
+
+  FieldInitializers getFieldInitializers() const { return fieldInitializers_; }
 
   const char* filename() const { return scriptSource()->filename(); }
   uint32_t sourceStart() const { return sourceStart_; }

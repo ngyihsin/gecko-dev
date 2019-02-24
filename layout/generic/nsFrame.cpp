@@ -7440,10 +7440,7 @@ void nsIFrame::ListGeneric(nsACString& aTo, const char* aPrefix,
   aTo += nsPrintfCString(" [cs=%p", static_cast<void*>(mComputedStyle));
   if (mComputedStyle) {
     auto pseudoType = mComputedStyle->GetPseudoType();
-    if (pseudoType != PseudoStyleType::NotPseudo) {
-      // FIXME(emilio): It'd be nice to get the string from here.
-      aTo += nsPrintfCString("pseudo: %d", static_cast<int>(pseudoType));
-    }
+    aTo += ToString(pseudoType).c_str();
   }
   aTo += "]";
 }
@@ -8150,7 +8147,8 @@ nsresult nsIFrame::PeekOffset(nsPeekOffsetStruct* aPos) {
 
         done = current->PeekOffsetWord(
                    movingInFrameDirection, wordSelectEatSpace,
-                   aPos->mIsKeyboardSelect, &offset, &state) == FOUND;
+                   aPos->mIsKeyboardSelect, &offset, &state,
+                   aPos->mTrimSpaces) == FOUND;
 
         if (!done) {
           nsIFrame* nextFrame;
@@ -8401,7 +8399,8 @@ nsIFrame::FrameSearchResult nsFrame::PeekOffsetWord(bool aForward,
                                                     bool aWordSelectEatSpace,
                                                     bool aIsKeyboardSelect,
                                                     int32_t* aOffset,
-                                                    PeekWordState* aState) {
+                                                    PeekWordState* aState,
+                                                    bool aTrimSpaces) {
   NS_ASSERTION(aOffset && *aOffset <= 1, "aOffset out of range");
   int32_t startOffset = *aOffset;
   // This isn't text, so truncate the context

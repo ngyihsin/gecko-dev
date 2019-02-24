@@ -842,6 +842,17 @@
     "bug_numbers": [1259347],
     "description": "Size of the GC nursery (bytes)"
   },
+  "GC_NURSERY_BYTES_2": {
+    "record_in_processes": ["main", "content"],
+    "alert_emails": ["dev-telemetry-gc-alerts@mozilla.org", "pbone@mozilla.com"],
+    "expires_in_version": "never",
+    "kind": "exponential",
+    "low": 16384,
+    "high": 16777216,
+    "n_buckets": 24,
+    "bug_numbers": [1528867],
+    "description": "Size of the GC nursery (bytes)"
+  },
   "GC_PRETENURE_COUNT": {
     "record_in_processes": ["main", "content"],
     "alert_emails": ["dev-telemetry-gc-alerts@mozilla.org"],
@@ -8134,13 +8145,6 @@
     "bug_numbers": [1489524],
     "description": "Time (ms) it takes to initialize the search service"
   },
-  "SEARCH_SERVICE_INIT_SYNC": {
-    "record_in_processes": ["main", "content"],
-    "alert_emails": ["rvitillo@mozilla.com", "gavin@mozilla.com"],
-    "expires_in_version": "never",
-    "kind": "boolean",
-    "description": "search service has been initialized synchronously"
-  },
   "SEARCH_SERVICE_COUNTRY_FETCH_TIME_MS": {
     "record_in_processes": ["main", "content"],
     "alert_emails": ["mhammond@mozilla.com", "gavin@mozilla.com"],
@@ -12566,33 +12570,6 @@
     "releaseChannelCollection": "opt-out",
     "description": "Graphics Crash Reason (...)"
   },
-  "WEB_NOTIFICATION_CLICKED": {
-    "record_in_processes": ["main", "content"],
-    "releaseChannelCollection": "opt-out",
-    "alert_emails": ["firefox-dev@mozilla.org", "push@mozilla.com"],
-    "bug_numbers": [1225336, 1429286],
-    "expires_in_version": "never",
-    "kind": "count",
-    "description": "Count of times a web notification was clicked"
-  },
-  "WEB_NOTIFICATION_MENU": {
-    "record_in_processes": ["main", "content"],
-    "alert_emails": ["firefox-dev@mozilla.org"],
-    "bug_numbers": [1225336],
-    "expires_in_version": "50",
-    "kind": "enumerated",
-    "n_values": 5,
-    "description": "Count of times a contextual menu item was used from a Notification (0: DND, 1: Disable, 2: Settings)"
-  },
-  "WEB_NOTIFICATION_SHOWN": {
-    "record_in_processes": ["main", "content"],
-    "releaseChannelCollection": "opt-out",
-    "alert_emails": ["firefox-dev@mozilla.org", "push@mozilla.com"],
-    "bug_numbers": [1225336, 1429286],
-    "expires_in_version": "never",
-    "kind": "count",
-    "description": "Count of times a Notification was rendered (accounting for XUL DND). A system backend may put the notification directly into the tray if its own DND is on."
-  },
   "WEBFONT_DOWNLOAD_TIME": {
     "record_in_processes": ["main", "content"],
     "alert_emails": ["jdaggett@mozilla.com"],
@@ -12691,24 +12668,6 @@
     "expires_in_version": "50",
     "kind": "flag",
     "description": "Whether the do not disturb option is supported. True if the browser uses XUL alerts."
-  },
-  "WEB_NOTIFICATION_EXCEPTIONS_OPENED": {
-    "record_in_processes": ["main", "content"],
-    "alert_emails": ["firefox-dev@mozilla.org"],
-    "bug_numbers": [1219030],
-    "expires_in_version": "50",
-    "kind": "count",
-    "description": "Number of times the Notification Permissions dialog has been opened."
-  },
-  "WEB_NOTIFICATION_PERMISSIONS": {
-    "record_in_processes": ["main", "content"],
-    "releaseChannelCollection": "opt-out",
-    "alert_emails": ["firefox-dev@mozilla.org", "push@mozilla.com"],
-    "bug_numbers": [1219030, 1429286],
-    "expires_in_version": "never",
-    "kind": "enumerated",
-    "n_values": 10,
-    "description": "Number of origins with the web notifications permission (0 = denied, 1 = allowed)."
   },
   "PLUGIN_DRAWING_MODEL": {
     "record_in_processes": ["main", "content"],
@@ -14288,66 +14247,6 @@
     "n_buckets": 20,
     "kind": "exponential",
     "description": "Age of files scanned in profile directory in days when determining initial profile age."
-  },
-  "HTMLEDITORS_WITH_RESIZERS": {
-    "record_in_processes": ["content"],
-    "alert_emails": ["mnakano@mozilla.com"],
-    "bug_numbers": [1452538,1449564],
-    "expires_in_version": "65",
-    "kind": "boolean",
-    "releaseChannelCollection": "opt-out",
-    "description": "Number of HTML editors which has shown object resizers."
-  },
-  "HTMLEDITORS_WHOSE_RESIZERS_USED_BY_USER": {
-    "record_in_processes": ["content"],
-    "alert_emails": ["mnakano@mozilla.com"],
-    "bug_numbers": [1452538,1449564],
-    "expires_in_version": "65",
-    "kind": "linear",
-    "high": 50,
-    "n_buckets": 20,
-    "releaseChannelCollection": "opt-out",
-    "description": "Number of HTML editors whose object resizers are actually used by users."
-  },
-  "HTMLEDITORS_WITH_ABSOLUTE_POSITIONER": {
-    "record_in_processes": ["content"],
-    "alert_emails": ["mnakano@mozilla.com"],
-    "bug_numbers": [1452538,1449564],
-    "expires_in_version": "65",
-    "kind": "boolean",
-    "releaseChannelCollection": "opt-out",
-    "description": "Number of HTML editors which has shown grabber to move absolute positioned elements."
-  },
-  "HTMLEDITORS_WHOSE_ABSOLUTE_POSITIONER_USED_BY_USER": {
-    "record_in_processes": ["content"],
-    "alert_emails": ["mnakano@mozilla.com"],
-    "bug_numbers": [1452538,1449564],
-    "expires_in_version": "65",
-    "kind": "linear",
-    "high": 50,
-    "n_buckets": 20,
-    "releaseChannelCollection": "opt-out",
-    "description": "Number of HTML editors whose grabber to move absolute positioned elements is actually used by users."
-  },
-  "HTMLEDITORS_WITH_INLINE_TABLE_EDITOR": {
-    "record_in_processes": ["content"],
-    "alert_emails": ["mnakano@mozilla.com"],
-    "bug_numbers": [1452538,1449564],
-    "expires_in_version": "65",
-    "kind": "boolean",
-    "releaseChannelCollection": "opt-out",
-    "description": "Number of HTML editors which has shown inline table editing UI."
-  },
-  "HTMLEDITORS_WHOSE_INLINE_TABLE_EDITOR_USED_BY_USER": {
-    "record_in_processes": ["content"],
-    "alert_emails": ["mnakano@mozilla.com"],
-    "bug_numbers": [1452538,1449564],
-    "expires_in_version": "65",
-    "kind": "linear",
-    "high": 50,
-    "n_buckets": 20,
-    "releaseChannelCollection": "opt-out",
-    "description": "Number of HTML editors whose inline table editing UI is actually used by users."
   },
   "ACTIVE_HTTP_DOCGROUPS_PER_TABGROUP": {
     "record_in_processes": ["content"],

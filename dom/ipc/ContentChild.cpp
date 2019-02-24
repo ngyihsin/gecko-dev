@@ -2582,6 +2582,13 @@ mozilla::ipc::IPCResult ContentChild::RecvInitJSWindowActorInfos(
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult ContentChild::RecvUnregisterJSWindowActor(
+    const nsString& aName) {
+  RefPtr<JSWindowActorService> actSvc = JSWindowActorService::GetSingleton();
+  actSvc->UnregisterWindowActor(aName);
+  return IPC_OK();
+}
+
 mozilla::ipc::IPCResult ContentChild::RecvLastPrivateDocShellDestroyed() {
   nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
   obs->NotifyObservers(nullptr, "last-pb-context-exited", nullptr);
@@ -3667,6 +3674,14 @@ mozilla::ipc::IPCResult ContentChild::RecvWindowPostMessage(
   event->UnpackFrom(aMessage);
 
   window->Dispatch(TaskCategory::Other, event.forget());
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvCommitBrowsingContextTransaction(
+    BrowsingContext* aContext, BrowsingContext::Transaction&& aTransaction) {
+  if (aContext) {
+    aTransaction.Apply(aContext);
+  }
   return IPC_OK();
 }
 

@@ -735,12 +735,12 @@ function makeURI(aURLSpec, aCharset) {
 function makeChannel(url) {
   try {
     let uri = typeof url == "string" ? Services.io.newURI(url) : url;
-    return Services.io.newChannelFromURI2(uri,
-                                          null, /* loadingNode */
-                                          Services.scriptSecurityManager.getSystemPrincipal(),
-                                          null, /* triggeringPrincipal */
-                                          Ci.nsILoadInfo.SEC_ALLOW_CROSS_ORIGIN_DATA_IS_NULL,
-                                          Ci.nsIContentPolicy.TYPE_OTHER);
+    return Services.io.newChannelFromURI(uri,
+                                         null, /* loadingNode */
+                                         Services.scriptSecurityManager.getSystemPrincipal(),
+                                         null, /* triggeringPrincipal */
+                                         Ci.nsILoadInfo.SEC_ALLOW_CROSS_ORIGIN_DATA_IS_NULL,
+                                         Ci.nsIContentPolicy.TYPE_OTHER);
   } catch (ex) { }
 
   return null;
@@ -2641,7 +2641,6 @@ SearchService.prototype = {
       this._initObservers.reject(this._initRV);
     }
     Services.obs.notifyObservers(null, SEARCH_SERVICE_TOPIC, "init-complete");
-    Services.telemetry.getHistogramById("SEARCH_SERVICE_INIT_SYNC").add(false);
 
     LOG("_init: Completed _init");
     return this._initRV;

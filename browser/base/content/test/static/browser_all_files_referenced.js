@@ -95,10 +95,6 @@ var whitelist = [
   {file: "resource://gre/res/fonts/mathfontSTIXGeneral.properties"},
   {file: "resource://gre/res/fonts/mathfontUnicode.properties"},
 
-  // toolkit/components/places/ColorAnalyzer_worker.js
-  {file: "resource://gre/modules/ClusterLib.js"},
-  {file: "resource://gre/modules/ColorConversion.js"},
-
   // Needed by HiddenFrame.jsm, but can't be packaged test-only
   {file: "chrome://global/content/win.xul"},
 
@@ -148,8 +144,6 @@ var whitelist = [
    platforms: ["linux"]},
   // Bug 1348559
   {file: "chrome://pippki/content/resetpassword.xul"},
-  // Bug 1351078
-  {file: "resource://gre/modules/Battery.jsm"},
   // Bug 1337345
   {file: "resource://gre/modules/Manifest.jsm"},
   // Bug 1351097

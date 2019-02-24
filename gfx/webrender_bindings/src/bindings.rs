@@ -1399,6 +1399,7 @@ pub extern "C" fn wr_transaction_update_dynamic_properties(
     if transform_count > 0 {
         let transform_slice = make_slice(transform_array, transform_count);
 
+        properties.transforms.reserve(transform_slice.len());
         for element in transform_slice.iter() {
             let prop = PropertyValue {
                 key: PropertyBindingKey::new(element.id),
@@ -1412,6 +1413,7 @@ pub extern "C" fn wr_transaction_update_dynamic_properties(
     if opacity_count > 0 {
         let opacity_slice = make_slice(opacity_array, opacity_count);
 
+        properties.floats.reserve(opacity_slice.len());
         for element in opacity_slice.iter() {
             let prop = PropertyValue {
                 key: PropertyBindingKey::new(element.id),
@@ -1440,7 +1442,7 @@ pub extern "C" fn wr_transaction_append_transform_properties(
     };
 
     let transform_slice = make_slice(transform_array, transform_count);
-
+    properties.transforms.reserve(transform_slice.len());
     for element in transform_slice.iter() {
         let prop = PropertyValue {
             key: PropertyBindingKey::new(element.id),
@@ -2170,7 +2172,8 @@ pub extern "C" fn wr_dp_define_scroll_layer(state: &mut WrState,
                                             external_scroll_id: u64,
                                             parent: &WrSpaceAndClip,
                                             content_rect: LayoutRect,
-                                            clip_rect: LayoutRect)
+                                            clip_rect: LayoutRect,
+                                            scroll_offset: LayoutPoint)
                                             -> WrSpaceAndClip {
     assert!(unsafe { is_in_main_thread() });
 
@@ -2181,7 +2184,8 @@ pub extern "C" fn wr_dp_define_scroll_layer(state: &mut WrState,
         clip_rect,
         vec![],
         None,
-        ScrollSensitivity::Script
+        ScrollSensitivity::Script,
+        scroll_offset,
     );
 
     WrSpaceAndClip::from_webrender(space_and_clip)

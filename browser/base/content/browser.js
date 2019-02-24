@@ -3105,7 +3105,7 @@ var BrowserOnClick = {
   },
 
   ignoreWarningLink(reason, blockedInfo) {
-    let triggeringPrincipal = E10SUtils.deserializePrincipal(blockedInfo.triggeringPrincipal) || _createNullPrincipalFromTabUserContextId();
+    let triggeringPrincipal = E10SUtils.deserializePrincipal(blockedInfo.triggeringPrincipal, _createNullPrincipalFromTabUserContextId());
     // Allow users to override and continue through to the site,
     // but add a notify bar as a reminder, so that they don't lose
     // track after, e.g., tab switching.
@@ -4947,6 +4947,7 @@ var XULBrowserWindow = {
     }
 
     ContentBlocking.onContentBlockingEvent(this._event, aWebProgress, aIsSimulated);
+    gBrowser.selectedBrowser.updateSecurityUIForContentBlockingEvent(aEvent);
   },
 
   // This is called in multiple ways:

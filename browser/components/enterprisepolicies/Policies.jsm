@@ -485,7 +485,7 @@ var Policies = {
 
   "DontCheckDefaultBrowser": {
     onBeforeUIStartup(manager, param) {
-      setAndLockPref("browser.shell.checkDefaultBrowser", false);
+      setAndLockPref("browser.shell.checkDefaultBrowser", !param);
     },
   },
 
@@ -856,6 +856,7 @@ var Policies = {
                 alias:       newEngine.Alias,
                 description: newEngine.Description,
                 method:      newEngine.Method,
+                postData:    newEngine.PostData,
                 suggestURL:  newEngine.SuggestURLTemplate,
                 extensionID: "set-via-policy",
                 queryCharset: "UTF-8",

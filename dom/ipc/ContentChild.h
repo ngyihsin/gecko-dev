@@ -428,6 +428,8 @@ class ContentChild final : public PContentChild,
   mozilla::ipc::IPCResult RecvInitJSWindowActorInfos(
       nsTArray<JSWindowActorInfo>&& aInfos);
 
+  mozilla::ipc::IPCResult RecvUnregisterJSWindowActor(const nsString& aName);
+
   mozilla::ipc::IPCResult RecvLastPrivateDocShellDestroyed();
 
   mozilla::ipc::IPCResult RecvNotifyProcessPriorityChanged(
@@ -722,6 +724,9 @@ class ContentChild final : public PContentChild,
   mozilla::ipc::IPCResult RecvWindowPostMessage(
       BrowsingContext* aContext, const ClonedMessageData& aMessage,
       const PostMessageData& aData);
+
+  mozilla::ipc::IPCResult RecvCommitBrowsingContextTransaction(
+      BrowsingContext* aContext, BrowsingContext::Transaction&& aTransaction);
 
 #ifdef NIGHTLY_BUILD
   virtual PContentChild::Result OnMessageReceived(const Message& aMsg) override;

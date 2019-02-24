@@ -50,10 +50,6 @@ pref("devtools.inspector.showUserAgentStyles", false);
 pref("devtools.inspector.showAllAnonymousContent", false);
 // Show user agent shadow roots
 pref("devtools.inspector.showUserAgentShadowRoots", false);
-// Enable the font highlight-on-hover feature
-pref("devtools.inspector.fonthighlighter.enabled", true);
-// Enable tracking of style changes and the Changes panel in the Inspector
-pref("devtools.inspector.changes.enabled", true);
 // Enable the new Rules View
 pref("devtools.inspector.new-rulesview.enabled", false);
 
@@ -139,11 +135,11 @@ pref("devtools.performance.ui.experimental", false);
 #endif
 
 // Preferences for the new performance panel
-// This pref configures the base URL for the perf.html instance to use. This is
-// useful so that a developer can change it while working on perf.html, or in
+// This pref configures the base URL for the profiler.firefox.com instance to use. This is
+// useful so that a developer can change it while working on profiler.firefox.com, or in
 // tests.
 // This isn't exposed directly to the user.
-pref("devtools.performance.recording.ui-base-url", "https://perf-html.io");
+pref("devtools.performance.recording.ui-base-url", "https://profiler.firefox.com");
 
 // A JSON array of strings, where each string is a file path to an objdir on
 // the host machine. This is used in order to look up symbol information from
