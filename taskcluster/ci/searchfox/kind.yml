@@ -48,6 +48,7 @@ jobs:
             keep-artifacts: false
         toolchains:
             - linux64-clang
+            - linux64-nasm
             - linux64-node
             - linux64-rust
             - linux64-cbindgen
@@ -83,6 +84,7 @@ jobs:
             - linux64-hfsplus
             - linux64-libdmg
             - linux64-llvm-dsymutil
+            - linux64-nasm
             - linux64-node
             - linux64-rust-macos
             - linux64-cbindgen
@@ -104,6 +106,7 @@ jobs:
                 MOZSEARCH_PLATFORM: "windows"
         run:
             using: mozharness
+            actions: [build]
             use-caches: false
             options: [append-env-variables-from-configs]
             script: mozharness/scripts/fx_desktop_build.py
@@ -153,4 +156,5 @@ jobs:
             - linux64-rust-size
             - linux64-cbindgen
             - linux64-sccache
+            - linux64-nasm
             - linux64-node

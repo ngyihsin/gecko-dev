@@ -442,6 +442,7 @@ android-api-16-nightly/opt:
         - linux64-rust-android
         - linux64-rust-size
         - linux64-cbindgen
+        - linux64-nasm
         - linux64-node
 
 android-aarch64/opt:

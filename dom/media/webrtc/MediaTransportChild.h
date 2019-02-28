@@ -31,7 +31,7 @@ class MediaTransportChild : public dom::PMediaTransportChild {
 
  private:
   RefPtr<MediaTransportHandlerIPC> mUser;
-#endif //MOZ_WEBRTC
+#endif  // MOZ_WEBRTC
 };
 
 }  // namespace mozilla

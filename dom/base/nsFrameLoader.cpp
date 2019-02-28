@@ -396,6 +396,13 @@ nsresult nsFrameLoader::ReallyStartLoadingInternal() {
     loadState->SetTriggeringPrincipal(mOwnerContent->NodePrincipal());
   }
 
+  // Currently we query the CSP from the principal, but after
+  // Bug 1529877 we should query the CSP from within GetURL and
+  // store it as a member, similar to mTriggeringPrincipal.
+  nsCOMPtr<nsIContentSecurityPolicy> csp;
+  loadState->TriggeringPrincipal()->GetCsp(getter_AddRefs(csp));
+  loadState->SetCsp(csp);
+
   nsCOMPtr<nsIURI> referrer;
 
   nsAutoString srcdoc;
@@ -2389,9 +2396,8 @@ static Tuple<ContentParent*, TabParent*> GetContentParent(Element* aBrowser) {
   }
 
   TabParent* tabParent = TabParent::GetFrom(otherLoader);
-  if (tabParent && tabParent->Manager() &&
-      tabParent->Manager()->IsContentParent()) {
-    return MakeTuple(tabParent->Manager()->AsContentParent(), tabParent);
+  if (tabParent && tabParent->Manager()) {
+    return MakeTuple(tabParent->Manager(), tabParent);
   }
 
   return ReturnTuple(nullptr, nullptr);
@@ -2435,9 +2441,8 @@ bool nsFrameLoader::TryRemoteBrowser() {
   RefPtr<ContentParent> openerContentParent;
   RefPtr<TabParent> sameTabGroupAs;
 
-  if (openingTab && openingTab->Manager() &&
-      openingTab->Manager()->IsContentParent()) {
-    openerContentParent = openingTab->Manager()->AsContentParent();
+  if (openingTab && openingTab->Manager()) {
+    openerContentParent = openingTab->Manager();
   }
 
   // <iframe mozbrowser> gets to skip these checks.
@@ -2723,7 +2728,7 @@ nsresult nsFrameLoader::DoSendAsyncMessage(JSContext* aCx,
   TabParent* tabParent = mRemoteBrowser;
   if (tabParent) {
     ClonedMessageData data;
-    nsIContentParent* cp = tabParent->Manager();
+    ContentParent* cp = tabParent->Manager();
     if (!BuildClonedMessageDataForParent(cp, aData, data)) {
       MOZ_CRASH();
       return NS_ERROR_DOM_DATA_CLONE_ERR;
@@ -2962,7 +2967,7 @@ void nsFrameLoader::Print(uint64_t aOuterWindowID,
 #if defined(NS_PRINTING)
   if (mRemoteBrowser) {
     RefPtr<embedding::PrintingParent> printingParent =
-        mRemoteBrowser->Manager()->AsContentParent()->GetPrintingParent();
+        mRemoteBrowser->Manager()->GetPrintingParent();
 
     embedding::PrintData printData;
     nsresult rv = printingParent->SerializeAndEnsureRemotePrintJob(

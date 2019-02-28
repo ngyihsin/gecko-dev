@@ -818,6 +818,14 @@ class UrlbarInput {
       Cu.reportError(ex);
     }
 
+    // Reset DOS mitigations for the basic auth prompt.
+    // TODO: When bug 1498553 is resolved, we should be able to
+    // remove the !triggeringPrincipal condition here.
+    if (!params.triggeringPrincipal ||
+        params.triggeringPrincipal.isSystemPrincipal) {
+      delete browser.canceledAuthenticationPromptCounter;
+    }
+
     params.allowThirdPartyFixup = true;
 
     if (openUILinkWhere == "current") {
@@ -1099,7 +1107,7 @@ class UrlbarInput {
   }
 
   _on_TabSelect(event) {
-    this.controller.tabContextChanged();
+    this.controller.viewContextChanged();
   }
 
   _on_keydown(event) {

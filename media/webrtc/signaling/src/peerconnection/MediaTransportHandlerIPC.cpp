@@ -12,7 +12,7 @@ namespace mozilla {
 
 static const char* mthipcLogTag = "MediaTransportHandler";
 #ifdef LOGTAG
-#undef LOGTAG
+#  undef LOGTAG
 #endif
 #define LOGTAG mthipcLogTag
 

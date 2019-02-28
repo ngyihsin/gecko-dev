@@ -1422,10 +1422,6 @@ pref("privacy.popups.maxReported", 100);
 
 // send "do not track" HTTP header, disabled by default
 pref("privacy.donottrackheader.enabled",    false);
-// If true, close button will be shown on permission prompts
-// and for all PopupNotifications, the secondary action of
-// the popup will be called when the popup is dismissed.
-pref("privacy.permissionPrompts.showCloseButton", false);
 // Enforce tracking protection in all modes
 pref("privacy.trackingprotection.enabled",  false);
 // Enforce tracking protection in Private Browsing mode
@@ -1771,10 +1767,21 @@ pref("network.http.sendRefererHeader",      2);
 // 0=no-referrer, 1=same-origin, 2=strict-origin-when-cross-origin,
 // 3=no-referrer-when-downgrade
 pref("network.http.referer.defaultPolicy", 3);
+// Set the default Referrer Policy applied to third-party trackers when the
+// default cookie policy is set to reject third-party trackers;
+// to be used unless overriden by the site;
+// values are identical to defaultPolicy above
+pref("network.http.referer.defaultPolicy.trackers", 3);
 // Set the Private Browsing Default Referrer Policy;
 // to be used unless overriden by the site;
 // values are identical to defaultPolicy above
 pref("network.http.referer.defaultPolicy.pbmode", 2);
+// Set the Private Browsing Default Referrer Policy applied to third-party
+// trackers when the default cookie policy is set to reject third-party
+// trackers;
+// to be used unless overriden by the site;
+// values are identical to defaultPolicy above
+pref("network.http.referer.defaultPolicy.trackers.pbmode", 2);
 // false=real referer, true=spoof referer (use target URI as referer)
 pref("network.http.referer.spoofSource", false);
 // false=allow onion referer, true=hide onion referer (use empty referer)
@@ -3411,6 +3418,10 @@ pref("browser.tabs.remote.allowLinkedWebInFileUriProcess", true);
 // Pref to control whether we use separate privileged content processes.
 pref("browser.tabs.remote.separatePrivilegedContentProcess", false);
 
+// When this pref is enabled top level loads with a mismatched
+// Cross-Origin-Opener-Policy header will be loaded in a separate process.
+pref("browser.tabs.remote.useCrossOriginOpenerPolicy", false);
+
 // Enable the use of display-lists for SVG hit-testing and painting.
 pref("svg.display-lists.hit-testing.enabled", true);
 pref("svg.display-lists.painting.enabled", true);
@@ -4677,6 +4688,7 @@ pref("signon.recipes.path",                 "chrome://passwordmgr/content/recipe
 pref("signon.schemeUpgrades",               false);
 // This temporarily prevents the master password to reprompt for autocomplete.
 pref("signon.masterPasswordReprompt.timeout_ms", 900000); // 15 Minutes
+pref("signon.showAutoCompleteFooter", false);
 
 // Satchel (Form Manager) prefs
 pref("browser.formfill.debug",            false);
@@ -6010,7 +6022,3 @@ pref("prio.enabled", false);
 // External.AddSearchProvider is deprecated and it will be removed in the next
 // cycles.
 pref("dom.sidebar.enabled", true);
-
-#if defined(MOZ_WIDGET_GTK)
-pref("widget.default-hidden-titlebar", true);
-#endif

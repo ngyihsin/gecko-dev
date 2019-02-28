@@ -328,7 +328,6 @@ PeerConnectionImpl::PeerConnectionImpl(const GlobalObject* aGlobal)
     mWindow = do_QueryInterface(aGlobal->GetAsSupports());
     if (IsPrivateBrowsing(mWindow)) {
       mPrivateWindow = true;
-      mTransportHandler->EnterPrivateMode();
     }
     mWindow->AddPeerConnection();
     mActiveOnWindow = true;
@@ -359,7 +358,7 @@ PeerConnectionImpl::~PeerConnectionImpl() {
     mActiveOnWindow = false;
   }
 
-  if (mPrivateWindow) {
+  if (mPrivateWindow && mTransportHandler) {
     mTransportHandler->ExitPrivateMode();
   }
   if (PeerConnectionCtx::isActive()) {
@@ -406,6 +405,9 @@ nsresult PeerConnectionImpl::Initialize(PeerConnectionObserver& aObserver,
   // We do callback handling on STS instead of main to avoid media jank.
   // Someday, we may have a dedicated thread for this.
   mTransportHandler = MediaTransportHandler::Create(mSTSThread);
+  if (mPrivateWindow) {
+    mTransportHandler->EnterPrivateMode();
+  }
 
   // Initialize NSS if we are in content process. For chrome process, NSS should
   // already been initialized.

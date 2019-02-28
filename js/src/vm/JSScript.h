@@ -610,6 +610,17 @@ class ScriptSource {
   // our syntax parse vs. full parse heuristics are correct.
   mozilla::TimeStamp parseEnded_;
 
+  // An id for this source that is unique across the process. This can be used
+  // to refer to this source from places that don't want to hold a strong
+  // reference on the source itself.
+  //
+  // This is a 32 bit ID and could overflow, in which case the ID will not be
+  // unique anymore.
+  uint32_t id_;
+
+  // How many ids have been handed out to sources.
+  static mozilla::Atomic<uint32_t> idCount_;
+
   // True if we can call JSRuntime::sourceHook to load the source on
   // demand. If sourceRetrievable_ and hasSourceText() are false, it is not
   // possible to get source at all.
@@ -654,6 +665,7 @@ class ScriptSource {
         introducerFilename_(nullptr),
         introductionType_(nullptr),
         xdrEncoder_(nullptr),
+        id_(++idCount_),
         sourceRetrievable_(false),
         hasIntroductionOffset_(false),
         containsAsmJS_(false) {}
@@ -1034,6 +1046,8 @@ class ScriptSource {
     return introductionType_;
   }
   const char* filename() const { return filename_.get(); }
+
+  uint32_t id() const { return id_; }
 
   // Display URLs
   MOZ_MUST_USE bool setDisplayURL(JSContext* cx, const char16_t* displayURL);
@@ -2959,12 +2973,14 @@ class LazyScript : public gc::TenuredCell {
     uint32_t hasDebuggerStatement : 1;
     uint32_t hasDirectEval : 1;
     uint32_t isLikelyConstructorWrapper : 1;
-    uint32_t hasBeenCloned : 1;
     uint32_t treatAsRunOnce : 1;
     uint32_t isDerivedClassConstructor : 1;
     uint32_t needsHomeObject : 1;
     uint32_t hasRest : 1;
     uint32_t parseGoal : 1;
+
+    // Runtime flags
+    uint32_t hasBeenCloned : 1;
   };
 
   union {
@@ -3029,8 +3045,6 @@ class LazyScript : public gc::TenuredCell {
                                   uint64_t packedData, uint32_t begin,
                                   uint32_t end, uint32_t toStringStart,
                                   uint32_t lineno, uint32_t column);
-
-  void initRuntimeFields(uint64_t packedFields);
 
   static inline JSFunction* functionDelazifying(JSContext* cx,
                                                 Handle<LazyScript*>);
@@ -3204,7 +3218,7 @@ class LazyScript : public gc::TenuredCell {
     return mallocSizeOf(table_);
   }
 
-  uint64_t packedFields() const { return packedFields_; }
+  uint64_t packedFieldsForXDR() const;
 };
 
 /* If this fails, add/remove padding within LazyScript. */

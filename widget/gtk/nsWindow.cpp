@@ -675,6 +675,12 @@ void nsWindow::Destroy() {
     gFocusWindow = nullptr;
   }
 
+#ifdef MOZ_WAYLAND
+  if (mContainer) {
+    moz_container_set_initial_draw_callback(mContainer, nullptr);
+  }
+#endif
+
   GtkWidget *owningWidget = GetMozContainerWidget();
   if (mShell) {
     gtk_widget_destroy(mShell);
@@ -1860,6 +1866,23 @@ static bool ExtractExposeRegion(LayoutDeviceIntRegion &aRegion, cairo_t *cr) {
   return true;
 }
 
+#ifdef MOZ_WAYLAND
+void nsWindow::WaylandEGLSurfaceForceRedraw() {
+  MOZ_RELEASE_ASSERT(NS_IsMainThread());
+
+  if (mIsDestroyed) {
+    return;
+  }
+
+  if (CompositorBridgeChild* remoteRenderer = GetRemoteRenderer()) {
+    if (mCompositorWidgetDelegate) {
+      mCompositorWidgetDelegate->RequestsUpdatingEGLSurface();
+    }
+    remoteRenderer->SendForcePresent();
+  }
+}
+#endif
+
 gboolean nsWindow::OnExposeEvent(cairo_t *cr) {
   // Send any pending resize events so that layout can update.
   // May run event loop.
@@ -1888,11 +1911,6 @@ gboolean nsWindow::OnExposeEvent(cairo_t *cr) {
   region.ScaleRoundOut(scale, scale);
 
   if (GetLayerManager()->AsKnowsCompositor() && mCompositorSession) {
-#ifdef MOZ_WAYLAND
-    if (mCompositorWidgetDelegate && WaylandRequestsUpdatingEGLSurface()) {
-      mCompositorWidgetDelegate->RequestsUpdatingEGLSurface();
-    }
-#endif
     // We need to paint to the screen even if nothing changed, since if we
     // don't have a compositing window manager, our pixels could be stale.
     GetLayerManager()->SetNeedsComposite(true);
@@ -3309,7 +3327,9 @@ nsresult nsWindow::Create(nsIWidget *aParent, nsNativeWidget aNativeParent,
             } else {
               // We want to draw a transparent titlebar but we can't use
               // ARGB visual due to Bug 1516224.
-              mTransparencyBitmapForTitlebar = true;
+              // If we're on Mutter/X.org (Bug 1530252) just give up
+              // and don't render transparent corners at all.
+              mTransparencyBitmapForTitlebar = TitlebarCanUseShapeMask();
             }
           }
         }
@@ -3454,6 +3474,15 @@ nsresult nsWindow::Create(nsIWidget *aParent, nsNativeWidget aNativeParent,
       // Create a container to hold child windows and child GtkWidgets.
       GtkWidget *container = moz_container_new();
       mContainer = MOZ_CONTAINER(container);
+#ifdef MOZ_WAYLAND
+      if (!mIsX11Display && ComputeShouldAccelerate()) {
+        RefPtr<nsWindow> self(this);
+        moz_container_set_initial_draw_callback(mContainer,
+            [self]() -> void {
+              self->WaylandEGLSurfaceForceRedraw();
+            });
+      }
+#endif
 
       // "csd" style is set when widget is realized so we need to call
       // it explicitly now.
@@ -6446,7 +6475,7 @@ nsWindow::CSDSupportLevel nsWindow::GetSystemCSDSupportLevel() {
   if (currentDesktop) {
     // GNOME Flashback (fallback)
     if (strstr(currentDesktop, "GNOME-Flashback:GNOME") != nullptr) {
-      sCSDSupportLevel = CSD_SUPPORT_CLIENT;
+      sCSDSupportLevel = CSD_SUPPORT_SYSTEM;
       // gnome-shell
     } else if (strstr(currentDesktop, "GNOME") != nullptr) {
       sCSDSupportLevel = CSD_SUPPORT_SYSTEM;
@@ -6503,14 +6532,41 @@ nsWindow::CSDSupportLevel nsWindow::GetSystemCSDSupportLevel() {
   return sCSDSupportLevel;
 }
 
+// Check for Mutter regression on X.org (Bug 1530252). In that case we
+// don't hide system titlebar by default as we can't draw transparent
+// corners reliably.
+bool nsWindow::TitlebarCanUseShapeMask()
+{
+  static int canUseShapeMask = -1;
+  if (canUseShapeMask != -1) {
+    return canUseShapeMask;
+  }
+  canUseShapeMask = true;
+
+  const char *currentDesktop = getenv("XDG_CURRENT_DESKTOP");
+  if (!currentDesktop) {
+    return canUseShapeMask;
+  }
+
+  if (strstr(currentDesktop, "GNOME-Flashback:GNOME") != nullptr ||
+      strstr(currentDesktop, "GNOME") != nullptr) {
+    const char *sessionType = getenv("XDG_SESSION_TYPE");
+    canUseShapeMask = (sessionType && strstr(sessionType, "x11") == nullptr);
+  }
+
+  return canUseShapeMask;
+}
+
 bool nsWindow::HideTitlebarByDefault() {
   static int hideTitlebar = -1;
   if (hideTitlebar != -1) {
     return hideTitlebar;
   }
 
-  if (!Preferences::GetBool("widget.default-hidden-titlebar", false)) {
-    hideTitlebar = false;
+  // When user defined widget.default-hidden-titlebar don't do any
+  // heuristics and just follow it.
+  if (Preferences::HasUserValue("widget.default-hidden-titlebar")) {
+    hideTitlebar = Preferences::GetBool("widget.default-hidden-titlebar", false);
     return hideTitlebar;
   }
 
@@ -6518,10 +6574,17 @@ bool nsWindow::HideTitlebarByDefault() {
   hideTitlebar =
       (currentDesktop && GetSystemCSDSupportLevel() != CSD_SUPPORT_NONE);
 
+  // Disable system titlebar for Gnome only for now. It uses window
+  // manager decorations and does not suffer from CSD Bugs #1525850, #1527837.
   if (hideTitlebar) {
     hideTitlebar =
         (strstr(currentDesktop, "GNOME-Flashback:GNOME") != nullptr ||
          strstr(currentDesktop, "GNOME") != nullptr);
+  }
+
+  // We use shape mask to render the titlebar by default so check for it.
+  if (hideTitlebar) {
+    hideTitlebar = TitlebarCanUseShapeMask();
   }
 
   return hideTitlebar;
@@ -6564,17 +6627,6 @@ bool nsWindow::WaylandSurfaceNeedsClear() {
       "nsWindow::WaylandSurfaceNeedsClear(): We don't have any mContainer!");
   return false;
 }
-
-bool nsWindow::WaylandRequestsUpdatingEGLSurface() {
-  if (mContainer) {
-    return moz_container_egl_surface_needs_update(MOZ_CONTAINER(mContainer));
-  }
-
-  NS_WARNING(
-      "nsWindow::WaylandSurfaceNeedsClear(): We don't have any mContainer!");
-  return false;
-}
-
 #endif
 
 #ifdef MOZ_X11

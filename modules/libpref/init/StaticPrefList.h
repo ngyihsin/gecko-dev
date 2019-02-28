@@ -319,6 +319,12 @@ VARCACHE_PREF(
 )
 
 VARCACHE_PREF(
+  "dom.webnotifications.allowinsecure",
+   dom_webnotifications_allowinsecure,
+  RelaxedAtomicBool, false
+)
+
+VARCACHE_PREF(
   "dom.webnotifications.serviceworker.enabled",
    dom_webnotifications_serviceworker_enabled,
   RelaxedAtomicBool, true
@@ -512,16 +518,6 @@ VARCACHE_PREF(
   "dom.storage_access.enabled",
    dom_storage_access_enabled,
   bool, false
-)
-
-//---------------------------------------------------------------------------
-// Clear-Site-Data prefs
-//---------------------------------------------------------------------------
-
-VARCACHE_PREF(
-  "dom.clearSiteData.enabled",
-   dom_clearSiteData_enabled,
-  bool, true
 )
 
 //---------------------------------------------------------------------------
@@ -1949,6 +1945,13 @@ VARCACHE_PREF(
   "privacy.userInteraction.document.interval",
    privacy_userInteraction_document_interval,
   uint32_t, 1800 // 30 minutes (in seconds)
+)
+
+// Maximum client-side cookie life-time cap
+VARCACHE_PREF(
+  "privacy.documentCookies.maxage",
+   privacy_documentCookies_maxage,
+  uint32_t, 0 // Disabled (in seconds, set to 0 to disable)
 )
 
 // Anti-fingerprinting, disabled by default
