@@ -108,7 +108,7 @@ void JitRuntime::generateEnterJIT(JSContext* cx, MacroAssembler& masm) {
   // under demand inside the touchFrameValues call.
 
   // Give sp 16-byte alignment and sync stack pointers.
-  masm.andToStackPtr(Imm32(~0xff));
+  masm.andToStackPtr(Imm32(~0xf));
   // We needn't worry about the Gecko Profiler mark because touchFrameValues
   // touches in large increments.
   masm.touchFrameValues(reg_argc, r20, r21);
@@ -138,7 +138,7 @@ void JitRuntime::generateEnterJIT(JSContext* cx, MacroAssembler& masm) {
              Operand(tmp_argc, vixl::SXTX, 3));
 
     // Give sp 16-byte alignment and sync stack pointers.
-    masm.andToStackPtr(Imm32(~0xff));
+    masm.andToStackPtr(Imm32(~0xf));
     masm.moveStackPtrTo(tmp_sp.asUnsized());
 
     masm.branchTestPtr(Assembler::Zero, reg_argc, reg_argc, &noArguments);
@@ -533,10 +533,11 @@ void JitRuntime::generateBailoutHandler(MacroAssembler& masm,
 }
 
 bool JitRuntime::generateVMWrapper(JSContext* cx, MacroAssembler& masm,
-                                   const VMFunction& f) {
+                                   const VMFunctionData& f,
+                                   uint32_t* wrapperOffset) {
   MOZ_ASSERT(functionWrappers_);
 
-  uint32_t wrapperOffset = startTrampolineCode(masm);
+  *wrapperOffset = startTrampolineCode(masm);
 
   // Avoid conflicts with argument registers while discarding the result after
   // the function call.
@@ -733,7 +734,7 @@ bool JitRuntime::generateVMWrapper(JSContext* cx, MacroAssembler& masm,
                   f.explicitStackSlots() * sizeof(void*) +
                   f.extraValuesToPop * sizeof(Value)));
 
-  return functionWrappers_->putNew(&f, wrapperOffset);
+  return true;
 }
 
 uint32_t JitRuntime::generatePreBarrier(JSContext* cx, MacroAssembler& masm,
@@ -835,8 +836,7 @@ JitCode* JitRuntime::generateDebugTrapHandler(JSContext* cx) {
   masm.syncStackPtr();
   masm.abiret();
 
-  Linker linker(masm);
-  AutoFlushICache afc("DebugTrapHandler");
+  Linker linker(masm, "DebugTrapHandler");
   JitCode* codeDbg = linker.newCode(cx, CodeKind::Other);
 
 #ifdef JS_ION_PERF

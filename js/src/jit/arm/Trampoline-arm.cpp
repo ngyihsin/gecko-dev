@@ -704,10 +704,11 @@ void JitRuntime::generateBailoutHandler(MacroAssembler& masm,
 }
 
 bool JitRuntime::generateVMWrapper(JSContext* cx, MacroAssembler& masm,
-                                   const VMFunction& f) {
+                                   const VMFunctionData& f,
+                                   uint32_t* wrapperOffset) {
   MOZ_ASSERT(functionWrappers_);
 
-  uint32_t wrapperOffset = startTrampolineCode(masm);
+  *wrapperOffset = startTrampolineCode(masm);
 
   AllocatableGeneralRegisterSet regs(Register::Codes::WrapperMask);
 
@@ -893,7 +894,7 @@ bool JitRuntime::generateVMWrapper(JSContext* cx, MacroAssembler& masm,
                   f.explicitStackSlots() * sizeof(void*) +
                   f.extraValuesToPop * sizeof(Value)));
 
-  return functionWrappers_->putNew(&f, wrapperOffset);
+  return true;
 }
 
 uint32_t JitRuntime::generatePreBarrier(JSContext* cx, MacroAssembler& masm,
@@ -1003,8 +1004,7 @@ JitCode* JitRuntime::generateDebugTrapHandler(JSContext* cx) {
 
   masm.ret();
 
-  Linker linker(masm);
-  AutoFlushICache afc("DebugTrapHandler");
+  Linker linker(masm, "DebugTrapHandler");
   JitCode* codeDbg = linker.newCode(cx, CodeKind::Other);
 
 #ifdef JS_ION_PERF

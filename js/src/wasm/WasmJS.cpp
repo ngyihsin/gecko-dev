@@ -2084,7 +2084,9 @@ bool WasmTableObject::isNewborn() const {
   }
 
   TableKind tableKind;
-  if (StringEqualsAscii(elementLinearStr, "anyfunc")) {
+  if (StringEqualsAscii(elementLinearStr, "anyfunc") ||
+      StringEqualsAscii(elementLinearStr, "funcref"))
+  {
     tableKind = TableKind::AnyFunction;
 #ifdef ENABLE_WASM_GENERALIZED_TABLES
   } else if (StringEqualsAscii(elementLinearStr, "anyref")) {
@@ -2461,7 +2463,7 @@ const Class WasmGlobalObject::class_ = {
   }
 
   MOZ_ASSERT(obj->isNewborn());
-  MOZ_ASSERT(obj->isTenured(), "assumed by set_global post barriers");
+  MOZ_ASSERT(obj->isTenured(), "assumed by global.set post barriers");
 
   // It's simpler to initialize the cell after the object has been created,
   // to avoid needing to root the cell before the object creation.
@@ -3568,14 +3570,14 @@ static bool ResolveResponse(JSContext* cx, CallArgs callArgs,
 
   RootedFunction onResolved(
       cx, NewNativeFunction(cx, ResolveResponse_OnFulfilled, 1, nullptr,
-                            gc::AllocKind::FUNCTION_EXTENDED));
+                            gc::AllocKind::FUNCTION_EXTENDED, GenericObject));
   if (!onResolved) {
     return false;
   }
 
   RootedFunction onRejected(
       cx, NewNativeFunction(cx, ResolveResponse_OnRejected, 1, nullptr,
-                            gc::AllocKind::FUNCTION_EXTENDED));
+                            gc::AllocKind::FUNCTION_EXTENDED, GenericObject));
   if (!onRejected) {
     return false;
   }

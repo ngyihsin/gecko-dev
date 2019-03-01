@@ -262,13 +262,13 @@ loadListener.prototype = {
   ]),
 
   // nsIRequestObserver
-  onStartRequest: function SRCH_loadStartR(aRequest, aContext) {
+  onStartRequest: function SRCH_loadStartR(aRequest) {
     LOG("loadListener: Starting request: " + aRequest.name);
     this._stream = Cc["@mozilla.org/binaryinputstream;1"].
                    createInstance(Ci.nsIBinaryInputStream);
   },
 
-  onStopRequest: function SRCH_loadStopR(aRequest, aContext, aStatusCode) {
+  onStopRequest: function SRCH_loadStopR(aRequest, aStatusCode) {
     LOG("loadListener: Stopping request: " + aRequest.name);
 
     var requestFailed = !Components.isSuccessCode(aStatusCode);
@@ -286,7 +286,7 @@ loadListener.prototype = {
   },
 
   // nsIStreamListener
-  onDataAvailable: function SRCH_loadDAvailable(aRequest, aContext,
+  onDataAvailable: function SRCH_loadDAvailable(aRequest,
                                                 aInputStream, aOffset,
                                                 aCount) {
     this._stream.setInputStream(aInputStream);
@@ -1085,8 +1085,9 @@ EngineURL.prototype = {
           this.addParam(param.name, value);
         }
         this._addMozParam(param);
-      } else
+      } else {
         this.addParam(param.name, param.value, param.purpose || undefined);
+      }
     }
   },
 
@@ -1148,9 +1149,10 @@ function Engine(aLocation, aIsReadOnly) {
         ERROR("Invalid URI passed to the nsISearchEngine constructor",
               Cr.NS_ERROR_INVALID_ARG);
     }
-  } else
+  } else {
     ERROR("Engine location is neither a File nor a URI object",
           Cr.NS_ERROR_INVALID_ARG);
+  }
 
   if (!this._shortName) {
     // If we don't have a shortName at this point, it's the first time we load
@@ -3999,13 +4001,13 @@ SearchService.prototype = {
       result.loadPath = engine._loadPath;
 
       let origin;
-      if (engine._isDefault)
+      if (engine._isDefault) {
         origin = "default";
-      else {
+      } else {
         let currentHash = engine.getAttr("loadPathHash");
-        if (!currentHash)
+        if (!currentHash) {
           origin = "unverified";
-        else {
+        } else {
           let loadPathHash = getVerificationHash(engine._loadPath);
           origin = currentHash == loadPathHash ? "verified" : "invalid";
         }
@@ -4480,8 +4482,9 @@ var engineUpdateService = {
       testEngine = new Engine(updateURI, false);
       testEngine._engineToUpdate = engine;
       testEngine._initFromURIAndLoad(updateURI);
-    } else
+    } else {
       ULOG("invalid updateURI");
+    }
 
     if (engine._iconUpdateURL) {
       // If we're updating the engine too, use the new engine object,
