@@ -301,10 +301,8 @@ static SensorObserverList* GetSensorObservers(SensorType sensor_type) {
   StaticAutoPtr<name_##ObserversManager> s##name_##Observers;    \
                                                                  \
   static name_##ObserversManager* name_##Observers() {           \
-    AssertMainThread();                                          \
                                                                  \
     if (!s##name_##Observers) {                                  \
-      MOZ_ASSERT(sInitialized);                                  \
       s##name_##Observers = new name_##ObserversManager();       \
     }                                                            \
                                                                  \
@@ -312,12 +310,10 @@ static SensorObserverList* GetSensorObservers(SensorType sensor_type) {
   }                                                              \
                                                                  \
   void Register##name_##Observer(name_##Observer* aObserver) {   \
-    AssertMainThread();                                          \
     name_##Observers()->AddObserver(aObserver);                  \
   }                                                              \
                                                                  \
   void Unregister##name_##Observer(name_##Observer* aObserver) { \
-    AssertMainThread();                                          \
     name_##Observers()->RemoveObserver(aObserver);               \
   }
 
