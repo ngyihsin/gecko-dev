@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef nsScreenManagerGonk_h___
-#define nsScreenManagerGonk_h___
+#ifndef ScreenHelperGonk_h___
+#define ScreenHelperGonk_h___
 
 #include "base/task.h" // NewRunnableFunction
 #include "cutils/properties.h"
@@ -31,6 +31,7 @@
 #include "nsProxyRelease.h"
 #include "mozilla/layers/CompositorVsyncScheduler.h"
 #include "mozilla/layers/CompositorThread.h"
+#include "mozilla/widget/ScreenManager.h"
 #include <android/native_window.h>
 
 class nsWindow;
@@ -65,7 +66,7 @@ class nsScreenGonk : public nsBaseScreen
 
 public:
     nsScreenGonk(uint32_t aId,
-                 GonkDisplay::DisplayType aDisplayType,
+                 DisplayType aDisplayType,
                  const GonkDisplay::NativeData& aNativeData,
                  NotifyDisplayChangedEvent aEventVisibility);
 
@@ -102,7 +103,7 @@ public:
 #endif
     bool IsComposer2DSupported();
     bool IsVsyncSupported();
-    GonkDisplay::DisplayType GetDisplayType();
+    DisplayType GetDisplayType();
 
     void RegisterWindow(nsWindow* aWindow);
     void UnregisterWindow(nsWindow* aWindow);
@@ -159,7 +160,7 @@ protected:
     mozilla::Atomic<CompositorBridgeParent*> mCompositorBridgeParent;
 
     // Accessed and updated only on compositor thread
-    GonkDisplay::DisplayType mDisplayType;
+    DisplayType mDisplayType;
     hwc_display_t mEGLDisplay;
     hwc_surface_t mEGLSurface;
     RefPtr<mozilla::gl::GLContext> mGLContext;
@@ -186,43 +187,45 @@ protected:
     RefPtr<DrawTarget> mBackBuffer;
 };
 
-class nsScreenManagerGonk final : public nsIScreenManager
-{
-public:
-    typedef mozilla::GonkDisplay GonkDisplay;
+namespace mozilla {
+namespace widget {
 
-public:
-    nsScreenManagerGonk();
+class ScreenHelperGonk final : public ScreenManager::Helper {
+ public:
+  ScreenHelperGonk();
+  ~ScreenHelperGonk();
 
-    NS_DECL_ISUPPORTS
-    NS_DECL_NSISCREENMANAGER
+  static ScreenHelperGonk* GetSingleton();
 
-    static uint32_t GetIdFromType(GonkDisplay::DisplayType aDisplayType);
-    static already_AddRefed<nsScreenManagerGonk> GetInstance();
-    static already_AddRefed<nsScreenGonk> GetPrimaryScreen();
+  // Generic
+  already_AddRefed<Screen> MakePrimaryScreen();
+  void Refresh();
+  void AddScreen(uint32_t aScreenId, DisplayType aDisplayType,
+                 LayoutDeviceIntRect aRect = LayoutDeviceIntRect(),
+                 float aDensity = 1.0f);
+  void RemoveScreen(uint32_t aId);
+  already_AddRefed<Screen> ScreenForId(uint32_t aScreenId);
 
-    void Initialize();
-    void DisplayEnabled(bool aEnabled);
+  // nsScreenManagerGonk
+  static uint32_t GetIdFromType(DisplayType aDisplayType);
+  static already_AddRefed<nsScreenGonk> GetPrimaryScreen();
 
-    nsresult AddScreen(GonkDisplay::DisplayType aDisplayType,
-                       android::IGraphicBufferProducer* aSink = nullptr,
-                       NotifyDisplayChangedEvent aEventVisibility = NotifyDisplayChangedEvent::Observable);
+  void DisplayEnabled(bool aEnabled);
 
-    nsresult RemoveScreen(GonkDisplay::DisplayType aDisplayType);
-    bool IsScreenConnected(uint32_t aId);
+  bool IsScreenConnected(uint32_t aId);
 
-#if ANDROID_VERSION >= 19
-    void SetCompositorVsyncScheduler(mozilla::layers::CompositorVsyncScheduler* aObserver);
-#endif
+ private:
+  nsDataHashtable<nsUint32HashKey, RefPtr<Screen>> mScreens;
 
-protected:
-    ~nsScreenManagerGonk();
-    void VsyncControl(bool aEnabled);
+  // FIXME: We should have a nsScreenGonk per Screen, not just one
+  RefPtr<nsScreenGonk> mPrimaryScreen;
 
-    bool mInitialized;
-    nsTArray<RefPtr<nsScreenGonk>> mScreens;
-    RefPtr<nsIRunnable> mScreenOnEvent;
-    RefPtr<nsIRunnable> mScreenOffEvent;
+  // nsScreenManagerGonk
+  void VsyncControl(bool aEnabled);
+
+  bool mInitialized;
+  RefPtr<nsIRunnable> mScreenOnEvent;
+  RefPtr<nsIRunnable> mScreenOffEvent;
 
 #if ANDROID_VERSION >= 19
     bool mDisplayEnabled;
@@ -230,4 +233,7 @@ protected:
 #endif
 };
 
-#endif /* nsScreenManagerGonk_h___ */
+}
+}
+
+#endif /* ScreenHelperGonk_h___ */

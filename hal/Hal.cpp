@@ -149,6 +149,12 @@ void CancelVibrate(const WindowIdentifier& id) {
   }
 }
 
+void SetScreenBrightness(double aBrightness)
+{
+  AssertMainThread();
+  PROXY_IF_SANDBOXED(SetScreenBrightness(clamped(aBrightness, 0.0, 1.0)));
+}
+
 template <class InfoType>
 class ObserversManager {
  public:
@@ -295,10 +301,8 @@ static SensorObserverList* GetSensorObservers(SensorType sensor_type) {
   StaticAutoPtr<name_##ObserversManager> s##name_##Observers;    \
                                                                  \
   static name_##ObserversManager* name_##Observers() {           \
-    AssertMainThread();                                          \
                                                                  \
     if (!s##name_##Observers) {                                  \
-      MOZ_ASSERT(sInitialized);                                  \
       s##name_##Observers = new name_##ObserversManager();       \
     }                                                            \
                                                                  \
@@ -306,12 +310,10 @@ static SensorObserverList* GetSensorObservers(SensorType sensor_type) {
   }                                                              \
                                                                  \
   void Register##name_##Observer(name_##Observer* aObserver) {   \
-    AssertMainThread();                                          \
     name_##Observers()->AddObserver(aObserver);                  \
   }                                                              \
                                                                  \
   void Unregister##name_##Observer(name_##Observer* aObserver) { \
-    AssertMainThread();                                          \
     name_##Observers()->RemoveObserver(aObserver);               \
   }
 

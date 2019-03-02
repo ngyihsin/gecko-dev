@@ -97,6 +97,12 @@ void UnlockScreenOrientation() {
   }
 }
 
+void
+SetScreenBrightness(double aBrightness)
+{
+  Hal()->SendSetScreenBrightness(aBrightness);
+}
+
 void EnableSensorNotifications(SensorType aSensor) {
   Hal()->SendEnableSensorNotifications(aSensor);
 }
@@ -262,6 +268,18 @@ class HalParent : public PHalParent,
 
   void Notify(const ScreenConfiguration& aScreenConfiguration) override {
     Unused << SendNotifyScreenConfigurationChange(aScreenConfiguration);
+  }
+
+  virtual mozilla::ipc::IPCResult
+  RecvSetScreenBrightness(const double& aBrightness) override
+  {
+#if 0 // TODO: FIXME
+    if (!AssertAppProcessPermission(this, "power")) {
+      return false;
+    }
+#endif
+    hal::SetScreenBrightness(aBrightness);
+    return IPC_OK();
   }
 
   virtual mozilla::ipc::IPCResult RecvEnableSensorNotifications(
