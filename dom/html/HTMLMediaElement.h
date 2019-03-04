@@ -117,6 +117,7 @@ class HTMLMediaElement : public nsGenericHTMLElement,
 
   explicit HTMLMediaElement(
       already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo);
+  void Init();
 
   void ReportCanPlayTelemetry();
 
@@ -297,7 +298,7 @@ class HTMLMediaElement : public nsGenericHTMLElement,
 
   // Update the visual size of the media. Called from the decoder on the
   // main thread when/if the size changes.
-  void UpdateMediaSize(const nsIntSize& aSize);
+  virtual void UpdateMediaSize(const nsIntSize& aSize);
   // Like UpdateMediaSize, but only updates the size if no size has yet
   // been set.
   void UpdateInitialMediaSize(const nsIntSize& aSize);
@@ -1719,6 +1720,8 @@ class HTMLMediaElement : public nsGenericHTMLElement,
 
   void UpdateHadAudibleAutoplayState();
 
+  virtual void MaybeBeginCloningVisually(){};
+
   /**
    * This function is called by AfterSetAttr and OnAttrSetButNotChanged.
    * It will not be called if the value is being unset.
@@ -1749,6 +1752,9 @@ class HTMLMediaElement : public nsGenericHTMLElement,
   // Report the Telemetry about whether media played over the specific time
   // threshold.
   void ReportPlayedTimeAfterBlockedTelemetry();
+
+  // True if Init() has been called after construction
+  bool mInitialized = false;
 
   // True if user has called load(), seek() or element has started playing
   // before. It's *only* use for checking autoplay policy

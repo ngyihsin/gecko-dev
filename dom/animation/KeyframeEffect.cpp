@@ -297,8 +297,8 @@ nsCSSPropertyIDSet KeyframeEffect::GetPropertiesForCompositor(
     }
 
     AnimationPerformanceWarning::Type warning;
-    KeyframeEffect::MatchForCompositor matchResult =
-        IsMatchForCompositor(property.mProperty, aFrame, aEffects, warning);
+    KeyframeEffect::MatchForCompositor matchResult = IsMatchForCompositor(
+        nsCSSPropertyIDSet{property.mProperty}, aFrame, aEffects, warning);
     if (matchResult ==
             KeyframeEffect::MatchForCompositor::NoAndBlockThisProperty ||
         matchResult == KeyframeEffect::MatchForCompositor::No) {
@@ -586,6 +586,25 @@ void KeyframeEffect::SetIsRunningOnCompositor(nsCSSPropertyID aProperty,
   }
 }
 
+void KeyframeEffect::SetIsRunningOnCompositor(
+    const nsCSSPropertyIDSet& aPropertySet, bool aIsRunning) {
+  for (AnimationProperty& property : mProperties) {
+    if (aPropertySet.HasProperty(property.mProperty)) {
+      MOZ_ASSERT(nsCSSProps::PropHasFlags(property.mProperty,
+                                          CSSPropFlags::CanAnimateOnCompositor),
+                 "Property being animated on compositor is a recognized "
+                 "compositor-animatable property");
+      property.mIsRunningOnCompositor = aIsRunning;
+      // We currently only set a performance warning message when animations
+      // cannot be run on the compositor, so if this animation is running
+      // on the compositor we don't need a message.
+      if (aIsRunning) {
+        property.mPerformanceWarning.reset();
+      }
+    }
+  }
+}
+
 void KeyframeEffect::ResetIsRunningOnCompositor() {
   for (AnimationProperty& property : mProperties) {
     property.mIsRunningOnCompositor = false;
@@ -622,7 +641,8 @@ static KeyframeEffectParams KeyframeEffectParamsFromUnion(
   return result;
 }
 
-/* static */ Maybe<OwningAnimationTarget> KeyframeEffect::ConvertTarget(
+/* static */
+Maybe<OwningAnimationTarget> KeyframeEffect::ConvertTarget(
     const Nullable<ElementOrCSSPseudoElement>& aTarget) {
   // Return value optimization.
   Maybe<OwningAnimationTarget> result;
@@ -645,8 +665,8 @@ static KeyframeEffectParams KeyframeEffectParamsFromUnion(
 }
 
 template <class OptionsType>
-/* static */ already_AddRefed<KeyframeEffect>
-KeyframeEffect::ConstructKeyframeEffect(
+/* static */
+already_AddRefed<KeyframeEffect> KeyframeEffect::ConstructKeyframeEffect(
     const GlobalObject& aGlobal,
     const Nullable<ElementOrCSSPseudoElement>& aTarget,
     JS::Handle<JSObject*> aKeyframes, const OptionsType& aOptions,
@@ -832,7 +852,8 @@ void DumpAnimationProperties(
 }
 #endif
 
-/* static */ already_AddRefed<KeyframeEffect> KeyframeEffect::Constructor(
+/* static */
+already_AddRefed<KeyframeEffect> KeyframeEffect::Constructor(
     const GlobalObject& aGlobal,
     const Nullable<ElementOrCSSPseudoElement>& aTarget,
     JS::Handle<JSObject*> aKeyframes,
@@ -841,7 +862,8 @@ void DumpAnimationProperties(
   return ConstructKeyframeEffect(aGlobal, aTarget, aKeyframes, aOptions, aRv);
 }
 
-/* static */ already_AddRefed<KeyframeEffect> KeyframeEffect::Constructor(
+/* static */
+already_AddRefed<KeyframeEffect> KeyframeEffect::Constructor(
     const GlobalObject& aGlobal,
     const Nullable<ElementOrCSSPseudoElement>& aTarget,
     JS::Handle<JSObject*> aKeyframes,
@@ -850,7 +872,8 @@ void DumpAnimationProperties(
   return ConstructKeyframeEffect(aGlobal, aTarget, aKeyframes, aOptions, aRv);
 }
 
-/* static */ already_AddRefed<KeyframeEffect> KeyframeEffect::Constructor(
+/* static */
+already_AddRefed<KeyframeEffect> KeyframeEffect::Constructor(
     const GlobalObject& aGlobal, KeyframeEffect& aSource, ErrorResult& aRv) {
   Document* doc = AnimationUtils::GetCurrentRealmDocument(aGlobal.Context());
   if (!doc) {
@@ -1362,8 +1385,8 @@ nsIPresShell* KeyframeEffect::GetPresShell() const {
   return doc->GetShell();
 }
 
-/* static */ bool KeyframeEffect::IsGeometricProperty(
-    const nsCSSPropertyID aProperty) {
+/* static */
+bool KeyframeEffect::IsGeometricProperty(const nsCSSPropertyID aProperty) {
   MOZ_ASSERT(!nsCSSProps::IsShorthand(aProperty),
              "Property should be a longhand property");
 
@@ -1388,7 +1411,8 @@ nsIPresShell* KeyframeEffect::GetPresShell() const {
   }
 }
 
-/* static */ bool KeyframeEffect::CanAnimateTransformOnCompositor(
+/* static */
+bool KeyframeEffect::CanAnimateTransformOnCompositor(
     const nsIFrame* aFrame,
     AnimationPerformanceWarning::Type& aPerformanceWarning /* out */) {
   // Disallow OMTA for preserve-3d transform. Note that we check the style
@@ -1448,13 +1472,15 @@ bool KeyframeEffect::ShouldBlockAsyncTransformAnimations(
     }
 
     // Check for unsupported transform animations
-    if (property.mProperty == eCSSProperty_transform) {
+    if (LayerAnimationInfo::GetCSSPropertiesFor(DisplayItemType::TYPE_TRANSFORM)
+            .HasProperty(property.mProperty)) {
       if (!CanAnimateTransformOnCompositor(aFrame, aPerformanceWarning)) {
         return true;
       }
     }
   }
 
+  // FIXME: Bug 1425837: drop this hack.
   // XXX cku temporarily disable async-animation when this frame has any
   // individual transforms before bug 1425837 been fixed.
   if (aFrame->StyleDisplay()->HasIndividualTransform()) {
@@ -1652,7 +1678,8 @@ void KeyframeEffect::MarkCascadeNeedsUpdate() {
   effectSet->MarkCascadeNeedsUpdate();
 }
 
-/* static */ bool KeyframeEffect::HasComputedTimingChanged(
+/* static */
+bool KeyframeEffect::HasComputedTimingChanged(
     const ComputedTiming& aComputedTiming,
     IterationCompositeOperation aIterationComposite,
     const Nullable<double>& aProgressOnLastCompose,
@@ -1747,7 +1774,7 @@ void KeyframeEffect::UpdateEffectSet(EffectSet* aEffectSet) const {
 }
 
 KeyframeEffect::MatchForCompositor KeyframeEffect::IsMatchForCompositor(
-    nsCSSPropertyID aProperty, const nsIFrame* aFrame,
+    const nsCSSPropertyIDSet& aPropertySet, const nsIFrame* aFrame,
     const EffectSet& aEffects,
     AnimationPerformanceWarning::Type& aPerformanceWarning /* out */) const {
   MOZ_ASSERT(mAnimation);
@@ -1756,7 +1783,7 @@ KeyframeEffect::MatchForCompositor KeyframeEffect::IsMatchForCompositor(
     return KeyframeEffect::MatchForCompositor::No;
   }
 
-  if (mAnimation->ShouldBeSynchronizedWithMainThread(aProperty, aFrame,
+  if (mAnimation->ShouldBeSynchronizedWithMainThread(aPropertySet, aFrame,
                                                      aPerformanceWarning)) {
     // For a given |aFrame|, we don't want some animations of |aProperty| to
     // run on the compositor and others to run on the main thread, so if any
@@ -1764,7 +1791,7 @@ KeyframeEffect::MatchForCompositor KeyframeEffect::IsMatchForCompositor(
     return KeyframeEffect::MatchForCompositor::NoAndBlockThisProperty;
   }
 
-  if (!HasEffectiveAnimationOfProperty(aProperty, aEffects)) {
+  if (!HasEffectiveAnimationOfPropertySet(aPropertySet, aEffects)) {
     return KeyframeEffect::MatchForCompositor::No;
   }
 
@@ -1775,7 +1802,7 @@ KeyframeEffect::MatchForCompositor KeyframeEffect::IsMatchForCompositor(
     return KeyframeEffect::MatchForCompositor::NoAndBlockThisProperty;
   }
 
-  if (aProperty == eCSSProperty_background_color) {
+  if (aPropertySet.HasProperty(eCSSProperty_background_color)) {
     if (!StaticPrefs::gfx_omta_background_color()) {
       return KeyframeEffect::MatchForCompositor::No;
     }

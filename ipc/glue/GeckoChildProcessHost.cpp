@@ -680,7 +680,7 @@ AddAppDirToCommandLine(std::vector<std::string>& aCmdLine)
   }
 }
 
-#ifdef XP_WIN
+#if defined(XP_WIN) && (defined(MOZ_SANDBOX) || defined(_ARM64_))
 static bool Contains(const std::vector<std::string>& aExtraOpts,
                      const char* aValue) {
   return std::any_of(aExtraOpts.begin(), aExtraOpts.end(),
@@ -688,7 +688,7 @@ static bool Contains(const std::vector<std::string>& aExtraOpts,
                        return arg.find(aValue) != std::string::npos;
                      });
 }
-#endif  // XP_WIN
+#endif  // defined(XP_WIN) && (defined(MOZ_SANDBOX) || defined(_ARM64_))
 
 bool GeckoChildProcessHost::PerformAsyncLaunch(
     std::vector<std::string> aExtraOpts) {
@@ -1019,9 +1019,10 @@ bool GeckoChildProcessHost::PerformAsyncLaunch(
   FilePath exePath;
   BinaryPathType pathType = GetPathToBinary(exePath, mProcessType);
 
+#  if defined(MOZ_SANDBOX) || (defined(_ARM64_) && defined(XP_WIN))
   const bool isGMP = mProcessType == GeckoProcessType_GMPlugin;
   const bool isWidevine = isGMP && Contains(aExtraOpts, "gmp-widevinecdm");
-#  if defined(_ARM64_) && defined(XP_WIN)
+#    if defined(_ARM64_) && defined(XP_WIN)
   const bool isClearKey = isGMP && Contains(aExtraOpts, "gmp-clearkey");
   if (isGMP && (isClearKey || isWidevine)) {
     // On Windows on ARM64 for ClearKey and Widevine, we want to run the
@@ -1029,7 +1030,8 @@ bool GeckoChildProcessHost::PerformAsyncLaunch(
     // aarch64 plugin-container.exe. So insert "i686" into the exePath.
     exePath = exePath.DirName().AppendASCII("i686").Append(exePath.BaseName());
   }
-#  endif
+#    endif
+#  endif  // defined(MOZ_SANDBOX) || (defined(_ARM64_) && defined(XP_WIN))
 
   CommandLine cmdLine(exePath.ToWStringHack());
 

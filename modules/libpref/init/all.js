@@ -896,8 +896,6 @@ pref("gfx.content.azure.backends", "skia");
 #endif
 #endif
 
-pref("gfx.canvas.skiagl.dynamic-cache", true);
-
 pref("gfx.text.disable-aa", false);
 
 pref("gfx.work-around-driver-bugs", true);
@@ -1450,7 +1448,6 @@ pref("privacy.resistFingerprinting.reduceTimerPrecision.jitter", true);
 
 pref("dom.event.contextmenu.enabled",       true);
 pref("dom.event.clipboardevents.enabled",   true);
-pref("dom.event.highrestimestamp.enabled",  true);
 pref("dom.event.coalesce_mouse_move",       true);
 
 pref("javascript.enabled",                  true);
@@ -1462,7 +1459,7 @@ pref("javascript.options.unboxed_objects",  false);
 pref("javascript.options.baselinejit",      true);
 //Duplicated in JitOptions - ensure both match.
 pref("javascript.options.baselinejit.threshold", 10);
-#ifdef _ARM64_
+#ifdef NO_ION
 pref("javascript.options.ion",              false);
 #else
 pref("javascript.options.ion",              true);
@@ -5083,15 +5080,6 @@ pref("layers.prefer-opengl", false);
 
 // Copy-on-write canvas
 pref("layers.shared-buffer-provider.enabled", true);
-
-#ifdef XP_WIN
-pref("layers.shared-buffer-provider.enabled", false);
-#endif
-
-#ifdef XP_MACOSX
-// cf. Bug 1324908
-pref("layers.shared-buffer-provider.enabled", false);
-#endif
 
 // Force all possible layers to be always active layers
 pref("layers.force-active", false);

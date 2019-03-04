@@ -841,18 +841,6 @@ static MOZ_MUST_USE bool RunFile(JSContext* cx, const char* filename,
                                  bool compileOnly) {
   SkipUTF8BOM(file);
 
-  // To support the UNIX #! shell hack, gobble the first line if it starts
-  // with '#'.
-  int ch = fgetc(file);
-  if (ch == '#') {
-    while ((ch = fgetc(file)) != EOF) {
-      if (ch == '\n' || ch == '\r') {
-        break;
-      }
-    }
-  }
-  ungetc(ch, file);
-
   int64_t t1 = PRMJ_Now();
   RootedScript script(cx);
 
@@ -6179,6 +6167,13 @@ static bool NewGlobal(JSContext* cx, unsigned argc, Value* vp) {
     }
     if (v.isBoolean()) {
       behaviors.setDisableLazyParsing(v.toBoolean());
+    }
+
+    if (!JS_GetProperty(cx, opts, "enableBigInt", &v)) {
+      return false;
+    }
+    if (v.isBoolean()) {
+      creationOptions.setBigIntEnabled(v.toBoolean());
     }
 
     if (!JS_GetProperty(cx, opts, "systemPrincipal", &v)) {

@@ -63,12 +63,27 @@ exclude: true
 - Added `GeckoWebExecutor.FETCH_FLAGS_NO_REDIRECTS`, which will cause `GeckoWebExecutor.fetch()` to not
   automatically follow HTTP redirects (e.g., 302).
 
+- Moved [`GeckoVRManager`][67.2] into the org.mozilla.geckoview package.
+
 [67.1]: ../GeckoSession.html#getDefaultUserAgent--
+[67.2]: ../GeckoVRManager.html
 
 - Initial WebExtension support. [`GeckoRuntime#registerWebExtension`][67.15]
   allows embedders to register a local web extension.
 
 [67.15]: ../GeckoRuntime.html#registerWebExtension-org.mozilla.geckoview.WebExtension-
+
+- Added API to [`GeckoView`][65.5] to take screenshot of the visible page. Calling [`capturePixels`][67.16] returns a ['GeckoResult'][65.25] that completes to a [`Bitmap`][67.17] of the current [`Surface`][67.18] contents, or an [`IllegalStateException`][67.19] if the [`GeckoSession`][65.9] is not ready to render content.
+
+[67.16]: ../GeckoView.html#capturePixels
+[67.17]: https://developer.android.com/reference/android/graphics/Bitmap
+[67.18]: https://developer.android.com/reference/android/view/Surface
+[67.19]: https://developer.android.com/reference/java/lang/IllegalStateException
+
+- Added API to capture a screenshot to [`GeckoDisplay`][67.20]. [`capturePixels`][67.21] returns a ['GeckoResult'][65.25] that completes to a [`Bitmap`][67.16] of the current [`Surface`][67.17] contents, or an [`IllegalStateException`][67.18] if the [`GeckoSession`][65.9] is not ready to render content.
+
+[67.20]: ../GeckoDisplay.html
+[67.21]: ../GeckoDisplay.html#capturePixels
 
 ## v66
 - Removed redundant field `trackingMode` from [`SecurityInformation`][66.6].
@@ -189,4 +204,4 @@ exclude: true
 [65.24]: ../CrashReporter.html#sendCrashReport-android.content.Context-android.os.Bundle-java.lang.String-
 [65.25]: ../GeckoResult.html
 
-[api-version]: b26e5e12a78512a9c18d1ba3441864ca66d3dde8
+[api-version]: 0bcb9f0f763b746bb6f27f5d275c351818ab971b

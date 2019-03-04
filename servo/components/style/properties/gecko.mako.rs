@@ -463,32 +463,27 @@ def set_gecko_property(ffi_name, expr):
     // set on mContextFlags, and the length field is set to the initial value.
 
     pub fn set_${ident}(&mut self, v: longhands::${ident}::computed_value::T) {
-        use crate::values::generics::svg::{SVGLength, SvgLengthPercentageOrNumber};
+        use crate::values::generics::svg::SVGLength;
         use crate::gecko_bindings::structs::nsStyleSVG_${ident.upper()}_CONTEXT as CONTEXT_VALUE;
         let length = match v {
-            SVGLength::Length(length) => {
+            SVGLength::LengthPercentage(length) => {
                 self.gecko.mContextFlags &= !CONTEXT_VALUE;
                 length
             }
             SVGLength::ContextValue => {
                 self.gecko.mContextFlags |= CONTEXT_VALUE;
                 match longhands::${ident}::get_initial_value() {
-                    SVGLength::Length(length) => length,
+                    SVGLength::LengthPercentage(length) => length,
                     _ => unreachable!("Initial value should not be context-value"),
                 }
             }
         };
-        match length {
-            SvgLengthPercentageOrNumber::LengthPercentage(lp) =>
-                self.gecko.${gecko_ffi_name}.set(lp),
-            SvgLengthPercentageOrNumber::Number(num) =>
-                self.gecko.${gecko_ffi_name}.set_value(CoordDataValue::Factor(num.into())),
-        }
+        self.gecko.${gecko_ffi_name} = length;
     }
 
     pub fn copy_${ident}_from(&mut self, other: &Self) {
         use crate::gecko_bindings::structs::nsStyleSVG_${ident.upper()}_CONTEXT as CONTEXT_VALUE;
-        self.gecko.${gecko_ffi_name}.copy_from(&other.gecko.${gecko_ffi_name});
+        self.gecko.${gecko_ffi_name} = other.gecko.${gecko_ffi_name};
         self.gecko.mContextFlags =
             (self.gecko.mContextFlags & !CONTEXT_VALUE) |
             (other.gecko.mContextFlags & CONTEXT_VALUE);
@@ -499,32 +494,12 @@ def set_gecko_property(ffi_name, expr):
     }
 
     pub fn clone_${ident}(&self) -> longhands::${ident}::computed_value::T {
-        use crate::values::generics::svg::{SVGLength, SvgLengthPercentageOrNumber};
-        use crate::values::computed::LengthPercentage;
+        use crate::values::generics::svg::SVGLength;
         use crate::gecko_bindings::structs::nsStyleSVG_${ident.upper()}_CONTEXT as CONTEXT_VALUE;
         if (self.gecko.mContextFlags & CONTEXT_VALUE) != 0 {
             return SVGLength::ContextValue;
         }
-        let length = match self.gecko.${gecko_ffi_name}.as_value() {
-            CoordDataValue::Factor(number) => {
-                SvgLengthPercentageOrNumber::Number(number)
-            },
-            CoordDataValue::Coord(coord) => {
-                SvgLengthPercentageOrNumber::LengthPercentage(
-                    LengthPercentage::new(Au(coord).into(), None)
-                )
-            },
-            CoordDataValue::Percent(p) => {
-                SvgLengthPercentageOrNumber::LengthPercentage(
-                    LengthPercentage::new(Au(0).into(), Some(Percentage(p)))
-                )
-            },
-            CoordDataValue::Calc(calc) => {
-                SvgLengthPercentageOrNumber::LengthPercentage(calc.into())
-            },
-            _ => unreachable!("Unexpected coordinate in ${ident}"),
-        };
-        SVGLength::Length(length.into())
+        SVGLength::LengthPercentage(self.gecko.${gecko_ffi_name})
     }
 </%def>
 
@@ -880,13 +855,13 @@ def set_gecko_property(ffi_name, expr):
 transform_functions = [
     ("Matrix3D", "matrix3d", ["number"] * 16),
     ("Matrix", "matrix", ["number"] * 6),
-    ("Translate", "translate", ["lp", "optional_lp"]),
+    ("Translate", "translate", ["lp", "lp"]),
     ("Translate3D", "translate3d", ["lp", "lp", "length"]),
     ("TranslateX", "translatex", ["lp"]),
     ("TranslateY", "translatey", ["lp"]),
     ("TranslateZ", "translatez", ["length"]),
     ("Scale3D", "scale3d", ["number"] * 3),
-    ("Scale", "scale", ["number", "optional_number"]),
+    ("Scale", "scale", ["number", "number"]),
     ("ScaleX", "scalex", ["number"]),
     ("ScaleY", "scaley", ["number"]),
     ("ScaleZ", "scalez", ["number"]),
@@ -895,7 +870,7 @@ transform_functions = [
     ("RotateX", "rotatex", ["angle"]),
     ("RotateY", "rotatey", ["angle"]),
     ("RotateZ", "rotatez", ["angle"]),
-    ("Skew", "skew", ["angle", "optional_angle"]),
+    ("Skew", "skew", ["angle", "angle"]),
     ("SkewX", "skewx", ["angle"]),
     ("SkewY", "skewy", ["angle"]),
     ("Perspective", "perspective", ["length"]),
@@ -906,7 +881,6 @@ transform_functions = [
 
 <%def name="transform_function_arm(name, keyword, items)">
     <%
-        has_optional = items[-1].startswith("optional_")
         pattern = None
         if keyword == "matrix3d":
             # m11: number1, m12: number2, ..
@@ -944,36 +918,20 @@ transform_functions = [
         }
     %>
     crate::values::generics::transform::TransformOperation::${name}${pattern} => {
-        % if has_optional:
-            let optional_present = ${items[-1] + str(len(items))}.is_some();
-            let len = if optional_present {
-                ${len(items) + 1}
-            } else {
-                ${len(items)}
-            };
-        % else:
-            let len = ${len(items) + 1};
-        % endif
+        let len = ${len(items) + 1};
         bindings::Gecko_CSSValue_SetFunction(gecko_value, len);
         bindings::Gecko_CSSValue_SetKeyword(
             bindings::Gecko_CSSValue_GetArrayItem(gecko_value, 0),
             structs::nsCSSKeyword::eCSSKeyword_${keyword}
         );
         % for index, item in enumerate(items):
-            <% replaced_item = item.replace("optional_", "") %>
-            % if item.startswith("optional"):
-                if let Some(${replaced_item + str(index + 1)}) = ${item + str(index + 1)} {
-            % endif
             % if item == "list":
                 debug_assert!(!${item}${index + 1}.0.is_empty());
             % endif
-            ${css_value_setters[replaced_item] % (
+            ${css_value_setters[item] % (
                 "bindings::Gecko_CSSValue_GetArrayItem(gecko_value, %d)" % (index + 1),
-                replaced_item + str(index + 1)
+                item + str(index + 1)
             )};
-            % if item.startswith("optional"):
-                }
-            % endif
         % endfor
     }
 </%def>
@@ -984,8 +942,6 @@ transform_functions = [
         css_value_getters = {
             "length" : "Length::new(bindings::Gecko_CSSValue_GetNumber(%s))",
             "lp" : "%s.get_length_percentage()",
-            "lpon" : "Either::Second(%s.get_length_percentage())",
-            "lon" : "Either::First(%s.get_length())",
             "angle" : "%s.get_angle()",
             "number" : "bindings::Gecko_CSSValue_GetNumber(%s)",
             "percentage" : "Percentage(bindings::Gecko_CSSValue_GetPercentage(%s))",
@@ -1023,20 +979,11 @@ transform_functions = [
                 ${field_names[index]}:
             % endif
             <%
-                getter = css_value_getters[item.replace("optional_", "")] % (
+                getter = css_value_getters[item] % (
                     "bindings::Gecko_CSSValue_GetArrayItemConst(gecko_value, %d)" % (index + 1)
                 )
             %>
-            % if item.startswith("optional_"):
-                if (**gecko_value.mValue.mArray.as_ref()).mCount == ${index + 1} {
-                    None
-                } else {
-                    Some(${getter})
-                }
-            % else:
-                ${getter}
-            % endif
-,
+            ${getter},
         % endfor
         ${post_symbols}
     },
@@ -1328,6 +1275,7 @@ impl Clone for ${style_struct.gecko_struct_name} {
         "TransformOrigin": impl_simple,
         "UserSelect": impl_simple,
         "url::UrlOrNone": impl_css_url,
+        "WordBreak": impl_simple,
         "ZIndex": impl_simple,
     }
 
@@ -4629,10 +4577,7 @@ fn set_style_svg_path(
                         inset.rect.2.to_gecko_style_coord(&mut shape.mCoordinates[2]);
                         shape.mCoordinates[3].leaky_set_null();
                         inset.rect.3.to_gecko_style_coord(&mut shape.mCoordinates[3]);
-                        shape.mRadius = match inset.round {
-                            Some(radius) => radius,
-                            None => crate::values::computed::BorderRadius::zero(),
-                        };
+                        shape.mRadius = inset.round;
                     }
                     BasicShape::Circle(circ) => {
                         let shape = init_shape(${ident}, StyleBasicShapeType::Circle);
@@ -4720,7 +4665,7 @@ clip-path
 
     pub fn set_stroke_dasharray(&mut self, v: longhands::stroke_dasharray::computed_value::T) {
         use crate::gecko_bindings::structs::nsStyleSVG_STROKE_DASHARRAY_CONTEXT as CONTEXT_VALUE;
-        use crate::values::generics::svg::{SVGStrokeDashArray, SvgLengthPercentageOrNumber};
+        use crate::values::generics::svg::SVGStrokeDashArray;
 
         match v {
             SVGStrokeDashArray::Values(v) => {
@@ -4730,12 +4675,7 @@ clip-path
                     bindings::Gecko_nsStyleSVG_SetDashArrayLength(&mut self.gecko, v.len() as u32);
                 }
                 for (gecko, servo) in self.gecko.mStrokeDasharray.iter_mut().zip(v) {
-                    match servo {
-                        SvgLengthPercentageOrNumber::LengthPercentage(lp) =>
-                            gecko.set(lp),
-                        SvgLengthPercentageOrNumber::Number(num) =>
-                            gecko.set_value(CoordDataValue::Factor(num.into())),
-                    }
+                    *gecko = servo;
                 }
             }
             SVGStrokeDashArray::ContextValue => {
@@ -4763,32 +4703,13 @@ clip-path
 
     pub fn clone_stroke_dasharray(&self) -> longhands::stroke_dasharray::computed_value::T {
         use crate::gecko_bindings::structs::nsStyleSVG_STROKE_DASHARRAY_CONTEXT as CONTEXT_VALUE;
-        use crate::values::computed::LengthPercentage;
-        use crate::values::generics::NonNegative;
-        use crate::values::generics::svg::{SVGStrokeDashArray, SvgLengthPercentageOrNumber};
+        use crate::values::generics::svg::SVGStrokeDashArray;
 
         if self.gecko.mContextFlags & CONTEXT_VALUE != 0 {
             debug_assert_eq!(self.gecko.mStrokeDasharray.len(), 0);
             return SVGStrokeDashArray::ContextValue;
         }
-        let mut vec = vec![];
-        for gecko in self.gecko.mStrokeDasharray.iter() {
-            match gecko.as_value() {
-                CoordDataValue::Factor(number) =>
-                    vec.push(SvgLengthPercentageOrNumber::Number(number.into())),
-                CoordDataValue::Coord(coord) =>
-                    vec.push(SvgLengthPercentageOrNumber::LengthPercentage(
-                        NonNegative(LengthPercentage::new(Au(coord).into(), None).into()))),
-                CoordDataValue::Percent(p) =>
-                    vec.push(SvgLengthPercentageOrNumber::LengthPercentage(
-                        NonNegative(LengthPercentage::new_percent(Percentage(p)).into()))),
-                CoordDataValue::Calc(calc) =>
-                    vec.push(SvgLengthPercentageOrNumber::LengthPercentage(
-                        NonNegative(LengthPercentage::from(calc).clamp_to_non_negative()))),
-                _ => unreachable!(),
-            }
-        }
-        SVGStrokeDashArray::Values(vec)
+        SVGStrokeDashArray::Values(self.gecko.mStrokeDasharray.iter().cloned().collect())
     }
 
     #[allow(non_snake_case)]

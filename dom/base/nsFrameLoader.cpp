@@ -1797,7 +1797,7 @@ bool nsFrameLoader::ShouldUseRemoteProcess() {
 
   // Check if the force fission test attribute is enabled.
   if (XRE_IsContentProcess() &&
-      Preferences::GetBool("browser.fission.oopif.attribute", false) &&
+      Preferences::GetBool("fission.oopif.attribute", false) &&
       mOwnerContent->HasAttr(kNameSpaceID_None, nsGkAtoms::fission)) {
     return true;
   }
@@ -2881,9 +2881,11 @@ void nsFrameLoader::ApplySandboxFlags(uint32_t sandboxFlags) {
   }
 }
 
-/* virtual */ void nsFrameLoader::AttributeChanged(
-    mozilla::dom::Element* aElement, int32_t aNameSpaceID, nsAtom* aAttribute,
-    int32_t aModType, const nsAttrValue* aOldValue) {
+/* virtual */
+void nsFrameLoader::AttributeChanged(mozilla::dom::Element* aElement,
+                                     int32_t aNameSpaceID, nsAtom* aAttribute,
+                                     int32_t aModType,
+                                     const nsAttrValue* aOldValue) {
   MOZ_ASSERT(mObservingOwnerContent);
 
   if (aNameSpaceID != kNameSpaceID_None ||

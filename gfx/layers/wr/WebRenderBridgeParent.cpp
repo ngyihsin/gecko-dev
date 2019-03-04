@@ -317,7 +317,8 @@ WebRenderBridgeParent::WebRenderBridgeParent(const wr::PipelineId& aPipelineId)
       mIsFirstPaint(false),
       mSkippedComposite(false) {}
 
-/* static */ WebRenderBridgeParent* WebRenderBridgeParent::CreateDestroyed(
+/* static */
+WebRenderBridgeParent* WebRenderBridgeParent::CreateDestroyed(
     const wr::PipelineId& aPipelineId) {
   return new WebRenderBridgeParent(aPipelineId);
 }
@@ -934,7 +935,7 @@ mozilla::ipc::IPCResult WebRenderBridgeParent::RecvSetDisplayList(
     if (IsRootWebRenderBridgeParent()) {
       LayoutDeviceIntSize widgetSize = mWidget->GetClientSize();
       LayoutDeviceIntRect docRect(LayoutDeviceIntPoint(), widgetSize);
-      txn.SetWindowParameters(widgetSize, docRect);
+      txn.SetDocumentView(docRect);
     }
     gfx::Color clearColor(0.f, 0.f, 0.f, 0.f);
     txn.SetDisplayList(clearColor, wrEpoch,

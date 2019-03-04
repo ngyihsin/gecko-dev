@@ -704,19 +704,6 @@ static bool WasmDebugSupport(JSContext* cx, unsigned argc, Value* vp) {
   return true;
 }
 
-static bool WasmGeneralizedTables(JSContext* cx, unsigned argc, Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-#ifdef ENABLE_WASM_GENERALIZED_TABLES
-  // Generalized tables depend on anyref, though not currently on (ref T)
-  // types nor on structures or other GC-proposal features.
-  bool isSupported = wasm::HasReftypesSupport(cx);
-#else
-  bool isSupported = false;
-#endif
-  args.rval().setBoolean(isSupported);
-  return true;
-}
-
 static bool WasmCompileMode(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
@@ -1217,6 +1204,24 @@ static bool StartGC(JSContext* cx, unsigned argc, Value* vp) {
 
   JSGCInvocationKind gckind = shrinking ? GC_SHRINK : GC_NORMAL;
   rt->gc.startDebugGC(gckind, budget);
+
+  args.rval().setUndefined();
+  return true;
+}
+
+static bool FinishGC(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+
+  if (args.length() > 0) {
+    RootedObject callee(cx, &args.callee());
+    ReportUsageErrorASCII(cx, callee, "Wrong number of arguments");
+    return false;
+  }
+
+  JSRuntime* rt = cx->runtime();
+  if (rt->gc.isIncrementalGCInProgress()) {
+    rt->gc.finishGC(JS::GCReason::DEBUG_GC);
+  }
 
   args.rval().setUndefined();
   return true;
@@ -2331,59 +2336,39 @@ static bool ResetFinalizeCount(JSContext* cx, unsigned argc, Value* vp) {
 static bool DumpHeap(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
-  DumpHeapNurseryBehaviour nurseryBehaviour = js::IgnoreNurseryObjects;
-  FILE* dumpFile = nullptr;
+  FILE* dumpFile = stdout;
 
-  unsigned i = 0;
-  if (args.length() > i) {
-    Value v = args[i];
-    if (v.isString()) {
-      JSString* str = v.toString();
-      bool same = false;
-      if (!JS_StringEqualsAscii(cx, str, "collectNurseryBeforeDump", &same)) {
-        return false;
-      }
-      if (same) {
-        nurseryBehaviour = js::CollectNurseryBeforeDump;
-        ++i;
-      }
-    }
-  }
-
-  if (args.length() > i) {
-    Value v = args[i];
-    if (v.isString()) {
-      if (!fuzzingSafe) {
-        RootedString str(cx, v.toString());
-        UniqueChars fileNameBytes = JS_EncodeStringToLatin1(cx, str);
-        if (!fileNameBytes) {
-          return false;
-        }
-        dumpFile = fopen(fileNameBytes.get(), "w");
-        if (!dumpFile) {
-          fileNameBytes = JS_EncodeStringToUTF8(cx, str);
-          if (!fileNameBytes) {
-            return false;
-          }
-          JS_ReportErrorUTF8(cx, "can't open %s", fileNameBytes.get());
-          return false;
-        }
-      }
-      ++i;
-    }
-  }
-
-  if (i != args.length()) {
-    JS_ReportErrorASCII(cx, "bad arguments passed to dumpHeap");
-    if (dumpFile) {
-      fclose(dumpFile);
-    }
+  if (args.length() > 1) {
+    RootedObject callee(cx, &args.callee());
+    ReportUsageErrorASCII(cx, callee, "Too many arguments");
     return false;
   }
 
-  js::DumpHeap(cx, dumpFile ? dumpFile : stdout, nurseryBehaviour);
+  if (!args.get(0).isUndefined()) {
+    RootedString str(cx, ToString(cx, args[0]));
+    if (!str) {
+      return false;
+    }
+    if (!fuzzingSafe) {
+      UniqueChars fileNameBytes = JS_EncodeStringToLatin1(cx, str);
+      if (!fileNameBytes) {
+        return false;
+      }
+      dumpFile = fopen(fileNameBytes.get(), "w");
+      if (!dumpFile) {
+        fileNameBytes = JS_EncodeStringToLatin1(cx, str);
+        if (!fileNameBytes) {
+          return false;
+        }
+        JS_ReportErrorLatin1(cx, "can't open %s", fileNameBytes.get());
+        return false;
+      }
+    }
+  }
 
-  if (dumpFile) {
+  js::DumpHeap(cx, dumpFile, js::IgnoreNurseryObjects);
+
+  if (dumpFile != stdout) {
     fclose(dumpFile);
   }
 
@@ -4028,12 +4013,6 @@ static bool ShellCloneAndExecuteScript(JSContext* cx, unsigned argc,
   }
 
   args.rval().setUndefined();
-  return true;
-}
-
-static bool IsSimdAvailable(JSContext* cx, unsigned argc, Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-  args.rval().set(BooleanValue(cx->jitSupportsSimd()));
   return true;
 }
 
@@ -5892,6 +5871,10 @@ gc::ZealModeHelpText),
 "  If 'shrinking' is passesd as the optional second argument, perform a\n"
 "  shrinking GC rather than a normal GC."),
 
+    JS_FN_HELP("finishgc", FinishGC, 0, 0,
+"finishgc()",
+"   Finish an in-progress incremental GC, if none is running then do nothing."),
+
     JS_FN_HELP("gcslice", GCSlice, 1, 0,
 "gcslice([n])",
 "  Start or continue an an incremental GC, running a slice that processes about n objects."),
@@ -5918,10 +5901,10 @@ gc::ZealModeHelpText),
 "  If true, obj is a proxy of some sort"),
 
     JS_FN_HELP("dumpHeap", DumpHeap, 1, 0,
-"dumpHeap(['collectNurseryBeforeDump'], [filename])",
-"  Dump reachable and unreachable objects to the named file, or to stdout.  If\n"
-"  'collectNurseryBeforeDump' is specified, a minor GC is performed first,\n"
-"  otherwise objects in the nursery are ignored."),
+"dumpHeap([filename])",
+"  Dump reachable and unreachable objects to the named file, or to stdout. Objects\n"
+"  in the nursery are ignored, so if you wish to include them, consider calling\n"
+"  minorgc() first."),
 
     JS_FN_HELP("terminate", Terminate, 0, 0,
 "terminate()",
@@ -5947,10 +5930,6 @@ gc::ZealModeHelpText),
 "isAsmJSCompilationAvailable",
 "  Returns whether asm.js compilation is currently available or whether it is disabled\n"
 "  (e.g., by the debugger)."),
-
-    JS_FN_HELP("isSimdAvailable", IsSimdAvailable, 0, 0,
-"isSimdAvailable",
-"  Returns true if SIMD extensions are supported on this platform."),
 
     JS_FN_HELP("getJitCompilerOptions", GetJitCompilerOptions, 0, 0,
 "getJitCompilerOptions()",
@@ -6029,12 +6008,6 @@ gc::ZealModeHelpText),
     JS_FN_HELP("wasmDebugSupport", WasmDebugSupport, 1, 0,
 "wasmDebugSupport(bool)",
 "  Returns a boolean indicating whether the WebAssembly compilers support debugging."),
-
-    JS_FN_HELP("wasmGeneralizedTables", WasmGeneralizedTables, 1, 0,
-"wasmGeneralizedTables(bool)",
-"  Returns a boolean indicating whether generalized tables are available.\n"
-"  This feature set includes 'anyref' as a table type, and new instructions\n"
-"  including table.get, table.set, table.grow, and table.size."),
 
     JS_FN_HELP("isLazyFunction", IsLazyFunction, 1, 0,
 "isLazyFunction(fun)",

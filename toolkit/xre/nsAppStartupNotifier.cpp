@@ -13,8 +13,8 @@
 #include "nsISimpleEnumerator.h"
 #include "nsIObserver.h"
 
-/* static */ nsresult nsAppStartupNotifier::NotifyObservers(
-    const char* aTopic) {
+/* static */
+nsresult nsAppStartupNotifier::NotifyObservers(const char* aTopic) {
   NS_ENSURE_ARG(aTopic);
   nsresult rv;
 
