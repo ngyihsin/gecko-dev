@@ -25,6 +25,7 @@
 #include "mozilla/dom/ServiceWorkerRegistrar.h"
 #include "mozilla/dom/ServiceWorkerRegistration.h"
 #include "mozilla/dom/SVGElement.h"
+#include "mozilla/dom/TouchEvent.h"
 #include "mozilla/gfx/2D.h"
 #include "mozilla/layers/PLayerTransaction.h"
 #include "mozilla/ShapeUtils.h"
@@ -834,9 +835,10 @@ static bool GenerateAndPushTextMask(nsIFrame* aFrame, gfxContext* aContext,
       RoundedOut(ToRect(sourceCtx->GetClipExtents(gfxContext::eDeviceSpace)));
 
   Matrix currentMatrix = sourceCtx->CurrentMatrix();
-  Matrix maskTransform =
-      currentMatrix * Matrix::Translation(-drawRect.x, -drawRect.y);
-  maskTransform.Invert();
+  Matrix invCurrentMatrix = currentMatrix;
+  invCurrentMatrix.Invert();
+  Matrix maskSurfaceDeviceOffsetTranslation =
+      Matrix::Translation(drawRect.TopLeft());
 
   // Create a mask surface.
   RefPtr<DrawTarget> sourceTarget = sourceCtx->GetDrawTarget();
@@ -845,7 +847,7 @@ static bool GenerateAndPushTextMask(nsIFrame* aFrame, gfxContext* aContext,
     return false;
   }
   RefPtr<DrawTarget> maskDT = sourceTarget->CreateClippedDrawTarget(
-      drawRect.Size(), maskTransform * currentMatrix, SurfaceFormat::A8);
+      drawRect.Size(), maskSurfaceDeviceOffsetTranslation, SurfaceFormat::A8);
   if (!maskDT || !maskDT->IsValid()) {
     return false;
   }
@@ -863,8 +865,9 @@ static bool GenerateAndPushTextMask(nsIFrame* aFrame, gfxContext* aContext,
   // Push the generated mask into aContext, so that the caller can pop and
   // blend with it.
   RefPtr<SourceSurface> maskSurface = maskDT->Snapshot();
-  sourceCtx->PushGroupForBlendBack(gfxContentType::COLOR_ALPHA, 1.0,
-                                   maskSurface, maskTransform);
+  sourceCtx->PushGroupForBlendBack(
+      gfxContentType::COLOR_ALPHA, 1.0, maskSurface,
+      maskSurfaceDeviceOffsetTranslation * invCurrentMatrix);
 
   return true;
 }
@@ -1422,12 +1425,14 @@ void nsDisplayListBuilder::EnterPresShell(nsIFrame* aReferenceFrame,
           : nullptr;
 
   nsPresContext* pc = aReferenceFrame->PresContext();
-  nsCOMPtr<nsIDocShell> docShell = pc->GetDocShell();
+  mIsInChromePresContext = pc->IsChrome();
+  nsIDocShell* docShell = pc->GetDocShell();
+
   if (docShell) {
     docShell->GetWindowDraggingAllowed(&mWindowDraggingAllowed);
   }
 
-  mIsInChromePresContext = pc->IsChrome();
+  state->mTouchEventPrefEnabledDoc = dom::TouchEvent::PrefEnabled(docShell);
 
   if (!buildCaret) {
     return;
@@ -1518,11 +1523,11 @@ void nsDisplayListBuilder::LeavePresShell(nsIFrame* aReferenceFrame,
   }
 
   ResetMarkedFramesForDisplayList(aReferenceFrame);
-  mPresShellStates.SetLength(mPresShellStates.Length() - 1);
+  mPresShellStates.RemoveLastElement();
 
   if (!mPresShellStates.IsEmpty()) {
     nsPresContext* pc = CurrentPresContext();
-    nsCOMPtr<nsIDocShell> docShell = pc->GetDocShell();
+    nsIDocShell* docShell = pc->GetDocShell();
     if (docShell) {
       docShell->GetWindowDraggingAllowed(&mWindowDraggingAllowed);
     }
@@ -6357,6 +6362,10 @@ bool nsDisplayOwnLayer::IsScrollbarContainer() const {
          layers::ScrollbarLayerType::Container;
 }
 
+bool nsDisplayOwnLayer::IsZoomingLayer() const {
+  return GetType() == DisplayItemType::TYPE_ASYNC_ZOOM;
+}
+
 bool nsDisplayOwnLayer::ShouldBuildLayerEvenIfInvisible(
     nsDisplayListBuilder* aBuilder) const {
   // Render scroll thumb layers even if they are invisible, because async
@@ -6389,10 +6398,12 @@ bool nsDisplayOwnLayer::CreateWebRenderCommands(
     const StackingContextHelper& aSc, RenderRootStateManager* aManager,
     nsDisplayListBuilder* aDisplayListBuilder) {
   Maybe<wr::WrAnimationProperty> prop;
-  if (aManager->LayerManager()->AsyncPanZoomEnabled() && IsScrollThumbLayer()) {
-    // APZ is enabled and this is a scroll thumb, so we need to create and
-    // set an animation id. That way APZ can move this scrollthumb around as
-    // needed.
+  bool needsProp = aManager->LayerManager()->AsyncPanZoomEnabled() &&
+                   (IsScrollThumbLayer() || IsZoomingLayer());
+  if (needsProp) {
+    // APZ is enabled and this is a scroll thumb or zooming layer, so we need
+    // to create and set an animation id. That way APZ can adjust the position/
+    // zoom of this content asynchronously as needed.
     RefPtr<WebRenderAnimationData> animationData =
         aManager->CommandBuilder()
             .CreateOrRecycleWebRenderUserData<WebRenderAnimationData>(this);
@@ -6420,25 +6431,34 @@ bool nsDisplayOwnLayer::CreateWebRenderCommands(
 bool nsDisplayOwnLayer::UpdateScrollData(
     mozilla::layers::WebRenderScrollData* aData,
     mozilla::layers::WebRenderLayerScrollData* aLayerData) {
-  bool ret = false;
-
-  if (IsScrollThumbLayer() || IsScrollbarContainer()) {
-    ret = true;
-    if (aLayerData) {
-      aLayerData->SetScrollbarData(mScrollbarData);
-      if (IsScrollThumbLayer()) {
-        aLayerData->SetScrollbarAnimationId(mWrAnimationId);
-        LayoutDeviceRect bounds = LayoutDeviceIntRect::FromAppUnits(
-            mBounds, mFrame->PresContext()->AppUnitsPerDevPixel());
-        // Assume a resolution of 1.0 for now because this is a WebRender
-        // codepath and we don't really handle resolution on the Gecko side
-        LayerIntRect layerBounds =
-            RoundedOut(bounds * LayoutDeviceToLayerScale(1.0f));
-        aLayerData->SetVisibleRegion(LayerIntRegion(layerBounds));
-      }
-    }
+  bool isRelevantToApz =
+      (IsScrollThumbLayer() || IsScrollbarContainer() || IsZoomingLayer());
+  if (!isRelevantToApz) {
+    return false;
   }
-  return ret;
+
+  if (!aLayerData) {
+    return true;
+  }
+
+  if (IsZoomingLayer()) {
+    aLayerData->SetZoomAnimationId(mWrAnimationId);
+    return true;
+  }
+
+  aLayerData->SetScrollbarData(mScrollbarData);
+  if (IsScrollThumbLayer()) {
+    aLayerData->SetScrollbarAnimationId(mWrAnimationId);
+    LayoutDeviceRect bounds = LayoutDeviceIntRect::FromAppUnits(
+        mBounds, mFrame->PresContext()->AppUnitsPerDevPixel());
+    // We use a resolution of 1.0 because this is a WebRender codepath which
+    // always uses containerless scrolling, and so resolution doesn't apply to
+    // scrollbars.
+    LayerIntRect layerBounds =
+        RoundedOut(bounds * LayoutDeviceToLayerScale(1.0f));
+    aLayerData->SetVisibleRegion(LayerIntRegion(layerBounds));
+  }
+  return true;
 }
 
 void nsDisplayOwnLayer::WriteDebugInfo(std::stringstream& aStream) {
