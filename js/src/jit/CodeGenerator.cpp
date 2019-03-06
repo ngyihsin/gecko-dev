@@ -7004,6 +7004,11 @@ void CodeGenerator::visitComputeThis(LComputeThis* lir) {
   masm.bind(ool->rejoin());
 }
 
+typedef bool (*ImplicitThisFn)(JSContext*, HandleObject, HandlePropertyName,
+                               MutableHandleValue);
+static const VMFunction ImplicitThisInfo = FunctionInfo<ImplicitThisFn>(
+    ImplicitThisOperation, "ImplicitThisOperation");
+
 void CodeGenerator::visitImplicitThis(LImplicitThis* lir) {
   pushArg(ImmGCPtr(lir->mir()->name()));
   pushArg(ToRegister(lir->env()));
@@ -11115,7 +11120,7 @@ void CodeGenerator::visitSetPropertyCache(LSetPropertyCache* ins) {
 
 typedef bool (*ThrowFn)(JSContext*, HandleValue);
 static const VMFunction ThrowInfoCodeGen =
-    FunctionInfo<ThrowFn>(js::Throw, "Throw");
+    FunctionInfo<ThrowFn>(js::ThrowOperation, "ThrowOperation");
 
 void CodeGenerator::visitThrow(LThrow* lir) {
   pushArg(ToValue(lir, LThrow::Value));
