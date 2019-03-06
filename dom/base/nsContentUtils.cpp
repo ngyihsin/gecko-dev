@@ -70,6 +70,7 @@
 #include "mozilla/dom/IPCBlobUtils.h"
 #include "mozilla/dom/NodeBinding.h"
 #include "mozilla/dom/Promise.h"
+#include "mozilla/dom/RemoteFrameChild.h"
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/dom/TabParent.h"
 #include "mozilla/dom/Text.h"
@@ -2070,6 +2071,15 @@ bool nsContentUtils::ShouldResistFingerprinting(const Document* aDoc) {
     return false;
   }
   bool isChrome = nsContentUtils::IsChromeDoc(aDoc);
+  return !isChrome && ShouldResistFingerprinting();
+}
+
+/* static */
+bool nsContentUtils::ShouldResistFingerprinting(nsIPrincipal* aPrincipal) {
+  if (!aPrincipal) {
+    return false;
+  }
+  bool isChrome = nsContentUtils::IsSystemPrincipal(aPrincipal);
   return !isChrome && ShouldResistFingerprinting();
 }
 
@@ -6188,7 +6198,8 @@ bool nsContentUtils::IsSubDocumentTabbable(nsIContent* aContent) {
 
   // If the subdocument lives in another process, the frame is
   // tabbable.
-  if (EventStateManager::IsRemoteTarget(aContent)) {
+  if (EventStateManager::IsRemoteTarget(aContent) ||
+      RemoteFrameChild::GetFrom(aContent)) {
     return true;
   }
 
