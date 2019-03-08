@@ -378,8 +378,7 @@ nsresult nsHttpTransaction::Init(
   // a non-owning reference to the request header data, so we MUST keep
   // mReqHeaderBuf around).
   nsCOMPtr<nsIInputStream> headers;
-  rv = NS_NewByteInputStream(getter_AddRefs(headers), mReqHeaderBuf.get(),
-                             mReqHeaderBuf.Length());
+  rv = NS_NewByteInputStream(getter_AddRefs(headers), mReqHeaderBuf);
   if (NS_FAILED(rv)) return rv;
 
   mHasRequestBody = !!requestBody;
@@ -444,12 +443,6 @@ nsresult nsHttpTransaction::Init(
                    true, nsIOService::gDefaultSegmentSize,
                    nsIOService::gDefaultSegmentCount);
   if (NS_FAILED(rv)) return rv;
-
-#ifdef WIN32  // bug 1153929
-  MOZ_DIAGNOSTIC_ASSERT(mPipeOut);
-  uint32_t *vtable = (uint32_t *)mPipeOut.get();
-  MOZ_DIAGNOSTIC_ASSERT(*vtable != 0);
-#endif  // WIN32
 
   nsCOMPtr<nsIAsyncInputStream> tmp(mPipeIn);
   tmp.forget(responseBody);
@@ -932,12 +925,6 @@ nsresult nsHttpTransaction::WriteSegments(nsAHttpSegmentWriter *writer,
 
   mWriter = writer;
 
-#ifdef WIN32  // bug 1153929
-  MOZ_DIAGNOSTIC_ASSERT(mPipeOut);
-  uint32_t *vtable = (uint32_t *)mPipeOut.get();
-  MOZ_DIAGNOSTIC_ASSERT(*vtable != 0);
-#endif  // WIN32
-
   if (!mPipeOut) {
     return NS_ERROR_UNEXPECTED;
   }
@@ -1207,13 +1194,6 @@ void nsHttpTransaction::Close(nsresult reason) {
 
   // closing this pipe triggers the channel's OnStopRequest method.
   mPipeOut->CloseWithStatus(reason);
-
-#ifdef WIN32  // bug 1153929
-  MOZ_DIAGNOSTIC_ASSERT(mPipeOut);
-  uint32_t *vtable = (uint32_t *)mPipeOut.get();
-  MOZ_DIAGNOSTIC_ASSERT(*vtable != 0);
-  mPipeOut = nullptr;  // just in case
-#endif                 // WIN32
 }
 
 nsHttpConnectionInfo *nsHttpTransaction::ConnectionInfo() {

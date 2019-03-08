@@ -1078,7 +1078,7 @@ bool js::IsCrossRealmArrayConstructor(JSContext* cx, const Value& v,
 
   JSObject* obj = &v.toObject();
   if (obj->is<WrapperObject>()) {
-    obj = CheckedUnwrap(obj);
+    obj = CheckedUnwrapDynamic(obj, cx);
     if (!obj) {
       ReportAccessDenied(cx);
       return false;
@@ -3941,6 +3941,8 @@ static bool array_proto_finish(JSContext* cx, JS::HandleObject ctor,
       !DefineDataProperty(cx, unscopables, cx->names().fill, value) ||
       !DefineDataProperty(cx, unscopables, cx->names().find, value) ||
       !DefineDataProperty(cx, unscopables, cx->names().findIndex, value) ||
+      !DefineDataProperty(cx, unscopables, cx->names().flat, value) ||
+      !DefineDataProperty(cx, unscopables, cx->names().flatMap, value) ||
       !DefineDataProperty(cx, unscopables, cx->names().includes, value) ||
       !DefineDataProperty(cx, unscopables, cx->names().keys, value) ||
       !DefineDataProperty(cx, unscopables, cx->names().values, value)) {

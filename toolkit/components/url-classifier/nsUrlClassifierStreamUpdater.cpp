@@ -16,6 +16,7 @@
 #include "nsStreamUtils.h"
 #include "nsStringStream.h"
 #include "nsUrlClassifierStreamUpdater.h"
+#include "nsUrlClassifierUtils.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/ErrorNames.h"
 #include "mozilla/Logging.h"
@@ -139,12 +140,10 @@ nsresult nsUrlClassifierStreamUpdater::FetchUpdate(
 
   NS_ENSURE_SUCCESS(rv, rv);
 
-  nsCOMPtr<nsILoadInfo> loadInfo = mChannel->GetLoadInfo();
+  nsCOMPtr<nsILoadInfo> loadInfo = mChannel->LoadInfo();
   mozilla::OriginAttributes attrs;
   attrs.mFirstPartyDomain.AssignLiteral(NECKO_SAFEBROWSING_FIRST_PARTY_DOMAIN);
-  if (loadInfo) {
-    loadInfo->SetOriginAttributes(attrs);
-  }
+  loadInfo->SetOriginAttributes(attrs);
 
   mBeganStream = false;
 
@@ -326,8 +325,10 @@ nsUrlClassifierStreamUpdater::DownloadUpdates(
     return rv;
   }
 
-  nsCOMPtr<nsIUrlClassifierUtils> urlUtil =
-      mozilla::components::UrlClassifierUtils::Service();
+  nsUrlClassifierUtils *urlUtil = nsUrlClassifierUtils::GetInstance();
+  if (NS_WARN_IF(!urlUtil)) {
+    return NS_ERROR_FAILURE;
+  }
 
   nsTArray<nsCString> tables;
   mozilla::safebrowsing::Classifier::SplitTables(aRequestTables, tables);
@@ -567,8 +568,7 @@ nsresult nsUrlClassifierStreamUpdater::AddRequestBody(
 // nsIStreamListenerObserver implementation
 
 NS_IMETHODIMP
-nsUrlClassifierStreamUpdater::OnStartRequest(nsIRequest *request,
-                                             nsISupports *context) {
+nsUrlClassifierStreamUpdater::OnStartRequest(nsIRequest *request) {
   nsresult rv;
   bool downloadError = false;
   nsAutoCString strStatus;
@@ -663,7 +663,6 @@ nsUrlClassifierStreamUpdater::OnStartRequest(nsIRequest *request,
 
 NS_IMETHODIMP
 nsUrlClassifierStreamUpdater::OnDataAvailable(nsIRequest *request,
-                                              nsISupports *context,
                                               nsIInputStream *aIStream,
                                               uint64_t aSourceOffset,
                                               uint32_t aLength) {
@@ -695,7 +694,6 @@ nsUrlClassifierStreamUpdater::OnDataAvailable(nsIRequest *request,
 
 NS_IMETHODIMP
 nsUrlClassifierStreamUpdater::OnStopRequest(nsIRequest *request,
-                                            nsISupports *context,
                                             nsresult aStatus) {
   if (!mDBService) return NS_ERROR_NOT_INITIALIZED;
 

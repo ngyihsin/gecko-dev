@@ -9,6 +9,7 @@
 
 #include "nsNetUtil.h"
 
+#include "mozilla/AntiTrackingCommon.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/Encoding.h"
 #include "mozilla/LoadContext.h"
@@ -30,6 +31,7 @@
 #include "nsIChannelEventSink.h"
 #include "nsIContentSniffer.h"
 #include "mozilla/dom/Document.h"
+#include "nsICookieService.h"
 #include "nsIDownloader.h"
 #include "nsIFileProtocolHandler.h"
 #include "nsIFileStreams.h"
@@ -94,10 +96,14 @@ using mozilla::dom::PerformanceStorage;
 using mozilla::dom::ServiceWorkerDescriptor;
 
 #define DEFAULT_RP 3
+#define DEFAULT_TRACKER_RP 3
 #define DEFAULT_PRIVATE_RP 2
+#define DEFAULT_TRACKER_PRIVATE_RP 2
 
 static uint32_t sDefaultRp = DEFAULT_RP;
+static uint32_t sDefaultTrackerRp = DEFAULT_TRACKER_RP;
 static uint32_t defaultPrivateRp = DEFAULT_PRIVATE_RP;
+static uint32_t defaultTrackerPrivateRp = DEFAULT_TRACKER_PRIVATE_RP;
 
 already_AddRefed<nsIIOService> do_GetIOService(nsresult *error /* = 0 */) {
   nsCOMPtr<nsIIOService> io = mozilla::services::GetIOService();
@@ -232,10 +238,7 @@ nsresult NS_NewChannelInternal(
   }
 
   if (aPerformanceStorage) {
-    nsCOMPtr<nsILoadInfo> loadInfo;
-    rv = channel->GetLoadInfo(getter_AddRefs(loadInfo));
-    NS_ENSURE_SUCCESS(rv, rv);
-
+    nsCOMPtr<nsILoadInfo> loadInfo = channel->LoadInfo();
     loadInfo->SetPerformanceStorage(aPerformanceStorage);
   }
 
@@ -387,10 +390,7 @@ nsresult NS_NewChannelInternal(
   }
 
   if (aPerformanceStorage) {
-    nsCOMPtr<nsILoadInfo> loadInfo;
-    rv = channel->GetLoadInfo(getter_AddRefs(loadInfo));
-    NS_ENSURE_SUCCESS(rv, rv);
-
+    nsCOMPtr<nsILoadInfo> loadInfo = channel->LoadInfo();
     loadInfo->SetPerformanceStorage(aPerformanceStorage);
   }
 
@@ -646,6 +646,7 @@ nsresult NS_NewInputStreamChannelInternal(
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
+  MOZ_ASSERT(aLoadInfo, "need a loadinfo to create a inputstreamchannel");
   channel->SetLoadInfo(aLoadInfo);
 
   // If we're sandboxed, make sure to clear any owner the channel
@@ -1703,12 +1704,8 @@ bool NS_UsePrivateBrowsing(nsIChannel *channel) {
 
 bool NS_GetOriginAttributes(nsIChannel *aChannel,
                             mozilla::OriginAttributes &aAttributes) {
-  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->GetLoadInfo();
-  // For some channels, they might not have loadInfo, like
-  // ExternalHelperAppParent..
-  if (loadInfo) {
-    loadInfo->GetOriginAttributes(&aAttributes);
-  }
+  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
+  loadInfo->GetOriginAttributes(&aAttributes);
 
   bool isPrivate = false;
   nsCOMPtr<nsIPrivateBrowsingChannel> pbChannel = do_QueryInterface(aChannel);
@@ -1726,15 +1723,7 @@ bool NS_GetOriginAttributes(nsIChannel *aChannel,
 }
 
 bool NS_HasBeenCrossOrigin(nsIChannel *aChannel, bool aReport) {
-  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->GetLoadInfo();
-  MOZ_RELEASE_ASSERT(
-      loadInfo,
-      "Origin tracking only works for channels created with a loadinfo");
-
-  if (!loadInfo) {
-    return false;
-  }
-
+  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
   // TYPE_DOCUMENT loads have a null LoadingPrincipal and can not be cross
   // origin.
   if (!loadInfo->LoadingPrincipal()) {
@@ -1795,10 +1784,7 @@ bool NS_IsSafeTopLevelNav(nsIChannel *aChannel) {
   if (!aChannel) {
     return false;
   }
-  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->GetLoadInfo();
-  if (!loadInfo) {
-    return false;
-  }
+  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
   if (loadInfo->GetExternalContentPolicyType() !=
       nsIContentPolicy::TYPE_DOCUMENT) {
     return false;
@@ -1818,11 +1804,7 @@ bool NS_IsSameSiteForeign(nsIChannel *aChannel, nsIURI *aHostURI) {
   if (!aChannel) {
     return false;
   }
-  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->GetLoadInfo();
-  if (!loadInfo) {
-    return false;
-  }
-
+  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
   // Do not treat loads triggered by web extensions as foreign
   nsCOMPtr<nsIURI> channelURI;
   NS_GetFinalChannelURI(aChannel, getter_AddRefs(channelURI));
@@ -2024,16 +2006,13 @@ already_AddRefed<nsIURI> NS_GetInnermostURI(nsIURI *aURI) {
 nsresult NS_GetFinalChannelURI(nsIChannel *channel, nsIURI **uri) {
   *uri = nullptr;
 
-  nsCOMPtr<nsILoadInfo> loadInfo = channel->GetLoadInfo();
-  if (loadInfo) {
-    nsCOMPtr<nsIURI> resultPrincipalURI;
-    loadInfo->GetResultPrincipalURI(getter_AddRefs(resultPrincipalURI));
-    if (resultPrincipalURI) {
-      resultPrincipalURI.forget(uri);
-      return NS_OK;
-    }
+  nsCOMPtr<nsILoadInfo> loadInfo = channel->LoadInfo();
+  nsCOMPtr<nsIURI> resultPrincipalURI;
+  loadInfo->GetResultPrincipalURI(getter_AddRefs(resultPrincipalURI));
+  if (resultPrincipalURI) {
+    resultPrincipalURI.forget(uri);
+    return NS_OK;
   }
-
   return channel->GetOriginalURI(uri);
 }
 
@@ -2359,13 +2338,13 @@ nsresult NS_LinkRedirectChannels(uint32_t channelId,
 
 nsresult NS_MaybeOpenChannelUsingOpen(nsIChannel *aChannel,
                                       nsIInputStream **aStream) {
-  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->GetLoadInfo();
+  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
   return aChannel->Open(aStream);
 }
 
 nsresult NS_MaybeOpenChannelUsingAsyncOpen(nsIChannel *aChannel,
                                            nsIStreamListener *aListener) {
-  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->GetLoadInfo();
+  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
   return aChannel->AsyncOpen(aListener);
 }
 
@@ -2688,12 +2667,11 @@ nsresult NS_GetSecureUpgradedURI(nsIURI *aURI, nsIURI **aUpgradedURI) {
 }
 
 nsresult NS_CompareLoadInfoAndLoadContext(nsIChannel *aChannel) {
-  nsCOMPtr<nsILoadInfo> loadInfo;
-  aChannel->GetLoadInfo(getter_AddRefs(loadInfo));
+  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
 
   nsCOMPtr<nsILoadContext> loadContext;
   NS_QueryNotificationCallbacks(aChannel, loadContext);
-  if (!loadInfo || !loadContext) {
+  if (!loadContext) {
     return NS_OK;
   }
 
@@ -2761,23 +2739,53 @@ nsresult NS_CompareLoadInfoAndLoadContext(nsIChannel *aChannel) {
   return NS_OK;
 }
 
-uint32_t NS_GetDefaultReferrerPolicy(bool privateBrowsing) {
+uint32_t NS_GetDefaultReferrerPolicy(nsIHttpChannel *aChannel, nsIURI *aURI,
+                                     bool privateBrowsing) {
   static bool preferencesInitialized = false;
 
   if (!preferencesInitialized) {
     mozilla::Preferences::AddUintVarCache(
         &sDefaultRp, "network.http.referer.defaultPolicy", DEFAULT_RP);
     mozilla::Preferences::AddUintVarCache(
+        &sDefaultTrackerRp, "network.http.referer.defaultPolicy.trackers",
+        DEFAULT_TRACKER_RP);
+    mozilla::Preferences::AddUintVarCache(
         &defaultPrivateRp, "network.http.referer.defaultPolicy.pbmode",
         DEFAULT_PRIVATE_RP);
+    mozilla::Preferences::AddUintVarCache(
+        &defaultTrackerPrivateRp,
+        "network.http.referer.defaultPolicy.trackers.pbmode",
+        DEFAULT_TRACKER_PRIVATE_RP);
     preferencesInitialized = true;
   }
 
+  bool thirdPartyTrackerIsolated = false;
+  if (StaticPrefs::network_cookie_cookieBehavior() ==
+      nsICookieService::BEHAVIOR_REJECT_TRACKER) {
+    if (aChannel && aURI) {
+      uint32_t rejectedReason = 0;
+      thirdPartyTrackerIsolated =
+          !AntiTrackingCommon::IsFirstPartyStorageAccessGrantedFor(
+              aChannel, aURI, &rejectedReason);
+      // Here we intentionally do not notify about the rejection reason, if any
+      // in order to avoid this check to have any visible side-effects (e.g. a
+      // web console report.)
+    }
+  }
+
   uint32_t defaultToUse;
-  if (privateBrowsing) {
-    defaultToUse = defaultPrivateRp;
+  if (thirdPartyTrackerIsolated) {
+    if (privateBrowsing) {
+      defaultToUse = defaultTrackerPrivateRp;
+    } else {
+      defaultToUse = sDefaultTrackerRp;
+    }
   } else {
-    defaultToUse = sDefaultRp;
+    if (privateBrowsing) {
+      defaultToUse = defaultPrivateRp;
+    } else {
+      defaultToUse = sDefaultRp;
+    }
   }
 
   switch (defaultToUse) {
@@ -2856,11 +2864,6 @@ bool SchemeIsFile(nsIURI *aURI) {
 bool SchemeIsData(nsIURI *aURI) {
   MOZ_ASSERT(aURI);
   return aURI->SchemeIs("data");
-}
-
-bool SchemeIsWYCIWYG(nsIURI *aURI) {
-  MOZ_ASSERT(aURI);
-  return aURI->SchemeIs("wyciwyg");
 }
 
 bool SchemeIsViewSource(nsIURI *aURI) {

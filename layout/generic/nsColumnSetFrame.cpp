@@ -283,7 +283,8 @@ static nscoord GetColumnGap(nsColumnSetFrame* aFrame,
   return nsLayoutUtils::ResolveGapToLength(columnGap, aPercentageBasis);
 }
 
-/* static */ nscoord nsColumnSetFrame::ClampUsedColumnWidth(
+/* static */
+nscoord nsColumnSetFrame::ClampUsedColumnWidth(
     const nsStyleCoord& aColumnWidth) {
   MOZ_ASSERT(aColumnWidth.GetUnit() == eStyleUnit_Coord,
              "This should only be called when column-width is a <length>!");
@@ -1249,7 +1250,7 @@ void nsColumnSetFrame::AppendDirectlyOwnedAnonBoxes(
     return;
   }
 
-  MOZ_ASSERT(column->Style()->GetPseudo() == nsCSSAnonBoxes::columnContent(),
+  MOZ_ASSERT(column->Style()->GetPseudoType() == PseudoStyleType::columnContent,
              "What sort of child is this?");
   aResult.AppendElement(OwnedAnonBox(column));
 }

@@ -10,6 +10,7 @@ const {XPCOMUtils} = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm")
 
 XPCOMUtils.defineLazyModuleGetters(this, {
   AppConstants: "resource://gre/modules/AppConstants.jsm",
+  BrowserUtils: "resource://gre/modules/BrowserUtils.jsm",
   ExtensionSearchHandler: "resource://gre/modules/ExtensionSearchHandler.jsm",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.jsm",
   ReaderMode: "resource://gre/modules/ReaderMode.jsm",
@@ -38,8 +39,6 @@ class UrlbarInput {
    *   The initial options for UrlbarInput.
    * @param {object} options.textbox
    *   The <textbox> element.
-   * @param {object} options.panel
-   *   The <panel> element.
    * @param {UrlbarController} [options.controller]
    *   Optional fake controller to override the built-in UrlbarController.
    *   Intended for use in unit tests only.
@@ -48,9 +47,36 @@ class UrlbarInput {
     this.textbox = options.textbox;
     this.textbox.clickSelectsAll = UrlbarPrefs.get("clickSelectsAll");
 
-    this.panel = options.panel;
     this.window = this.textbox.ownerGlobal;
     this.document = this.window.document;
+
+    // Create the panel to contain results.
+    // In the future this may be moved to the view, so it can customize
+    // the container element.
+    let MozXULElement = this.window.MozXULElement;
+    this.document.getElementById("mainPopupSet").appendChild(
+      MozXULElement.parseXULToFragment(`
+        <panel id="urlbar-results"
+                role="group"
+                noautofocus="true"
+                hidden="true"
+                flip="none"
+                consumeoutsideclicks="never"
+                norolluponanchor="true"
+                level="parent">
+          <html:div class="urlbarView-body-outer">
+            <html:div class="urlbarView-body-inner">
+              <html:div class="urlbarView-results"/>
+            </html:div>
+          </html:div>
+          <hbox class="search-one-offs"
+                compact="true"
+                includecurrentengine="true"
+                disabletab="true"/>
+        </panel>
+      `));
+    this.panel = this.document.getElementById("urlbar-results");
+
     this.controller = options.controller || new UrlbarController({
       browserWindow: this.window,
     });
@@ -112,7 +138,8 @@ class UrlbarInput {
 
     const inputFieldEvents = [
       "focus", "input", "keyup", "mouseover", "paste", "scrollend", "select",
-      "overflow", "underflow",
+      "overflow", "underflow", "dragstart", "dragover", "drop",
+      "compositionstart", "compositionend",
     ];
     for (let name of inputFieldEvents) {
       this.inputField.addEventListener(name, this);
@@ -124,6 +151,38 @@ class UrlbarInput {
 
     this.inputField.controllers.insertControllerAt(0, new CopyCutController(this));
     this._initPasteAndGo();
+
+    // Tracks IME composition.
+    this._compositionState == UrlbarUtils.COMPOSITION.NONE;
+  }
+
+  /**
+   * Uninitializes this input object, detaching it from the inputField.
+   */
+  uninit() {
+    this.inputField.removeEventListener("blur", this.eventBufferer);
+    this.inputField.removeEventListener("keydown", this.eventBufferer);
+    delete this.eventBufferer;
+    const inputFieldEvents = [
+      "focus", "input", "keyup", "mouseover", "paste", "scrollend", "select",
+      "overflow", "underflow", "dragstart", "dragover", "drop",
+    ];
+    for (let name of inputFieldEvents) {
+      this.inputField.removeEventListener(name, this);
+    }
+    this.removeEventListener("mousedown", this);
+
+    this.view.panel.remove();
+
+    this.inputField.controllers.removeControllerAt(0);
+
+    delete this.document;
+    delete this.window;
+    delete this.valueFormatter;
+    delete this.panel;
+    delete this.view;
+    delete this.controller;
+    delete this.textbox;
   }
 
   /**
@@ -148,7 +207,6 @@ class UrlbarInput {
   }
 
   closePopup() {
-    this.controller.cancelQuery();
     this.view.close();
   }
 
@@ -161,8 +219,8 @@ class UrlbarInput {
   }
 
   /**
-   * Converts an internal URI (e.g. a wyciwyg URI) into one which we can
-   * expose to the user.
+   * Converts an internal URI (e.g. a URI with a username or password) into one
+   * which we can expose to the user.
    *
    * @param {nsIURI} uri
    *   The URI to be converted
@@ -250,8 +308,12 @@ class UrlbarInput {
     if (selectedOneOff) {
       // If there's a selected one-off button then load a search using
       // the button's engine.
+      let result = this._resultForCurrentValue;
+      let searchString =
+        (result && (result.payload.suggestion || result.payload.query)) ||
+        this._lastSearchString;
       [url, openParams.postData] = UrlbarUtils.getSearchQueryUrl(
-        selectedOneOff.engine, this._lastSearchString);
+        selectedOneOff.engine, searchString);
       this._recordSearch(selectedOneOff.engine, event);
     } else {
       // Use the current value if we don't have a UrlbarResult e.g. because the
@@ -308,28 +370,22 @@ class UrlbarInput {
    */
   pickResult(event, resultIndex) {
     let result = this.view.getResult(resultIndex);
-    this.setValueFromResult(result);
-
-    this.view.close();
-
-    this.controller.recordSelectedResult(event, resultIndex);
-
+    let isCanonized = this.setValueFromResult(result, event);
     let where = this._whereToOpen(event);
-    let {url, postData} = UrlbarUtils.getUrlFromResult(result);
     let openParams = {
-      postData,
       allowInheritPrincipal: false,
     };
 
-    if (result.autofill) {
-      // For autofilled results, the value that should be canonized is not the
-      // autofilled value but the value that the user typed.
-      let canonizedUrl = this._maybeCanonizeURL(event, this._lastSearchString);
-      if (canonizedUrl) {
-        this._loadURL(canonizedUrl, where, openParams);
-        return;
-      }
+    this.view.close();
+    this.controller.recordSelectedResult(event, resultIndex);
+
+    if (isCanonized) {
+      this._loadURL(this.value, where, openParams);
+      return;
     }
+
+    let {url, postData} = UrlbarUtils.getUrlFromResult(result);
+    openParams.postData = postData;
 
     switch (result.type) {
       case UrlbarUtils.RESULT_TYPE.TAB_SWITCH: {
@@ -351,12 +407,6 @@ class UrlbarInput {
         return;
       }
       case UrlbarUtils.RESULT_TYPE.SEARCH: {
-        let canonizedUrl = this._maybeCanonizeURL(event,
-                result.payload.suggestion || result.payload.query);
-        if (canonizedUrl) {
-          url = canonizedUrl;
-          break;
-        }
         if (result.payload.isKeywordOffer) {
           // Picking a keyword offer just fills it in the input and doesn't
           // visit anything.  The user can then type a search string.  Also
@@ -374,7 +424,15 @@ class UrlbarInput {
         break;
       }
       case UrlbarUtils.RESULT_TYPE.OMNIBOX: {
-        // Give the extension control of handling the command.
+        // The urlbar needs to revert to the loaded url when a command is
+        // handled by the extension.
+        this.handleRevert();
+        // We don't directly handle a load when an Omnibox API result is picked,
+        // instead we forward the request to the WebExtension itself, because
+        // the value may not even be a url.
+        // We pass the keyword and content, that actually is the retrieved value
+        // prefixed by the keyword. ExtensionSearchHandler uses this keyword
+        // redundancy as a sanity check.
         ExtensionSearchHandler.handleInputEntered(result.payload.keyword,
                                                   result.payload.content,
                                                   where);
@@ -392,12 +450,23 @@ class UrlbarInput {
    * Called by the view when moving through results with the keyboard.
    *
    * @param {UrlbarResult} result The result that was selected.
+   * @param {Event} [event] The event that picked the result.
+   * @returns {boolean}
+   *   Whether the value has been canonized
    */
-  setValueFromResult(result) {
-    if (result.autofill) {
-      this._setValueFromResultAutofill(result);
+  setValueFromResult(result, event = null) {
+    // For autofilled results, the value that should be canonized is not the
+    // autofilled value but the value that the user typed.
+    let canonizedUrl = this._maybeCanonizeURL(event, result.autofill ?
+                         this._lastSearchString : this.textValue);
+    if (canonizedUrl) {
+      this.value = canonizedUrl;
     } else {
-      this.value = this._valueFromResultPayload(result);
+      this.value = this._getValueFromResult(result);
+      if (result.autofill) {
+        this.selectionStart = result.autofill.selectionStart;
+        this.selectionEnd = result.autofill.selectionEnd;
+      }
     }
     this._resultForCurrentValue = result;
 
@@ -413,6 +482,8 @@ class UrlbarInput {
         this.setAttribute("actiontype", "extension");
         break;
     }
+
+    return !!canonizedUrl;
   }
 
   /**
@@ -430,11 +501,14 @@ class UrlbarInput {
 
     let searchString = this.textValue;
 
-    // If the user has deleted text at the end of the input since the last
-    // query, then we don't want to autofill because doing so would autofill the
-    // very text the user just deleted.
+    // We should autofill only when all of the following are true:
+    // * The pref is enabled.
+    // * The end of the selection is at the end of the input.
+    // * The user hasn't deleted text at the end of the input since the last
+    //   query.  Do a simple prefix comparison to guess whether that happened.
     let enableAutofill =
       UrlbarPrefs.get("autoFill") &&
+      this.selectionEnd == searchString.length &&
       (!this._lastSearchString ||
        !this._lastSearchString.startsWith(searchString));
     this._lastSearchString = searchString;
@@ -540,13 +614,11 @@ class UrlbarInput {
 
   // Private methods below.
 
-  _setValueFromResultAutofill(result) {
-    this.value = result.autofill.value;
-    this.selectionStart = result.autofill.selectionStart;
-    this.selectionEnd = result.autofill.selectionEnd;
-  }
+  _getValueFromResult(result) {
+    if (result.autofill) {
+      return result.autofill.value;
+    }
 
-  _valueFromResultPayload(result) {
     switch (result.type) {
       case UrlbarUtils.RESULT_TYPE.KEYWORD:
         return result.payload.input;
@@ -788,9 +860,9 @@ class UrlbarInput {
   _loadURL(url, openUILinkWhere, params) {
     let browser = this.window.gBrowser.selectedBrowser;
 
-    // TODO: These should probably be set by the input field.
-    // this.value = url;
-    // browser.userTypedValue = url;
+    this.value = url;
+    browser.userTypedValue = url;
+
     if (this.window.gInitialPages.includes(url)) {
       browser.initialPageLoadedFromUserAction = url;
     }
@@ -800,6 +872,14 @@ class UrlbarInput {
       // Things may go wrong when adding url to session history,
       // but don't let that interfere with the loading of the url.
       Cu.reportError(ex);
+    }
+
+    // Reset DOS mitigations for the basic auth prompt.
+    // TODO: When bug 1498553 is resolved, we should be able to
+    // remove the !triggeringPrincipal condition here.
+    if (!params.triggeringPrincipal ||
+        params.triggeringPrincipal.isSystemPrincipal) {
+      delete browser.authPromptAbuseCounter;
     }
 
     params.allowThirdPartyFixup = true;
@@ -926,7 +1006,7 @@ class UrlbarInput {
 
   _on_blur(event) {
     this.formatValue();
-    this.closePopup();
+    this.view.close(UrlbarUtils.CANCEL_REASON.BLUR);
   }
 
   _on_focus(event) {
@@ -976,6 +1056,26 @@ class UrlbarInput {
       this.view.close();
       return;
     }
+
+    // During composition with an IME, the following events happen in order:
+    // 1. a compositionstart event
+    // 2. some input events
+    // 3. a compositionend event
+    // 4. an input event
+
+    // We should do nothing during composition.
+    if (this._compositionState == UrlbarUtils.COMPOSITION.COMPOSING) {
+      return;
+    }
+
+    if (this._compositionState == UrlbarUtils.COMPOSITION.COMMIT) {
+      this._compositionState = UrlbarUtils.COMPOSITION.NONE;
+    }
+
+    // Note: if in the future we should re-implement the legacy optimization
+    // where we didn't search again when the string is the same, skip it if we
+    // are committing a composition; since the search was canceled on
+    // composition start, we should restart it.
 
     // XXX Fill in lastKey, and add anything else we need.
     this.startQuery({
@@ -1034,14 +1134,14 @@ class UrlbarInput {
     }
 
     let oldValue = this.inputField.value;
-    let oldStart = oldValue.substring(0, this.inputField.selectionStart);
+    let oldStart = oldValue.substring(0, this.selectionStart);
     // If there is already non-whitespace content in the URL bar
     // preceding the pasted content, it's not necessary to check
     // protocols used by the pasted content:
     if (oldStart.trim()) {
       return;
     }
-    let oldEnd = oldValue.substring(this.inputField.selectionEnd);
+    let oldEnd = oldValue.substring(this.selectionEnd);
 
     let pasteData = UrlbarUtils.stripUnsafeProtocolOnPaste(originalPasteData);
     if (originalPasteData != pasteData) {
@@ -1053,8 +1153,8 @@ class UrlbarInput {
       this.inputField.value = oldStart + pasteData + oldEnd;
       // Fix up cursor/selection:
       let newCursorPos = oldStart.length + pasteData.length;
-      this.inputField.selectionStart = newCursorPos;
-      this.inputField.selectionEnd = newCursorPos;
+      this.selectionStart = newCursorPos;
+      this.selectionEnd = newCursorPos;
     }
   }
 
@@ -1063,7 +1163,7 @@ class UrlbarInput {
   }
 
   _on_TabSelect(event) {
-    this.controller.tabContextChanged();
+    this.controller.viewContextChanged();
   }
 
   _on_keydown(event) {
@@ -1075,6 +1175,26 @@ class UrlbarInput {
     this._toggleActionOverride(event);
   }
 
+  _on_compositionstart(event) {
+    if (this._compositionState == UrlbarUtils.COMPOSITION.COMPOSING) {
+      throw new Error("Trying to start a nested composition?");
+    }
+    this._compositionState = UrlbarUtils.COMPOSITION.COMPOSING;
+
+    // Close the view. This will also stop searching.
+    this.closePopup();
+  }
+
+  _on_compositionend(event) {
+    if (this._compositionState != UrlbarUtils.COMPOSITION.COMPOSING) {
+      throw new Error("Trying to stop a non existing composition?");
+    }
+
+    // We can't yet retrieve the committed value from the editor, since it isn't
+    // completely committed yet. We'll handle it at the next input event.
+    this._compositionState = UrlbarUtils.COMPOSITION.COMMIT;
+  }
+
   _on_popupshowing() {
     this.setAttribute("open", "true");
   }
@@ -1082,6 +1202,109 @@ class UrlbarInput {
   _on_popuphidden() {
     this.removeAttribute("open");
   }
+
+  _on_dragstart(event) {
+    // Drag only if the gesture starts from the input field.
+    let nodePosition = this.inputField.compareDocumentPosition(event.originalTarget);
+    if (this.inputField != event.originalTarget &&
+        !(nodePosition & Node.DOCUMENT_POSITION_CONTAINED_BY)) {
+      return;
+    }
+
+    // Drag only if the entire value is selected and it's a loaded URI.
+    if (this.selectionStart != 0 ||
+        this.selectionEnd != this.inputField.textLength ||
+        this.getAttribute("pageproxystate") != "valid") {
+      return;
+    }
+
+    let href = this.window.gBrowser.currentURI.displaySpec;
+    let title = this.window.gBrowser.contentTitle || href;
+
+    event.dataTransfer.setData("text/x-moz-url", `${href}\n${title}`);
+    event.dataTransfer.setData("text/unicode", href);
+    event.dataTransfer.setData("text/html", `<a href="${href}">${title}</a>`);
+    event.dataTransfer.effectAllowed = "copyLink";
+    event.stopPropagation();
+  }
+
+  _on_dragover(event) {
+    if (!getDroppableData(event)) {
+      event.dataTransfer.dropEffect = "none";
+    }
+  }
+
+  _on_drop(event) {
+    let droppedItem = getDroppableData(event);
+    if (!droppedItem) {
+      return;
+    }
+    let principal = Services.droppedLinkHandler.getTriggeringPrincipal(event);
+    this.value = droppedItem instanceof URL ? droppedItem.href : droppedItem;
+    this.window.SetPageProxyState("invalid");
+    this.focus();
+    this.handleCommand(null, undefined, undefined, principal);
+    // For safety reasons, in the drop case we don't want to immediately show
+    // the the dropped value, instead we want to keep showing the current page
+    // url until an onLocationChange happens.
+    // See the handling in URLBarSetURI for further details.
+    this.window.gBrowser.userTypedValue = null;
+    this.window.URLBarSetURI(null, true);
+  }
+}
+
+/**
+ * Tries to extract droppable data from a DND event.
+ * @param {Event} event The DND event to examine.
+ * @returns {URL|string|null}
+ *          null if there's a security reason for which we should do nothing.
+ *          A URL object if it's a value we can load.
+ *          A string value otherwise.
+ */
+function getDroppableData(event) {
+  let links;
+  try {
+    links = Services.droppedLinkHandler.dropLinks(event);
+  } catch (ex) {
+    // This is either an unexpected failure or a security exception; in either
+    // case we should always return null.
+    return null;
+  }
+  // The URL bar automatically handles inputs with newline characters,
+  // so we can get away with treating text/x-moz-url flavours as text/plain.
+  if (links.length > 0 && links[0].url) {
+    event.preventDefault();
+    let href = links[0].url;
+    if (UrlbarUtils.stripUnsafeProtocolOnPaste(href) != href) {
+      // We may have stripped an unsafe protocol like javascript: and if so
+      // there's no point in handling a partial drop.
+      event.stopImmediatePropagation();
+      return null;
+    }
+
+    try {
+      // If this throws, urlSecurityCheck would also throw, as that's what it
+      // does with things that don't pass the IO service's newURI constructor
+      // without fixup. It's conceivable we may want to relax this check in
+      // the future (so e.g. www.foo.com gets fixed up), but not right now.
+      let url = new URL(href);
+      // If we succeed, try to pass security checks. If this works, return the
+      // URL object. If the *security checks* fail, return null.
+      try {
+        let principal = Services.droppedLinkHandler.getTriggeringPrincipal(event);
+        BrowserUtils.urlSecurityCheck(url,
+                                      principal,
+                                      Ci.nsIScriptSecurityManager.DISALLOW_INHERIT_PRINCIPAL);
+        return url;
+      } catch (ex) {
+        return null;
+      }
+    } catch (ex) {
+      // We couldn't make a URL out of this. Continue on, and return text below.
+    }
+  }
+  // Handle as text.
+  return event.dataTransfer.getData("text/unicode");
 }
 
 /**

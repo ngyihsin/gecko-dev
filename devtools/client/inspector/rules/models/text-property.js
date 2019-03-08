@@ -46,8 +46,10 @@ class TextProperty {
     this.priority = priority;
     this.enabled = !!enabled;
     this.invisible = invisible;
-    this.cssProperties = this.rule.elementStyle.ruleView.cssProperties;
-    this.panelDoc = this.rule.elementStyle.ruleView.inspector.panelDoc;
+    this.elementStyle = this.rule.elementStyle;
+    this.cssProperties = this.elementStyle.ruleView.cssProperties;
+    this.panelDoc = this.elementStyle.ruleView.inspector.panelDoc;
+    this.userProperties = this.elementStyle.store.userProperties;
 
     this.updateComputed();
   }
@@ -66,12 +68,22 @@ class TextProperty {
   }
 
   /**
-   * See whether this property's name is known.
+   * Returns whether or not the declaration's name is known.
    *
-   * @return {Boolean} true if the property name is known, false otherwise.
+   * @return {Boolean} true if the declaration name is known, false otherwise.
    */
   get isKnownProperty() {
     return this.cssProperties.isKnown(this.name);
+  }
+
+  /**
+   * Returns whether or not the declaration is changed by the user.
+   *
+   * @return {Boolean} true if the declaration is changed by the user, false
+   * otherwise.
+   */
+  get isPropertyChanged() {
+    return this.userProperties.contains(this.rule.domRule, this.name);
   }
 
   /**
@@ -95,7 +107,7 @@ class TextProperty {
     // This is a bit funky.  To get the list of computed properties
     // for this text property, we'll set the property on a dummy element
     // and see what the computed style looks like.
-    const dummyElement = this.rule.elementStyle.ruleView.dummyElement;
+    const dummyElement = this.elementStyle.ruleView.dummyElement;
     const dummyStyle = dummyElement.style;
     dummyStyle.cssText = "";
     dummyStyle.setProperty(this.name, this.value, this.priority);
@@ -139,10 +151,8 @@ class TextProperty {
   }
 
   setValue(value, priority, force = false) {
-    const store = this.rule.elementStyle.store;
-
-    if (this.editor && value !== this.editor.committed.value || force) {
-      store.userProperties.setProperty(this.rule.domRule, this.name, value);
+    if (value !== this.value || force) {
+      this.userProperties.setProperty(this.rule.domRule, this.name, value);
     }
 
     return this.rule.setPropertyValue(this, value, priority)
@@ -164,10 +174,8 @@ class TextProperty {
   }
 
   async setName(name) {
-    if (name !== this.name && this.editor) {
-      const store = this.rule.elementStyle.store;
-      store.userProperties.setProperty(this.rule.domRule, name,
-                                       this.editor.committed.value);
+    if (name !== this.name) {
+      this.userProperties.setProperty(this.rule.domRule, name, this.value);
     }
 
     await this.rule.setPropertyName(this, name);
@@ -188,8 +196,13 @@ class TextProperty {
    */
   stringifyProperty() {
     // Get the displayed property value
-    let declaration = this.name + ": " + this.editor.valueSpan.textContent +
-      ";";
+    let declaration = this.name + ": " + this.value;
+
+    if (this.priority) {
+      declaration += " !" + this.priority;
+    }
+
+    declaration += ";";
 
     // Comment out property declarations that are not enabled
     if (!this.enabled) {

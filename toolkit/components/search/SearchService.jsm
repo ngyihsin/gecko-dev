@@ -262,13 +262,13 @@ loadListener.prototype = {
   ]),
 
   // nsIRequestObserver
-  onStartRequest: function SRCH_loadStartR(aRequest, aContext) {
+  onStartRequest: function SRCH_loadStartR(aRequest) {
     LOG("loadListener: Starting request: " + aRequest.name);
     this._stream = Cc["@mozilla.org/binaryinputstream;1"].
                    createInstance(Ci.nsIBinaryInputStream);
   },
 
-  onStopRequest: function SRCH_loadStopR(aRequest, aContext, aStatusCode) {
+  onStopRequest: function SRCH_loadStopR(aRequest, aStatusCode) {
     LOG("loadListener: Stopping request: " + aRequest.name);
 
     var requestFailed = !Components.isSuccessCode(aStatusCode);
@@ -286,7 +286,7 @@ loadListener.prototype = {
   },
 
   // nsIStreamListener
-  onDataAvailable: function SRCH_loadDAvailable(aRequest, aContext,
+  onDataAvailable: function SRCH_loadDAvailable(aRequest,
                                                 aInputStream, aOffset,
                                                 aCount) {
     this._stream.setInputStream(aInputStream);
@@ -735,12 +735,12 @@ function makeURI(aURLSpec, aCharset) {
 function makeChannel(url) {
   try {
     let uri = typeof url == "string" ? Services.io.newURI(url) : url;
-    return Services.io.newChannelFromURI2(uri,
-                                          null, /* loadingNode */
-                                          Services.scriptSecurityManager.getSystemPrincipal(),
-                                          null, /* triggeringPrincipal */
-                                          Ci.nsILoadInfo.SEC_ALLOW_CROSS_ORIGIN_DATA_IS_NULL,
-                                          Ci.nsIContentPolicy.TYPE_OTHER);
+    return Services.io.newChannelFromURI(uri,
+                                         null, /* loadingNode */
+                                         Services.scriptSecurityManager.getSystemPrincipal(),
+                                         null, /* triggeringPrincipal */
+                                         Ci.nsILoadInfo.SEC_ALLOW_CROSS_ORIGIN_DATA_IS_NULL,
+                                         Ci.nsIContentPolicy.TYPE_OTHER);
   } catch (ex) { }
 
   return null;
@@ -1085,8 +1085,9 @@ EngineURL.prototype = {
           this.addParam(param.name, value);
         }
         this._addMozParam(param);
-      } else
+      } else {
         this.addParam(param.name, param.value, param.purpose || undefined);
+      }
     }
   },
 
@@ -1148,9 +1149,10 @@ function Engine(aLocation, aIsReadOnly) {
         ERROR("Invalid URI passed to the nsISearchEngine constructor",
               Cr.NS_ERROR_INVALID_ARG);
     }
-  } else
+  } else {
     ERROR("Engine location is neither a File nor a URI object",
           Cr.NS_ERROR_INVALID_ARG);
+  }
 
   if (!this._shortName) {
     // If we don't have a shortName at this point, it's the first time we load
@@ -2504,12 +2506,12 @@ Engine.prototype = {
     let principal = Services.scriptSecurityManager
                             .createCodebasePrincipal(searchURI, attrs);
 
-    connector.speculativeConnect2(searchURI, principal, callbacks);
+    connector.speculativeConnect(searchURI, principal, callbacks);
 
     if (this.supportsResponseType(URLTYPE_SUGGEST_JSON)) {
       let suggestURI = this.getSubmission("dummy", URLTYPE_SUGGEST_JSON).uri;
       if (suggestURI.prePath != searchURI.prePath)
-        connector.speculativeConnect2(suggestURI, principal, callbacks);
+        connector.speculativeConnect(suggestURI, principal, callbacks);
     }
   },
 };
@@ -2641,7 +2643,6 @@ SearchService.prototype = {
       this._initObservers.reject(this._initRV);
     }
     Services.obs.notifyObservers(null, SEARCH_SERVICE_TOPIC, "init-complete");
-    Services.telemetry.getHistogramById("SEARCH_SERVICE_INIT_SYNC").add(false);
 
     LOG("_init: Completed _init");
     return this._initRV;
@@ -4000,13 +4001,13 @@ SearchService.prototype = {
       result.loadPath = engine._loadPath;
 
       let origin;
-      if (engine._isDefault)
+      if (engine._isDefault) {
         origin = "default";
-      else {
+      } else {
         let currentHash = engine.getAttr("loadPathHash");
-        if (!currentHash)
+        if (!currentHash) {
           origin = "unverified";
-        else {
+        } else {
           let loadPathHash = getVerificationHash(engine._loadPath);
           origin = currentHash == loadPathHash ? "verified" : "invalid";
         }
@@ -4481,8 +4482,9 @@ var engineUpdateService = {
       testEngine = new Engine(updateURI, false);
       testEngine._engineToUpdate = engine;
       testEngine._initFromURIAndLoad(updateURI);
-    } else
+    } else {
       ULOG("invalid updateURI");
+    }
 
     if (engine._iconUpdateURL) {
       // If we're updating the engine too, use the new engine object,

@@ -1389,10 +1389,9 @@ void nsLineLayout::AddBulletFrame(nsBulletFrame* aFrame,
   NS_ASSERTION(mCurrentSpan == mRootSpan, "bad linelayout user");
   NS_ASSERTION(mGotLineBox, "must have line box");
 
-  nsIFrame* blockFrame = mBlockReflowInput->mFrame;
-  NS_ASSERTION(blockFrame->IsFrameOfType(nsIFrame::eBlockFrame),
-               "must be for block");
-  if (!static_cast<nsBlockFrame*>(blockFrame)->BulletIsEmpty()) {
+  nsBlockFrame* blockFrame = do_QueryFrame(mBlockReflowInput->mFrame);
+  MOZ_ASSERT(blockFrame, "must be for block");
+  if (!blockFrame->BulletIsEmpty()) {
     mHasBullet = true;
     mLineBox->SetHasBullet();
   }
@@ -2657,7 +2656,8 @@ static bool IsRubyAlignSpaceAround(nsIFrame* aRubyBase) {
  * Assign justification gaps for justification
  * opportunities across two frames.
  */
-/* static */ int nsLineLayout::AssignInterframeJustificationGaps(
+/* static */
+int nsLineLayout::AssignInterframeJustificationGaps(
     PerFrameData* aFrame, JustificationComputationState& aState) {
   PerFrameData* prev = aState.mLastParticipant;
   MOZ_ASSERT(prev);

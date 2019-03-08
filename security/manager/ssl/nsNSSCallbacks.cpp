@@ -239,12 +239,12 @@ OCSPRequest::Run() {
   }
 
   nsCOMPtr<nsIChannel> channel;
-  rv = ios->NewChannel2(mAIALocation, nullptr, nullptr,
-                        nullptr,  // aLoadingNode
-                        nsContentUtils::GetSystemPrincipal(),
-                        nullptr,  // aTriggeringPrincipal
-                        nsILoadInfo::SEC_ALLOW_CROSS_ORIGIN_DATA_IS_NULL,
-                        nsIContentPolicy::TYPE_OTHER, getter_AddRefs(channel));
+  rv = ios->NewChannel(mAIALocation, nullptr, nullptr,
+                       nullptr,  // aLoadingNode
+                       nsContentUtils::GetSystemPrincipal(),
+                       nullptr,  // aTriggeringPrincipal
+                       nsILoadInfo::SEC_ALLOW_CROSS_ORIGIN_DATA_IS_NULL,
+                       nsIContentPolicy::TYPE_OTHER, getter_AddRefs(channel));
   if (NS_FAILED(rv)) {
     return NotifyDone(rv, lock);
   }
@@ -271,10 +271,7 @@ OCSPRequest::Run() {
     attrs.mFirstPartyDomain = mOriginAttributes.mFirstPartyDomain;
     attrs.mPrivateBrowsingId = mOriginAttributes.mPrivateBrowsingId;
 
-    nsCOMPtr<nsILoadInfo> loadInfo = channel->GetLoadInfo();
-    if (!loadInfo) {
-      return NotifyDone(NS_ERROR_FAILURE, lock);
-    }
+    nsCOMPtr<nsILoadInfo> loadInfo = channel->LoadInfo();
     rv = loadInfo->SetOriginAttributes(attrs);
     if (NS_FAILED(rv)) {
       return NotifyDone(rv, lock);
@@ -282,9 +279,10 @@ OCSPRequest::Run() {
   }
 
   nsCOMPtr<nsIInputStream> uploadStream;
-  rv = NS_NewByteInputStream(getter_AddRefs(uploadStream),
-                             reinterpret_cast<const char*>(mPOSTData.begin()),
-                             mPOSTData.length());
+  rv = NS_NewByteInputStream(
+      getter_AddRefs(uploadStream),
+      MakeSpan(reinterpret_cast<const char*>(mPOSTData.begin()),
+               mPOSTData.length()));
   if (NS_FAILED(rv)) {
     return NotifyDone(rv, lock);
   }

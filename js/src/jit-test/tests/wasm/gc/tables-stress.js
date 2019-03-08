@@ -1,6 +1,6 @@
-// |jit-test| skip-if: !wasmGeneralizedTables()
+// |jit-test| skip-if: !wasmReftypesEnabled()
 
-for ( let prefix of ['', '(table $prefix 0 32 anyfunc)']) {
+for ( let prefix of ['', '(table $prefix 0 32 funcref)']) {
     let mod = new WebAssembly.Module(wasmTextToBinary(
     `(module
        (gc_feature_opt_in 3)

@@ -584,6 +584,23 @@ class PresShell final : public nsIPresShell,
         PresShell& aPresShell);
 
     /**
+     * HandleEventUsingCoordinates() handles aGUIEvent whose
+     * IsUsingCoordinates() returns true with the following helper methods.
+     *
+     * @param aFrameForPresShell        The frame for mPresShell.
+     * @param aGUIEvent                 The handling event.  Make sure that
+     *                                  its IsUsingCoordinates() returns true.
+     * @param aEventStatus              The status of aGUIEvent.
+     * @param aDontRetargetEvents       true if we've already retarget document.
+     *                                  Otherwise, false.
+     */
+    MOZ_CAN_RUN_SCRIPT
+    nsresult HandleEventUsingCoordinates(nsIFrame* aFrameForPresShell,
+                                         WidgetGUIEvent* aGUIEvent,
+                                         nsEventStatus* aEventStatus,
+                                         bool aDontRetargetEvents);
+
+    /**
      * EventTargetData struct stores a set of a PresShell (event handler),
      * a frame (to handle the event) and a content (event target for the frame).
      */
@@ -639,9 +656,19 @@ class PresShell final : public nsIPresShell,
        */
       bool ComputeElementFromFrame(WidgetGUIEvent* aGUIEvent);
 
+      /**
+       * UpdateTouchEventTarget() updates mFrame, mPresShell and mContent if
+       * aGUIEvent is a touch event and there is new proper target.
+       *
+       * @param aGUIEvent       The handled event.  If it's not a touch event,
+       *                        this method does nothing.
+       */
+      void UpdateTouchEventTarget(WidgetGUIEvent* aGUIEvent);
+
       RefPtr<PresShell> mPresShell;
       nsIFrame* mFrame;
       nsCOMPtr<nsIContent> mContent;
+      nsCOMPtr<nsIContent> mOverrideClickTarget;
     };
 
     /**
@@ -669,6 +696,50 @@ class PresShell final : public nsIPresShell,
     MOZ_CAN_RUN_SCRIPT
     nsIFrame* GetFrameToHandleNonTouchEvent(nsIFrame* aRootFrameToHandleEvent,
                                             WidgetGUIEvent* aGUIEvent);
+
+    /**
+     * ComputeEventTargetFrameAndPresShellAtEventPoint() computes event
+     * target frame at the event point of aGUIEvent and set it to
+     * aEventTargetData.
+     *
+     * @param aRootFrameToHandleEvent   The root frame to handle aGUIEvent.
+     * @param aGUIEvent                 The handling event.
+     * @param aEventTargetData          [out] Its frame and PresShell will
+     *                                  be set.
+     * @return                          true if the caller can handle the
+     *                                  event.  Otherwise, false.
+     */
+    MOZ_CAN_RUN_SCRIPT
+    bool ComputeEventTargetFrameAndPresShellAtEventPoint(
+        nsIFrame* aRootFrameToHandleEvent, WidgetGUIEvent* aGUIEvent,
+        EventTargetData* aEventTargetData);
+
+    /**
+     * DispatchPrecedingPointerEvent() dispatches preceding pointer event for
+     * aGUIEvent if Pointer Events is enabled.
+     *
+     * @param aFrameForPresShell        Set aFrame of HandleEvent() which
+     *                                  called this method.
+     * @param aGUIEvent                 The handled event.
+     * @param aPointerCapturingContent  The content which is capturing pointer
+     *                                  events if there is.  Otherwise, nullptr.
+     * @param aDontRetargetEvents       Set aDontRetargetEvents of
+     *                                  HandleEvent() which called this method.
+     * @param aEventTargetData          [in/out] Event target data of
+     *                                  aGUIEvent.  If pointer event listeners
+     *                                  change the DOM tree or reframe the
+     *                                  target, updated by this method.
+     * @param aEventStatus              [in/out] The event status of aGUIEvent.
+     * @return                          true if the caller can handle the
+     *                                  event.  Otherwise, false.
+     */
+    MOZ_CAN_RUN_SCRIPT
+    bool DispatchPrecedingPointerEvent(nsIFrame* aFrameForPresShell,
+                                       WidgetGUIEvent* aGUIEvent,
+                                       nsIContent* aPointerCapturingContent,
+                                       bool aDontRetargetEvents,
+                                       EventTargetData* aEventTargetData,
+                                       nsEventStatus* aEventStatus);
 
     /**
      * MaybeDiscardEvent() checks whether it's safe to handle aGUIEvent right

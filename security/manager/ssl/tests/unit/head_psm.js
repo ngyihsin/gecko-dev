@@ -134,7 +134,8 @@ function readFile(file) {
   let fstream = Cc["@mozilla.org/network/file-input-stream;1"]
                   .createInstance(Ci.nsIFileInputStream);
   fstream.init(file, -1, 0, 0);
-  let data = NetUtil.readInputStreamToString(fstream, fstream.available());
+  let available = fstream.available();
+  let data = available > 0 ? NetUtil.readInputStreamToString(fstream, available) : "";
   fstream.close();
   return data;
 }
@@ -831,7 +832,8 @@ function asyncTestCertificateUsages(certdb, cert, expectedUsages) {
       let successExpected = expectedUsages.includes(usage);
       let result = new CertVerificationResult(cert.commonName, usageString,
                                               successExpected, resolve);
-      certdb.asyncVerifyCertAtTime(cert, usage, 0, null, now, result);
+      let flags = Ci.nsIX509CertDB.FLAG_LOCAL_ONLY;
+      certdb.asyncVerifyCertAtTime(cert, usage, flags, null, now, result);
     });
     promises.push(promise);
   });

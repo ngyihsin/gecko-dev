@@ -85,6 +85,15 @@ nsresult WMFDecoderModule::Startup() {
 
 already_AddRefed<MediaDataDecoder> WMFDecoderModule::CreateVideoDecoder(
     const CreateDecoderParams& aParams) {
+
+  // Temporary - forces use of VPXDecoder when alpha is present.
+  // Bug 1263836 will handle alpha scenario once implemented. It will shift
+  // the check for alpha to PDMFactory but not itself remove the need for a
+  // check.
+  if (aParams.VideoConfig().HasAlpha()) {
+    return nullptr;
+  }
+
   nsAutoPtr<WMFVideoMFTManager> manager(new WMFVideoMFTManager(
       aParams.VideoConfig(), aParams.mKnowsCompositor, aParams.mImageContainer,
       aParams.mRate.mValue, aParams.mOptions, sDXVAEnabled));
@@ -147,11 +156,13 @@ static bool CanCreateWMFDecoder() {
   return result.value();
 }
 
-/* static */ bool WMFDecoderModule::HasH264() {
+/* static */
+bool WMFDecoderModule::HasH264() {
   return CanCreateWMFDecoder<CLSID_CMSH264DecoderMFT>();
 }
 
-/* static */ bool WMFDecoderModule::HasAAC() {
+/* static */
+bool WMFDecoderModule::HasAAC() {
   return CanCreateWMFDecoder<CLSID_CMSAACDecMFT>();
 }
 

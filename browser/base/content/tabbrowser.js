@@ -778,7 +778,7 @@ window._gBrowser = {
 
     try {
       // Use the passed in resolvedURI if we have one
-      const resolvedURI = aResolvedURI || Services.io.newChannelFromURI2(
+      const resolvedURI = aResolvedURI || Services.io.newChannelFromURI(
         aURI,
         null, // loadingNode
         Services.scriptSecurityManager.getSystemPrincipal(), // loadingPrincipal
@@ -1401,6 +1401,7 @@ window._gBrowser = {
     var aNextTabParentId;
     var aFocusUrlBar;
     var aName;
+    var aCsp;
     if (arguments.length == 2 &&
         typeof arguments[1] == "object" &&
         !(arguments[1] instanceof Ci.nsIURI)) {
@@ -1429,6 +1430,7 @@ window._gBrowser = {
       aNextTabParentId = params.nextTabParentId;
       aFocusUrlBar = params.focusUrlBar;
       aName = params.name;
+      aCsp = params.csp;
     }
 
     // all callers of loadOneTab need to pass a valid triggeringPrincipal.
@@ -1465,6 +1467,7 @@ window._gBrowser = {
       nextTabParentId: aNextTabParentId,
       focusUrlBar: aFocusUrlBar,
       name: aName,
+      csp: aCsp,
     });
     if (!bgLoad)
       this.selectedTab = tab;
@@ -1481,6 +1484,7 @@ window._gBrowser = {
     replace,
     targetTab,
     triggeringPrincipal,
+    csp,
     userContextId,
   } = {}) {
     if (!aURIs.length) {
@@ -1538,6 +1542,7 @@ window._gBrowser = {
           flags,
           postData: postDatas && postDatas[0],
           triggeringPrincipal,
+          csp,
         });
       } catch (e) {
         // Ignore failure in case a URI is wrong, so we can continue
@@ -1553,6 +1558,7 @@ window._gBrowser = {
         userContextId,
         triggeringPrincipal,
         bulkOrderedOpen: multiple,
+        csp,
       };
       if (newIndex > -1) {
         params.index = newIndex;
@@ -1573,6 +1579,7 @@ window._gBrowser = {
         userContextId,
         triggeringPrincipal,
         bulkOrderedOpen: true,
+        csp,
       };
       if (targetTabIndex > -1) {
         params.index = ++tabNum;
@@ -2189,67 +2196,77 @@ window._gBrowser = {
     aTab.dispatchEvent(evt);
   },
 
-  discardBrowser(aBrowser, aForceDiscard) {
-    "use strict";
+  _mayDiscardBrowser(aTab, aForceDiscard) {
+    let browser = aTab.linkedBrowser;
+    let permitUnloadFlags = aForceDiscard ? browser.dontPromptAndUnload
+                                          : browser.dontPromptAndDontUnload;
 
-    let tab = this.getTabForBrowser(aBrowser);
-
-    let permitUnloadFlags = aForceDiscard ? aBrowser.dontPromptAndUnload : aBrowser.dontPromptAndDontUnload;
-
-    if (!tab ||
-        tab.selected ||
-        tab.closing ||
+    if (!aTab ||
+        aTab.selected ||
+        aTab.closing ||
         this._windowIsClosing ||
-        !aBrowser.isConnected ||
-        !aBrowser.isRemoteBrowser ||
-        !aBrowser.permitUnload(permitUnloadFlags).permitUnload) {
-      return;
+        !browser.isConnected ||
+        !browser.isRemoteBrowser ||
+        !browser.permitUnload(permitUnloadFlags).permitUnload) {
+      return false;
+    }
+
+    return true;
+  },
+
+  discardBrowser(aTab, aForceDiscard) {
+    "use strict";
+    let browser = aTab.linkedBrowser;
+
+    if (!this._mayDiscardBrowser(aTab, aForceDiscard)) {
+      return false;
     }
 
     // Reset webrtc sharing state.
-    if (tab._sharingState) {
-      this.setBrowserSharing(aBrowser, {});
+    if (aTab._sharingState) {
+      this.setBrowserSharing(browser, {});
     }
-    webrtcUI.forgetStreamsFromBrowser(aBrowser);
+    webrtcUI.forgetStreamsFromBrowser(browser);
 
     // Set browser parameters for when browser is restored.  Also remove
     // listeners and set up lazy restore data in SessionStore. This must
-    // be done before aBrowser is destroyed and removed from the document.
-    tab._browserParams = {
-      uriIsAboutBlank: aBrowser.currentURI.spec == "about:blank",
-      remoteType: aBrowser.remoteType,
+    // be done before browser is destroyed and removed from the document.
+    aTab._browserParams = {
+      uriIsAboutBlank: browser.currentURI.spec == "about:blank",
+      remoteType: browser.remoteType,
       usingPreloadedContent: false,
     };
 
-    SessionStore.resetBrowserToLazyState(tab);
+    SessionStore.resetBrowserToLazyState(aTab);
 
-    this._outerWindowIDBrowserMap.delete(aBrowser.outerWindowID);
+    this._outerWindowIDBrowserMap.delete(browser.outerWindowID);
 
     // Remove the tab's filter and progress listener.
-    let filter = this._tabFilters.get(tab);
-    let listener = this._tabListeners.get(tab);
-    aBrowser.webProgress.removeProgressListener(filter);
+    let filter = this._tabFilters.get(aTab);
+    let listener = this._tabListeners.get(aTab);
+    browser.webProgress.removeProgressListener(filter);
     filter.removeProgressListener(listener);
     listener.destroy();
 
-    this._tabListeners.delete(tab);
-    this._tabFilters.delete(tab);
+    this._tabListeners.delete(aTab);
+    this._tabFilters.delete(aTab);
 
     // Reset the findbar and remove it if it is attached to the tab.
-    if (tab._findBar) {
-      tab._findBar.close(true);
-      tab._findBar.remove();
-      delete tab._findBar;
+    if (aTab._findBar) {
+      aTab._findBar.close(true);
+      aTab._findBar.remove();
+      delete aTab._findBar;
     }
 
-    aBrowser.destroy();
-    this.getPanel(aBrowser).remove();
-    tab.removeAttribute("linkedpanel");
+    browser.destroy();
+    this.getPanel(browser).remove();
+    aTab.removeAttribute("linkedpanel");
 
-    this._createLazyBrowser(tab);
+    this._createLazyBrowser(aTab);
 
     let evt = new CustomEvent("TabBrowserDiscarded", { bubbles: true });
-    tab.dispatchEvent(evt);
+    aTab.dispatchEvent(evt);
+    return true;
   },
 
   /**
@@ -2311,6 +2328,7 @@ window._gBrowser = {
     userContextId,
     recordExecution,
     replayExecution,
+    csp,
   } = {}) {
     // all callers of addTab that pass a params object need to pass
     // a valid triggeringPrincipal.
@@ -2554,7 +2572,7 @@ window._gBrowser = {
           entries: [{
             url: lazyBrowserURI ? lazyBrowserURI.spec : "about:blank",
             title: lazyTabTitle,
-            triggeringPrincipal_base64: Utils.serializePrincipal(triggeringPrincipal),
+            triggeringPrincipal_base64: E10SUtils.serializePrincipal(triggeringPrincipal),
           }],
         });
       } else {
@@ -2627,6 +2645,7 @@ window._gBrowser = {
             referrerPolicy, !noReferrer, referrerURI),
           charset,
           postData,
+          csp,
         });
       } catch (ex) {
         Cu.reportError(ex);
@@ -3529,7 +3548,7 @@ window._gBrowser = {
     // because we only want to reset permissions on user reload.
     SitePermissions.clearTemporaryPermissions(browser);
     // Also reset DOS mitigations for the basic auth prompt on reload.
-    delete browser.canceledAuthenticationPromptCounter;
+    delete browser.authPromptAbuseCounter;
     PanelMultiView.hidePopup(gIdentityHandler._identityPopup);
     browser.reload();
   },
@@ -3684,13 +3703,6 @@ window._gBrowser = {
       return this.replaceTabWithWindow(tabs[0], aOptions);
     }
 
-    // The order of the tabs is preserved.
-    // To avoid multiple tab-switch, the active tab is "moved" last, if applicable.
-    // If applicable, the active tab remains active in the new window.
-    let activeTab = gBrowser.selectedTab;
-    let inactiveTabs = tabs.filter(t => t != activeTab);
-    let activeTabNewIndex = tabs.indexOf(activeTab);
-
     // Play the closing animation for all selected tabs to give
     // immediate feedback while waiting for the new window to appear.
     if (this.animationsEnabled) {
@@ -3700,33 +3712,28 @@ window._gBrowser = {
       }
     }
 
-    let win;
-    let firstInactiveTab = inactiveTabs[0];
-
-    let adoptRemainingTabs = () => {
-      for (let i = 1; i < inactiveTabs.length; i++) {
-        win.gBrowser.adoptTab(inactiveTabs[i], i);
+    // Create a new window and make it adopt the tabs, preserving their relative order.
+    // The initial tab of the new window will be selected, so it should adopt the
+    // selected tab of the original window, if applicable, or else the first moving tab.
+    // This avoids tab-switches in the new window, preserving tab laziness.
+    // However, to avoid multiple tab-switches in the original window, the other tabs
+    // should be adopted before the selected one.
+    let selectedTabIndex = Math.max(0, tabs.indexOf(gBrowser.selectedTab));
+    let selectedTab = tabs[selectedTabIndex];
+    let win = this.replaceTabWithWindow(selectedTab, aOptions);
+    win.addEventListener("before-initial-tab-adopted", () => {
+      for (let i = 0; i < tabs.length; ++i) {
+        if (i != selectedTabIndex) {
+          win.gBrowser.adoptTab(tabs[i], i);
+        }
       }
-
-      if (activeTabNewIndex > -1) {
-        win.gBrowser.adoptTab(activeTab, activeTabNewIndex, true /* aSelectTab */);
-      }
-
       // Restore tab selection
       let winVisibleTabs = win.gBrowser.visibleTabs;
       let winTabLength = winVisibleTabs.length;
       win.gBrowser.addRangeToMultiSelectedTabs(winVisibleTabs[0],
                                                winVisibleTabs[winTabLength - 1]);
-    };
-
-    // Pending tabs don't get their docshell swapped, wait for their TabClose
-    if (firstInactiveTab.hasAttribute("pending")) {
-      firstInactiveTab.addEventListener("TabClose", adoptRemainingTabs, {once: true});
-    } else {
-      firstInactiveTab.linkedBrowser.addEventListener("EndSwapDocShells", adoptRemainingTabs, {once: true});
-    }
-
-    win = this.replaceTabWithWindow(firstInactiveTab, aOptions);
+      win.gBrowser.lockClearMultiSelectionOnce();
+    }, {once: true});
     return win;
   },
 
@@ -5599,7 +5606,7 @@ var TabContextMenu = {
         // from SessionStore
         let tabState = JSON.parse(SessionStore.getTabState(tab));
         try {
-          triggeringPrincipal = Utils.deserializePrincipal(tabState.triggeringPrincipal_base64);
+          triggeringPrincipal = E10SUtils.deserializePrincipal(tabState.triggeringPrincipal_base64);
         } catch (ex) {
           continue;
         }

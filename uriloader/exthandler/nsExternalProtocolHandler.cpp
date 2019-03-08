@@ -177,8 +177,8 @@ nsresult nsExtProtocolChannel::OpenURL() {
       nsCOMPtr<nsIStreamListener> listener = mListener;
       MessageLoop::current()->PostTask(NS_NewRunnableFunction(
           "nsExtProtocolChannel::OpenURL", [self, listener]() {
-            listener->OnStartRequest(self, nullptr);
-            listener->OnStopRequest(self, nullptr, self->mStatus);
+            listener->OnStartRequest(self);
+            listener->OnStopRequest(self, self->mStatus);
           }));
     }
   }
@@ -421,15 +421,13 @@ NS_IMETHODIMP nsExtProtocolChannel::Delete() {
   return NS_OK;
 }
 
-NS_IMETHODIMP nsExtProtocolChannel::OnStartRequest(nsIRequest *aRequest,
-                                                   nsISupports *aContext) {
+NS_IMETHODIMP nsExtProtocolChannel::OnStartRequest(nsIRequest *aRequest) {
   // no data is expected
   MOZ_CRASH("No data expected from external protocol channel");
   return NS_ERROR_UNEXPECTED;
 }
 
 NS_IMETHODIMP nsExtProtocolChannel::OnStopRequest(nsIRequest *aRequest,
-                                                  nsISupports *aContext,
                                                   nsresult aStatusCode) {
   // no data is expected
   MOZ_CRASH("No data expected from external protocol channel");
@@ -437,7 +435,7 @@ NS_IMETHODIMP nsExtProtocolChannel::OnStopRequest(nsIRequest *aRequest,
 }
 
 NS_IMETHODIMP nsExtProtocolChannel::OnDataAvailable(
-    nsIRequest *aRequest, nsISupports *aContext, nsIInputStream *aInputStream,
+    nsIRequest *aRequest, nsIInputStream *aInputStream,
     uint64_t aOffset, uint32_t aCount) {
   // no data is expected
   MOZ_CRASH("No data expected from external protocol channel");
@@ -515,8 +513,8 @@ NS_IMETHODIMP nsExternalProtocolHandler::NewURI(
 }
 
 NS_IMETHODIMP
-nsExternalProtocolHandler::NewChannel2(nsIURI *aURI, nsILoadInfo *aLoadInfo,
-                                       nsIChannel **aRetval) {
+nsExternalProtocolHandler::NewChannel(nsIURI *aURI, nsILoadInfo *aLoadInfo,
+                                      nsIChannel **aRetval) {
   NS_ENSURE_TRUE(aURI, NS_ERROR_UNKNOWN_PROTOCOL);
   NS_ENSURE_TRUE(aRetval, NS_ERROR_UNKNOWN_PROTOCOL);
 
@@ -531,11 +529,6 @@ nsExternalProtocolHandler::NewChannel2(nsIURI *aURI, nsILoadInfo *aLoadInfo,
   nsCOMPtr<nsIChannel> channel = new nsExtProtocolChannel(aURI, aLoadInfo);
   channel.forget(aRetval);
   return NS_OK;
-}
-
-NS_IMETHODIMP nsExternalProtocolHandler::NewChannel(nsIURI *aURI,
-                                                    nsIChannel **_retval) {
-  return NewChannel2(aURI, nullptr, _retval);
 }
 
 ///////////////////////////////////////////////////////////////////////

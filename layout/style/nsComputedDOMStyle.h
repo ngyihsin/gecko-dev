@@ -41,7 +41,6 @@ class nsDOMCSSValueList;
 struct nsMargin;
 class nsROCSSPrimitiveValue;
 class nsStyleCoord;
-class nsStyleCorners;
 struct nsStyleFilter;
 class nsStyleGradient;
 struct nsStyleImage;
@@ -170,11 +169,10 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
    */
   typedef bool (nsComputedDOMStyle::*PercentageBaseGetter)(nscoord&);
 
-  already_AddRefed<CSSValue> GetEllipseRadii(const nsStyleCorners& aRadius,
+  already_AddRefed<CSSValue> GetEllipseRadii(const mozilla::BorderRadius&,
                                              mozilla::Corner aFullCorner);
 
-  already_AddRefed<CSSValue> GetOffsetWidthFor(mozilla::Side aSide);
-
+  already_AddRefed<CSSValue> GetOffsetWidthFor(mozilla::Side);
   already_AddRefed<CSSValue> GetAbsoluteOffset(mozilla::Side);
   nscoord GetUsedAbsoluteOffset(mozilla::Side);
   already_AddRefed<CSSValue> GetNonStaticPositionOffset(
@@ -296,10 +294,9 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   already_AddRefed<CSSValue> DoGetBorderTopLeftRadius();
   already_AddRefed<CSSValue> DoGetBorderTopRightRadius();
 
+
   /* Border Image */
-  already_AddRefed<CSSValue> DoGetBorderImageSlice();
   already_AddRefed<CSSValue> DoGetBorderImageWidth();
-  already_AddRefed<CSSValue> DoGetBorderImageOutset();
 
   /* Box Shadow */
   already_AddRefed<CSSValue> DoGetBoxShadow();
@@ -317,8 +314,6 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   already_AddRefed<CSSValue> DoGetOutlineRadiusTopLeft();
   already_AddRefed<CSSValue> DoGetOutlineRadiusTopRight();
 
-  /* z-index */
-  already_AddRefed<CSSValue> DoGetZIndex();
 
   /* Text Properties */
   already_AddRefed<CSSValue> DoGetInitialLetter();
@@ -333,7 +328,6 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   already_AddRefed<CSSValue> DoGetTextShadow();
   already_AddRefed<CSSValue> DoGetLetterSpacing();
   already_AddRefed<CSSValue> DoGetWordSpacing();
-  already_AddRefed<CSSValue> DoGetTabSize();
   already_AddRefed<CSSValue> DoGetWebkitTextStrokeWidth();
 
   /* Display properties */
@@ -344,7 +338,6 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   already_AddRefed<CSSValue> DoGetTouchAction();
   already_AddRefed<CSSValue> DoGetTransform();
   already_AddRefed<CSSValue> DoGetTransformOrigin();
-  already_AddRefed<CSSValue> DoGetPerspective();
   already_AddRefed<CSSValue> DoGetPerspectiveOrigin();
   already_AddRefed<CSSValue> DoGetScrollSnapPointsX();
   already_AddRefed<CSSValue> DoGetScrollSnapPointsY();
@@ -385,14 +378,8 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   already_AddRefed<CSSValue> DoGetMarkerEnd();
   already_AddRefed<CSSValue> DoGetMarkerMid();
   already_AddRefed<CSSValue> DoGetMarkerStart();
-  already_AddRefed<CSSValue> DoGetStrokeDasharray();
 
-  already_AddRefed<CSSValue> DoGetStrokeDashoffset();
-  already_AddRefed<CSSValue> DoGetStrokeWidth();
 
-  already_AddRefed<CSSValue> DoGetFillOpacity();
-  already_AddRefed<CSSValue> DoGetStrokeMiterlimit();
-  already_AddRefed<CSSValue> DoGetStrokeOpacity();
 
   already_AddRefed<CSSValue> DoGetFilter();
   already_AddRefed<CSSValue> DoGetPaintOrder();
@@ -482,8 +469,6 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   bool GetCBPaddingRectHeight(nscoord& aHeight);
   bool GetScrollFrameContentWidth(nscoord& aWidth);
   bool GetScrollFrameContentHeight(nscoord& aHeight);
-  bool GetFrameBoundsWidthForTransform(nscoord& aWidth);
-  bool GetFrameBoundsHeightForTransform(nscoord& aHeight);
   bool GetFrameBorderRectWidth(nscoord& aWidth);
   bool GetFrameBorderRectHeight(nscoord& aHeight);
 
@@ -505,7 +490,7 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
                          const nsTArray<nsStyleCoord>& aBoxValues,
                          bool aClampNegativeCalc);
   void BasicShapeRadiiToString(nsAString& aCssText,
-                               const nsStyleCorners& aCorners);
+                               const mozilla::BorderRadius&);
 
   // Find out if we can safely skip flushing for aDocument (i.e. pending
   // restyles does not affect mContent).

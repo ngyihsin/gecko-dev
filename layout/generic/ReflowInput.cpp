@@ -125,7 +125,7 @@ static bool CheckNextInFlowParenthood(nsIFrame* aFrame, nsIFrame* aParent) {
  * bullets to be rendered with font inflation enabled.
  */
 static nscoord FontSizeInflationListMarginAdjustment(const nsIFrame* aFrame) {
-  if (!aFrame->IsFrameOfType(nsIFrame::eBlockFrame)) {
+  if (!aFrame->IsBlockFrameOrSubclass()) {
     return 0;
   }
 
@@ -341,7 +341,8 @@ void ReflowInput::SetComputedHeight(nscoord aComputedHeight) {
   }
 }
 
-/* static */ void ReflowInput::MarkFrameChildrenDirty(nsIFrame* aFrame) {
+/* static */
+void ReflowInput::MarkFrameChildrenDirty(nsIFrame* aFrame) {
   if (aFrame->IsXULBoxFrame()) {
     return;
   }
@@ -892,7 +893,7 @@ void ReflowInput::InitDynamicReflowRoot() {
 
   // If we participate in a container's block reflow context, or margins
   // can collapse through us, we can't be a dynamic reflow root.
-  if (canBeDynamicReflowRoot && mFrame->IsFrameOfType(nsIFrame::eBlockFrame) &&
+  if (canBeDynamicReflowRoot && mFrame->IsBlockFrameOrSubclass() &&
       !mFrame->HasAllStateBits(NS_BLOCK_FLOAT_MGR | NS_BLOCK_MARGIN_ROOT)) {
     canBeDynamicReflowRoot = false;
   }
@@ -1002,9 +1003,10 @@ void ReflowInput::InitFrameType(LayoutFrameType aFrameType) {
   mFrameType = frameType;
 }
 
-/* static */ void ReflowInput::ComputeRelativeOffsets(
-    WritingMode aWM, nsIFrame* aFrame, const LogicalSize& aCBSize,
-    nsMargin& aComputedOffsets) {
+/* static */
+void ReflowInput::ComputeRelativeOffsets(WritingMode aWM, nsIFrame* aFrame,
+                                         const LogicalSize& aCBSize,
+                                         nsMargin& aComputedOffsets) {
   LogicalMargin offsets(aWM);
   mozilla::Side inlineStart = aWM.PhysicalSide(eLogicalSideIStart);
   mozilla::Side inlineEnd = aWM.PhysicalSide(eLogicalSideIEnd);
@@ -1109,8 +1111,10 @@ void ReflowInput::InitFrameType(LayoutFrameType aFrameType) {
   }
 }
 
-/* static */ void ReflowInput::ApplyRelativePositioning(
-    nsIFrame* aFrame, const nsMargin& aComputedOffsets, nsPoint* aPosition) {
+/* static */
+void ReflowInput::ApplyRelativePositioning(nsIFrame* aFrame,
+                                           const nsMargin& aComputedOffsets,
+                                           nsPoint* aPosition) {
   if (!aFrame->IsRelativelyPositioned()) {
     NS_ASSERTION(!aFrame->GetProperty(nsIFrame::NormalPositionProperty()),
                  "We assume that changing the 'position' property causes "
@@ -2487,8 +2491,8 @@ void ReflowInput::InitConstraints(nsPresContext* aPresContext,
         // Also shrink-wrap blocks that are orthogonal to their container.
         if (isBlock &&
             ((aFrameType == LayoutFrameType::Legend &&
-              mFrame->Style()->GetPseudo() !=
-                  nsCSSAnonBoxes::scrolledContent()) ||
+              mFrame->Style()->GetPseudoType() !=
+                  PseudoStyleType::scrolledContent) ||
              (aFrameType == LayoutFrameType::Scroll &&
               mFrame->GetContentInsertionFrame()->IsLegendFrame()) ||
              (mCBReflowInput &&
@@ -2890,11 +2894,12 @@ nscoord ReflowInput::CalcLineHeight() const {
                         nsLayoutUtils::FontSizeInflationFor(mFrame));
 }
 
-/* static */ nscoord ReflowInput::CalcLineHeight(nsIContent* aContent,
-                                                 ComputedStyle* aComputedStyle,
-                                                 nsPresContext* aPresContext,
-                                                 nscoord aBlockBSize,
-                                                 float aFontSizeInflation) {
+/* static */
+nscoord ReflowInput::CalcLineHeight(nsIContent* aContent,
+                                    ComputedStyle* aComputedStyle,
+                                    nsPresContext* aPresContext,
+                                    nscoord aBlockBSize,
+                                    float aFontSizeInflation) {
   MOZ_ASSERT(aComputedStyle, "Must have a ComputedStyle");
 
   nscoord lineHeight = ComputeLineHeight(aComputedStyle, aPresContext,
@@ -2931,6 +2936,9 @@ bool SizeComputationInput::ComputeMargin(WritingMode aWM,
     // We have to compute the value. Note that this calculation is
     // performed according to the writing mode of the containing block
     // (http://dev.w3.org/csswg/css-writing-modes-3/#orthogonal-flows)
+    if (aPercentBasis == NS_UNCONSTRAINEDSIZE) {
+      aPercentBasis = 0;
+    }
     LogicalMargin m(aWM);
     m.IStart(aWM) = nsLayoutUtils::ComputeCBDependentValue(
         aPercentBasis, styleMargin->mMargin.GetIStart(aWM));
@@ -2976,6 +2984,9 @@ bool SizeComputationInput::ComputePadding(WritingMode aWM,
     // according to the writing mode of the containing block
     // (http://dev.w3.org/csswg/css-writing-modes-3/#orthogonal-flows)
     // clamp negative calc() results to 0
+    if (aPercentBasis == NS_UNCONSTRAINEDSIZE) {
+      aPercentBasis = 0;
+    }
     LogicalMargin p(aWM);
     p.IStart(aWM) =
         std::max(0, nsLayoutUtils::ComputeCBDependentValue(

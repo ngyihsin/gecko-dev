@@ -53,6 +53,9 @@ if CONFIG['MOZ_MAINTENANCE_SERVICE']:
 # For debugging purposes only
 #DEFINES['DISABLE_UPDATER_AUTHENTICODE_CHECK'] = True
 
+if CONFIG['CC_TYPE'] == 'clang-cl':
+    WIN32_EXE_LDFLAGS += ['-ENTRY:wmainCRTStartup']
+
 if CONFIG['OS_ARCH'] == 'WINNT':
     DEFINES['UNICODE'] = True
     DEFINES['_UNICODE'] = True
@@ -96,7 +99,6 @@ FINAL_TARGET_FILES += [
     'data/partial_update_manifest',
     'data/replace_log_success',
     'data/simple.mar',
-    'data/wrong_product_channel.mar',
     'TestAUSReadStrings1.ini',
     'TestAUSReadStrings2.ini',
     'TestAUSReadStrings3.ini',
@@ -108,7 +110,3 @@ FINAL_TARGET_PP_FILES += [
 
 with Files("browser/browser_TelemetryUpdatePing.js"):
     BUG_COMPONENT = ("Toolkit", "Telemetry")
-
-if CONFIG['CC_TYPE'] == 'gcc':
-    CXXFLAGS += ['-Wno-format-truncation']
-

@@ -11,12 +11,11 @@
 use api::{ApiMsg, BuiltDisplayList, ClearCache, DebugCommand, DebugFlags};
 #[cfg(feature = "debugger")]
 use api::{BuiltDisplayListIter, SpecificDisplayItem};
-use api::{DevicePixelScale, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{DocumentId, DocumentLayer, ExternalScrollId, FrameMsg, HitTestFlags, HitTestResult};
-use api::{IdNamespace, LayoutPoint, PipelineId, RenderNotifier, SceneMsg, ScrollClamping};
-use api::{MemoryReport};
+use api::{IdNamespace, MemoryReport, PipelineId, RenderNotifier, SceneMsg, ScrollClamping};
 use api::{ScrollLocation, ScrollNodeState, TransactionMsg, ResourceUpdate, BlobImageKey};
 use api::{NotificationRequest, Checkpoint};
+use api::units::*;
 use api::channel::{MsgReceiver, MsgSender, Payload};
 #[cfg(feature = "capture")]
 use api::CaptureBits;
@@ -26,6 +25,7 @@ use clip_scroll_tree::{SpatialNodeIndex, ClipScrollTree};
 #[cfg(feature = "debugger")]
 use debug_server;
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
+use glyph_rasterizer::{FontInstance};
 use gpu_cache::GpuCache;
 use hit_test::{HitTest, HitTester};
 use intern_types;
@@ -51,22 +51,22 @@ use serde::{Serialize, Deserialize};
 use serde_json;
 #[cfg(any(feature = "capture", feature = "replay"))]
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::mem::replace;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::time::{UNIX_EPOCH, SystemTime};
 use std::u32;
 #[cfg(feature = "replay")]
 use tiling::Frame;
 use time::precise_time_ns;
-use util::{Recycler, drain_filter};
+use util::{Recycler, VecHelper, drain_filter};
+
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Clone)]
 pub struct DocumentView {
-    pub window_size: DeviceIntSize,
-    pub inner_rect: DeviceIntRect,
+    pub framebuffer_rect: FramebufferIntRect,
     pub layer: DocumentLayer,
     pub pan: DeviceIntPoint,
     pub device_pixel_ratio: f32,
@@ -355,7 +355,7 @@ struct Document {
 impl Document {
     pub fn new(
         id: DocumentId,
-        window_size: DeviceIntSize,
+        size: FramebufferIntSize,
         layer: DocumentLayer,
         default_device_pixel_ratio: f32,
     ) -> Self {
@@ -363,8 +363,7 @@ impl Document {
             scene: Scene::new(),
             removed_pipelines: Vec::new(),
             view: DocumentView {
-                window_size,
-                inner_rect: DeviceIntRect::new(DeviceIntPoint::zero(), window_size),
+                framebuffer_rect: FramebufferIntRect::new(FramebufferIntPoint::zero(), size),
                 layer,
                 pan: DeviceIntPoint::zero(),
                 page_zoom_factor: 1.0,
@@ -392,7 +391,7 @@ impl Document {
     }
 
     fn has_pixels(&self) -> bool {
-        !self.view.window_size.is_empty_or_negative()
+        !self.view.framebuffer_rect.size.is_empty_or_negative()
     }
 
     fn process_frame_msg(
@@ -402,13 +401,6 @@ impl Document {
         match message {
             FrameMsg::UpdateEpoch(pipeline_id, epoch) => {
                 self.scene.update_epoch(pipeline_id, epoch);
-            }
-            FrameMsg::EnableFrameOutput(pipeline_id, enable) => {
-                if enable {
-                    self.output_pipelines.insert(pipeline_id);
-                } else {
-                    self.output_pipelines.remove(&pipeline_id);
-                }
             }
             FrameMsg::Scroll(delta, cursor) => {
                 profile_scope!("Scroll");
@@ -520,6 +512,7 @@ impl Document {
                 &self.scene.pipelines,
                 accumulated_scale_factor,
                 self.view.layer,
+                self.view.framebuffer_rect.origin,
                 pan,
                 &mut resource_profile.texture_cache,
                 &mut resource_profile.gpu_cache,
@@ -568,7 +561,7 @@ impl Document {
     }
 
     pub fn updated_pipeline_info(&mut self) -> PipelineInfo {
-        let removed_pipelines = replace(&mut self.removed_pipelines, Vec::new());
+        let removed_pipelines = self.removed_pipelines.take_and_preallocate();
         PipelineInfo {
             epochs: self.scene.pipeline_epochs.clone(),
             removed_pipelines,
@@ -756,13 +749,11 @@ impl RenderBackend {
             SceneMsg::SetPageZoom(factor) => {
                 doc.view.page_zoom_factor = factor.get();
             }
-            SceneMsg::SetWindowParameters {
-                window_size,
-                inner_rect,
+            SceneMsg::SetDocumentView {
+                framebuffer_rect,
                 device_pixel_ratio,
             } => {
-                doc.view.window_size = window_size;
-                doc.view.inner_rect = inner_rect;
+                doc.view.framebuffer_rect = framebuffer_rect;
                 doc.view.device_pixel_ratio = device_pixel_ratio;
             }
             SceneMsg::SetDisplayList {
@@ -832,13 +823,18 @@ impl RenderBackend {
             }
             SceneMsg::SetRootPipeline(pipeline_id) => {
                 profile_scope!("SetRootPipeline");
-
                 txn.set_root_pipeline = Some(pipeline_id);
             }
             SceneMsg::RemovePipeline(pipeline_id) => {
                 profile_scope!("RemovePipeline");
-
                 txn.removed_pipelines.push(pipeline_id);
+            }
+            SceneMsg::EnableFrameOutput(pipeline_id, enable) => {
+                if enable {
+                    doc.output_pipelines.insert(pipeline_id);
+                } else {
+                    doc.output_pipelines.remove(&pipeline_id);
+                }
             }
         }
     }
@@ -893,7 +889,7 @@ impl RenderBackend {
                         }
 
                         self.resource_cache.add_rasterized_blob_images(
-                            replace(&mut txn.rasterized_blobs, Vec::new())
+                            txn.rasterized_blobs.take()
                         );
                         if let Some((rasterizer, info)) = txn.blob_rasterizer.take() {
                             self.resource_cache.set_blob_rasterizer(rasterizer, info);
@@ -901,10 +897,10 @@ impl RenderBackend {
 
                         self.update_document(
                             txn.document_id,
-                            replace(&mut txn.resource_updates, Vec::new()),
+                            txn.resource_updates.take(),
                             txn.interner_updates.take(),
-                            replace(&mut txn.frame_ops, Vec::new()),
-                            replace(&mut txn.notifications, Vec::new()),
+                            txn.frame_ops.take(),
+                            txn.notifications.take(),
                             txn.render_frame,
                             txn.invalidate_rendered_frame,
                             &mut frame_counter,
@@ -990,7 +986,8 @@ impl RenderBackend {
             }
             ApiMsg::GetGlyphDimensions(instance_key, glyph_indices, tx) => {
                 let mut glyph_dimensions = Vec::with_capacity(glyph_indices.len());
-                if let Some(font) = self.resource_cache.get_font_instance(instance_key) {
+                if let Some(base) = self.resource_cache.get_font_instance(instance_key) {
+                    let font = FontInstance::from_base(Arc::clone(&base));
                     for glyph_index in &glyph_indices {
                         let glyph_dim = self.resource_cache.get_glyph_dimensions(&font, *glyph_index);
                         glyph_dimensions.push(glyph_dim);
@@ -1098,7 +1095,6 @@ impl RenderBackend {
                             let captured = CapturedDocument {
                                 document_id: *id,
                                 root_pipeline_id: doc.scene.root_pipeline_id,
-                                window_size: doc.view.window_size,
                             };
                             tx.send(captured).unwrap();
 
@@ -1249,10 +1245,10 @@ impl RenderBackend {
 
             self.update_document(
                 txn.document_id,
-                replace(&mut txn.resource_updates, Vec::new()),
+                txn.resource_updates.take(),
                 None,
-                replace(&mut txn.frame_ops, Vec::new()),
-                replace(&mut txn.notifications, Vec::new()),
+                txn.frame_ops.take(),
+                txn.notifications.take(),
                 txn.render_frame,
                 txn.invalidate_rendered_frame,
                 frame_counter,
@@ -1591,6 +1587,8 @@ impl ToDebugString for SpecificDisplayItem {
             SpecificDisplayItem::PushShadow(..) => String::from("push_shadow"),
             SpecificDisplayItem::PushReferenceFrame(..) => String::from("push_reference_frame"),
             SpecificDisplayItem::PushStackingContext(..) => String::from("push_stacking_context"),
+            SpecificDisplayItem::SetFilterOps => String::from("set_filter_ops"),
+            SpecificDisplayItem::SetFilterData => String::from("set_filter_data"),
             SpecificDisplayItem::RadialGradient(..) => String::from("radial_gradient"),
             SpecificDisplayItem::Rectangle(..) => String::from("rectangle"),
             SpecificDisplayItem::ScrollFrame(..) => String::from("scroll_frame"),

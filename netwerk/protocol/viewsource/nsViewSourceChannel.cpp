@@ -60,7 +60,7 @@ nsresult nsViewSourceChannel::Init(nsIURI *uri) {
     return NS_ERROR_INVALID_ARG;
   }
 
-  // This function is called from within nsViewSourceHandler::NewChannel2
+  // This function is called from within nsViewSourceHandler::NewChannel
   // and sets the right loadInfo right after returning from this function.
   // Until then we follow the principal of least privilege and use
   // nullPrincipal as the loadingPrincipal and the least permissive
@@ -68,7 +68,7 @@ nsresult nsViewSourceChannel::Init(nsIURI *uri) {
   nsCOMPtr<nsIPrincipal> nullPrincipal =
       mozilla::NullPrincipal::CreateWithoutOriginAttributes();
 
-  rv = pService->NewChannel2(
+  rv = pService->NewChannel(
       path,
       nullptr,  // aOriginCharset
       nullptr,  // aCharSet
@@ -136,11 +136,7 @@ nsresult nsViewSourceChannel::UpdateLoadInfoResultPrincipalURI() {
 
   MOZ_ASSERT(mChannel);
 
-  nsCOMPtr<nsILoadInfo> channelLoadInfo = mChannel->GetLoadInfo();
-  if (!channelLoadInfo) {
-    return NS_OK;
-  }
-
+  nsCOMPtr<nsILoadInfo> channelLoadInfo = mChannel->LoadInfo();
   nsCOMPtr<nsIURI> channelResultPrincipalURI;
   rv = channelLoadInfo->GetResultPrincipalURI(
       getter_AddRefs(channelResultPrincipalURI));
@@ -290,21 +286,11 @@ nsViewSourceChannel::GetURI(nsIURI **aURI) {
 NS_IMETHODIMP
 nsViewSourceChannel::Open(nsIInputStream **aStream) {
   NS_ENSURE_TRUE(mChannel, NS_ERROR_FAILURE);
-  nsCOMPtr<nsILoadInfo> loadInfo = mChannel->GetLoadInfo();
-  if (!loadInfo) {
-    MOZ_ASSERT(loadInfo, "can not enforce security without loadInfo");
-    return NS_ERROR_UNEXPECTED;
-  }
   return Open(aStream);
 }
 
 NS_IMETHODIMP
 nsViewSourceChannel::AsyncOpen(nsIStreamListener *aListener) {
-  nsCOMPtr<nsILoadInfo> loadInfo = mChannel->GetLoadInfo();
-  if (!loadInfo) {
-    MOZ_ASSERT(loadInfo, "can not enforce security without loadInfo");
-    return NS_ERROR_UNEXPECTED;
-  }
   // We can't ensure GetInitialSecurityCheckDone here
 
   NS_ENSURE_TRUE(mChannel, NS_ERROR_FAILURE);
@@ -631,8 +617,7 @@ nsViewSourceChannel::GetProtocolVersion(nsACString &aProtocolVersion) {
 
 // nsIRequestObserver methods
 NS_IMETHODIMP
-nsViewSourceChannel::OnStartRequest(nsIRequest *aRequest,
-                                    nsISupports *aContext) {
+nsViewSourceChannel::OnStartRequest(nsIRequest *aRequest) {
   NS_ENSURE_TRUE(mListener, NS_ERROR_FAILURE);
   // The channel may have gotten redirected... Time to update our info
   mChannel = do_QueryInterface(aRequest);
@@ -646,12 +631,11 @@ nsViewSourceChannel::OnStartRequest(nsIRequest *aRequest,
     Cancel(rv);
   }
 
-  return mListener->OnStartRequest(static_cast<nsIViewSourceChannel *>(this),
-                                   aContext);
+  return mListener->OnStartRequest(static_cast<nsIViewSourceChannel *>(this));
 }
 
 NS_IMETHODIMP
-nsViewSourceChannel::OnStopRequest(nsIRequest *aRequest, nsISupports *aContext,
+nsViewSourceChannel::OnStopRequest(nsIRequest *aRequest,
                                    nsresult aStatus) {
   NS_ENSURE_TRUE(mListener, NS_ERROR_FAILURE);
   if (mChannel) {
@@ -663,18 +647,17 @@ nsViewSourceChannel::OnStopRequest(nsIRequest *aRequest, nsISupports *aContext,
     }
   }
   return mListener->OnStopRequest(static_cast<nsIViewSourceChannel *>(this),
-                                  aContext, aStatus);
+                                  aStatus);
 }
 
 // nsIStreamListener methods
 NS_IMETHODIMP
 nsViewSourceChannel::OnDataAvailable(nsIRequest *aRequest,
-                                     nsISupports *aContext,
                                      nsIInputStream *aInputStream,
                                      uint64_t aSourceOffset, uint32_t aLength) {
   NS_ENSURE_TRUE(mListener, NS_ERROR_FAILURE);
   return mListener->OnDataAvailable(static_cast<nsIViewSourceChannel *>(this),
-                                    aContext, aInputStream, aSourceOffset,
+                                    aInputStream, aSourceOffset,
                                     aLength);
 }
 
@@ -1045,7 +1028,7 @@ nsViewSourceChannel::LogMimeTypeMismatch(const nsACString &aMessageName,
                                            aContentType);
 }
 
-const nsTArray<mozilla::Tuple<nsCString, nsCString>>
+const nsTArray<mozilla::net::PreferredAlternativeDataTypeParams>
     &nsViewSourceChannel::PreferredAlternativeDataTypes() {
   if (mCacheInfoChannel) {
     return mCacheInfoChannel->PreferredAlternativeDataTypes();

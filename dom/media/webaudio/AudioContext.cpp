@@ -240,7 +240,8 @@ JSObject* AudioContext::WrapObject(JSContext* aCx,
   }
 }
 
-/* static */ already_AddRefed<AudioContext> AudioContext::Constructor(
+/* static */
+already_AddRefed<AudioContext> AudioContext::Constructor(
     const GlobalObject& aGlobal, const AudioContextOptions& aOptions,
     ErrorResult& aRv) {
   // Audio playback is not yet supported when recording or replaying. See bug
@@ -283,14 +284,16 @@ JSObject* AudioContext::WrapObject(JSContext* aCx,
   return object.forget();
 }
 
-/* static */ already_AddRefed<AudioContext> AudioContext::Constructor(
+/* static */
+already_AddRefed<AudioContext> AudioContext::Constructor(
     const GlobalObject& aGlobal, const OfflineAudioContextOptions& aOptions,
     ErrorResult& aRv) {
   return Constructor(aGlobal, aOptions.mNumberOfChannels, aOptions.mLength,
                      aOptions.mSampleRate, aRv);
 }
 
-/* static */ already_AddRefed<AudioContext> AudioContext::Constructor(
+/* static */
+already_AddRefed<AudioContext> AudioContext::Constructor(
     const GlobalObject& aGlobal, uint32_t aNumberOfChannels, uint32_t aLength,
     float aSampleRate, ErrorResult& aRv) {
   // Audio playback is not yet supported when recording or replaying. See bug
@@ -1196,6 +1199,13 @@ void AudioContext::Unmute() const {
   if (mDestination) {
     mDestination->Unmute();
   }
+}
+
+void AudioContext::SetParamMapForWorkletName(
+    const nsAString& aName, AudioParamDescriptorMap* aParamMap) {
+  MOZ_ASSERT(!mWorkletParamDescriptors.GetValue(aName));
+  Unused << mWorkletParamDescriptors.Put(aName, std::move(*aParamMap),
+                                         fallible);
 }
 
 size_t AudioContext::SizeOfIncludingThis(

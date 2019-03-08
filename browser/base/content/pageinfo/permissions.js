@@ -38,13 +38,15 @@ function onLoadPermission(uri, principal) {
     var hostText = document.getElementById("hostText");
     hostText.value = gPermURI.displayPrePath;
 
-    for (var i of gPermissions)
+    for (var i of gPermissions) {
       initRow(i);
+    }
     Services.obs.addObserver(permissionObserver, "perm-changed");
     onUnloadRegistry.push(onUnloadPermission);
     permTab.hidden = false;
-  } else
+  } else {
     permTab.hidden = true;
+  }
 }
 
 function onUnloadPermission() {
@@ -138,7 +140,7 @@ function createRow(aPartId) {
   let checkbox = document.createXULElement("checkbox");
   checkbox.setAttribute("id", aPartId + "Def");
   checkbox.setAttribute("oncommand", "onCheckboxClick('" + aPartId + "');");
-  checkbox.setAttribute("label", gBundle.getString("permissions.useDefault"));
+  document.l10n.setAttributes(checkbox, "permissions-use-default");
   controls.appendChild(checkbox);
 
   let spacer = document.createXULElement("spacer");

@@ -762,22 +762,6 @@ SessionStore.prototype = {
       return;
     }
 
-    // Filter out any top level "wyciwyg" entries that might have come through.
-    // Once we can figure out a GroupedSHistory-compatible way of doing this,
-    // we should move this into SessionHistory.jsm (see bug 1340874).
-    let historyIndex = data.index - 1;
-    for (let i = 0; i < data.entries.length; i++) {
-      if (data.entries[i].url.startsWith("wyciwyg")) {
-        // Adjust the index to account for skipped history entries.
-        if (i <= historyIndex) {
-          data.index--;
-          historyIndex--;
-        }
-        data.entries.splice(i, 1);
-        i--;
-      }
-    }
-
     let formdata;
     let scrolldata;
     if (aBrowser.__SS_data) {
@@ -893,7 +877,7 @@ SessionStore.prototype = {
 
     // Store the form data.
     let content = aBrowser.contentWindow;
-    let [formdata] = Utils.mapFrameTree(content, SessionStoreUtils.collectFormData);
+    let formdata = SessionStoreUtils.collectFormData(content);
     formdata = PrivacyFilter.filterFormData(formdata || {});
 
     // If we found any form data, main content or frames, let's save it
@@ -932,8 +916,7 @@ SessionStore.prototype = {
 
     // Save the scroll position itself.
     let content = aBrowser.contentWindow;
-    let [scrolldata] =
-        Utils.mapFrameTree(content, SessionStoreUtils.collectScrollPosition);
+    let scrolldata = SessionStoreUtils.collectScrollPosition(content);
     scrolldata = scrolldata || {};
 
     // Save the current document resolution.

@@ -610,8 +610,9 @@ void VRSystemManagerExternal::CloseShmem() {
 #endif
 }
 
-/*static*/ already_AddRefed<VRSystemManagerExternal>
-VRSystemManagerExternal::Create(VRExternalShmem* aAPIShmem /* = nullptr*/) {
+/*static*/
+already_AddRefed<VRSystemManagerExternal> VRSystemManagerExternal::Create(
+    VRExternalShmem* aAPIShmem /* = nullptr*/) {
   MOZ_ASSERT(NS_IsMainThread());
 
   if (!gfxPrefs::VREnabled()) {
@@ -892,10 +893,6 @@ void VRSystemManagerExternal::PushState(VRBrowserState* aBrowserState,
     status = lock.GetStatus();
 #  endif  // defined(XP_WIN)
     if (status) {
-      mExternalShmem->geckoGenerationA++;
-      memcpy((void*)&(mExternalShmem->geckoState), (void*)aBrowserState,
-             sizeof(VRBrowserState));
-      mExternalShmem->geckoGenerationB++;
       mExternalShmem->geckoGenerationA++;
       memcpy((void*)&(mExternalShmem->geckoState), (void*)aBrowserState,
              sizeof(VRBrowserState));

@@ -288,11 +288,10 @@ static void ForEachPing(nsIContent* aContent, ForEachPingCallback aCallback,
 }
 
 // Spec: http://whatwg.org/specs/web-apps/current-work/#ping
-/*static*/ void nsPingListener::DispatchPings(nsIDocShell* aDocShell,
-                                              nsIContent* aContent,
-                                              nsIURI* aTarget,
-                                              nsIURI* aReferrer,
-                                              uint32_t aReferrerPolicy) {
+/*static*/
+void nsPingListener::DispatchPings(nsIDocShell* aDocShell, nsIContent* aContent,
+                                   nsIURI* aTarget, nsIURI* aReferrer,
+                                   uint32_t aReferrerPolicy) {
   SendPingInfo info;
 
   if (!PingsEnabled(&info.maxPings, &info.requireSameHost)) {
@@ -328,12 +327,12 @@ nsresult nsPingListener::StartTimeout(DocGroup* aDocGroup) {
 }
 
 NS_IMETHODIMP
-nsPingListener::OnStartRequest(nsIRequest* aRequest, nsISupports* aContext) {
+nsPingListener::OnStartRequest(nsIRequest* aRequest) {
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsPingListener::OnDataAvailable(nsIRequest* aRequest, nsISupports* aContext,
+nsPingListener::OnDataAvailable(nsIRequest* aRequest,
                                 nsIInputStream* aStream, uint64_t aOffset,
                                 uint32_t aCount) {
   uint32_t result;
@@ -341,7 +340,7 @@ nsPingListener::OnDataAvailable(nsIRequest* aRequest, nsISupports* aContext,
 }
 
 NS_IMETHODIMP
-nsPingListener::OnStopRequest(nsIRequest* aRequest, nsISupports* aContext,
+nsPingListener::OnStopRequest(nsIRequest* aRequest,
                               nsresult aStatus) {
   mLoadGroup = nullptr;
 

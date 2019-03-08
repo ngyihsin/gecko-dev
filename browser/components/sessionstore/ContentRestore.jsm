@@ -212,10 +212,9 @@ ContentRestoreInternal.prototype = {
           referrerInfo = new ReferrerInfo(referrerPolicy, true, referrer);
         }
         let postData = loadArguments.postData ?
-                       Utils.makeInputStream(loadArguments.postData) : null;
-        let triggeringPrincipal = loadArguments.triggeringPrincipal
-                                  ? Utils.deserializePrincipal(loadArguments.triggeringPrincipal)
-                                  : Services.scriptSecurityManager.createNullPrincipal({});
+                       E10SUtils.makeInputStream(loadArguments.postData) : null;
+        let triggeringPrincipal = E10SUtils.deserializePrincipal(loadArguments.triggeringPrincipal, () => Services.scriptSecurityManager.createNullPrincipal({}));
+        let csp = loadArguments.csp ? E10SUtils.deserializeCSP(loadArguments.csp) : null;
 
         if (loadArguments.userContextId) {
           webNavigation.setOriginAttributesBeforeLoading({ userContextId: loadArguments.userContextId });
@@ -225,6 +224,7 @@ ContentRestoreInternal.prototype = {
           loadFlags: loadArguments.flags,
           referrerInfo,
           postData,
+          csp,
         };
         webNavigation.loadURI(loadArguments.uri, loadURIOptions);
       } else if (tabData.userTypedValue && tabData.userTypedClear) {

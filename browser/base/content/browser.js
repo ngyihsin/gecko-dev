@@ -28,7 +28,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   E10SUtils: "resource://gre/modules/E10SUtils.jsm",
   ExtensionsUI: "resource:///modules/ExtensionsUI.jsm",
   FormValidationHandler: "resource:///modules/FormValidationHandler.jsm",
-  LanguagePrompt: "resource://gre/modules/LanguagePrompt.jsm",
   HomePage: "resource:///modules/HomePage.jsm",
   LightweightThemeConsumer: "resource://gre/modules/LightweightThemeConsumer.jsm",
   LightweightThemeManager: "resource://gre/modules/LightweightThemeManager.jsm",
@@ -49,7 +48,10 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.jsm",
   ProcessHangMonitor: "resource:///modules/ProcessHangMonitor.jsm",
   PromiseUtils: "resource://gre/modules/PromiseUtils.jsm",
+  // TODO (Bug 1529552): Remove once old urlbar code goes away.
+  ReaderMode: "resource://gre/modules/ReaderMode.jsm",
   ReaderParent: "resource:///modules/ReaderParent.jsm",
+  RFPHelper: "resource://gre/modules/RFPHelper.jsm",
   SafeBrowsing: "resource://gre/modules/SafeBrowsing.jsm",
   Sanitizer: "resource:///modules/Sanitizer.jsm",
   SessionStartup: "resource:///modules/sessionstore/SessionStartup.jsm",
@@ -69,7 +71,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   UrlbarTokenizer: "resource:///modules/UrlbarTokenizer.jsm",
   UrlbarUtils: "resource:///modules/UrlbarUtils.jsm",
   UrlbarValueFormatter: "resource:///modules/UrlbarValueFormatter.jsm",
-  Utils: "resource://gre/modules/sessionstore/Utils.jsm",
   Weave: "resource://services-sync/main.js",
   WebNavigationFrames: "resource://gre/modules/WebNavigationFrames.jsm",
   fxAccounts: "resource://gre/modules/FxAccounts.jsm",
@@ -80,11 +81,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
 if (AppConstants.MOZ_CRASHREPORTER) {
   ChromeUtils.defineModuleGetter(this, "PluginCrashReporter",
     "resource:///modules/ContentCrashHandlers.jsm");
-}
-
-if (!Services.prefs.getBoolPref("browser.urlbar.quantumbar", false)) {
-  ChromeUtils.defineModuleGetter(this, "ReaderMode",
-    "resource://gre/modules/ReaderMode.jsm");
 }
 
 XPCOMUtils.defineLazyScriptGetter(this, "PlacesTreeView",
@@ -191,18 +187,82 @@ XPCOMUtils.defineLazyGetter(this, "gNavToolbox", () => {
   return document.getElementById("navigator-toolbox");
 });
 
-XPCOMUtils.defineLazyGetter(this, "gURLBar", () => {
-  let element = document.getElementById("urlbar");
+XPCOMUtils.defineLazyGetter(this, "gURLBar", () => gURLBarHandler.urlbar);
 
-  if (!Services.prefs.getBoolPref("browser.urlbar.quantumbar", false)) {
-    return element;
-  }
+/**
+ * Tracks the urlbar object, allowing to reinitiate it when necessary, e.g. on
+ * customization or when the quantumbar pref changes.
+ */
+var gURLBarHandler = {
+  /**
+   * The urlbar binding or object.
+   */
+  get urlbar() {
+    if (!this._urlbar) {
+      this.textbox = document.getElementById("urlbar");
+      this._updateBinding();
+      if (this.quantumbar) {
+        this._urlbar = new UrlbarInput({textbox: this.textbox});
+        if (this._lastValue) {
+          this._urlbar.value = this._lastValue;
+          delete this._lastValue;
+        }
+      } else {
+        this._urlbar = this.textbox;
+      }
+      gBrowser.tabContainer.addEventListener("TabSelect", this._urlbar);
+    }
+    return this._urlbar;
+  },
 
-  return new UrlbarInput({
-    textbox: element,
-    panel: document.getElementById("urlbar-results"),
-  });
-});
+  /**
+   * Invoked when the quantumbar pref changes.
+   */
+  handlePrefChange() {
+    this._updateBinding();
+    this._reset();
+  },
+
+  /**
+   * Invoked by CustomizationHandler when a customization ends.
+   */
+  customizeEnd() {
+    this._reset();
+  },
+
+  /**
+   * Rebuilds the textbox binding by detaching the element when necessary.
+   */
+  _updateBinding() {
+    let quantumbarApplied = this.textbox.getAttribute("quantumbar") == "true";
+    if (quantumbarApplied != this.quantumbar) {
+      let placeholder = document.createXULElement("toolbarpaletteitem");
+      let parent = this.textbox.parentNode;
+      parent.replaceChild(placeholder, this.textbox);
+      this.textbox.setAttribute("quantumbar", this.quantumbar);
+      parent.replaceChild(this.textbox, placeholder);
+    }
+  },
+
+  /**
+   *  Used to reset the gURLBar value.
+   */
+  _reset() {
+    if (this._urlbar) {
+      gBrowser.tabContainer.removeEventListener("TabSelect", this._urlbar);
+      if (this._urlbar.constructor.name == "UrlbarInput") {
+        this._lastValue = this._urlbar.value;
+        this._urlbar.uninit();
+      }
+      delete this._urlbar;
+      gURLBar = this.urlbar;
+    }
+  },
+};
+
+XPCOMUtils.defineLazyPreferenceGetter(gURLBarHandler, "quantumbar",
+                                      "browser.urlbar.quantumbar", false,
+                                      gURLBarHandler.handlePrefChange.bind(gURLBarHandler));
 
 // High priority notification bars shown at the top of the window.
 XPCOMUtils.defineLazyGetter(this, "gHighPriorityNotificationBox", () => {
@@ -1057,6 +1117,7 @@ function _loadURI(browser, uri, params = {}) {
     referrerInfo,
     postData,
     userContextId,
+    csp,
   } = params || {};
 
   if (!triggeringPrincipal) {
@@ -1086,6 +1147,7 @@ function _loadURI(browser, uri, params = {}) {
   }
   let loadURIOptions = {
     triggeringPrincipal,
+    csp,
     loadFlags: flags,
     referrerInfo,
     postData,
@@ -1120,6 +1182,7 @@ function _loadURI(browser, uri, params = {}) {
         remoteType: requiredRemoteType,
         postData,
         newFrameloader,
+        csp: csp ? gSerializationHelper.serializeToString(csp) : null,
       };
 
       if (userContextId) {
@@ -1406,6 +1469,9 @@ var gBrowserInit = {
     // avoid an about:blank flash.
     let tabToAdopt = this.getTabToAdopt();
     if (tabToAdopt) {
+      let evt = new CustomEvent("before-initial-tab-adopted", { bubbles: true });
+      gBrowser.tabpanels.dispatchEvent(evt);
+
       // Stop the about:blank load
       gBrowser.stop();
       // make sure it has a docshell
@@ -1583,8 +1649,6 @@ var gBrowserInit = {
       PanicButtonNotifier.init();
     });
 
-    gBrowser.tabContainer.addEventListener("TabSelect", gURLBar);
-
     gBrowser.tabContainer.addEventListener("TabSelect", function() {
       for (let panel of document.querySelectorAll("panel[tabspecific='true']")) {
         if (panel.state == "open") {
@@ -1689,6 +1753,7 @@ var gBrowserInit = {
             userContextId: window.arguments[6],
             triggeringPrincipal: window.arguments[8] || Services.scriptSecurityManager.getSystemPrincipal(),
             allowInheritPrincipal: window.arguments[9],
+            csp: window.arguments[10],
           });
         } catch (e) {}
       } else if (window.arguments.length >= 3) {
@@ -1701,6 +1766,7 @@ var gBrowserInit = {
         //                 [7]: originPrincipal (nsIPrincipal)
         //                 [8]: triggeringPrincipal (nsIPrincipal)
         //                 [9]: allowInheritPrincipal (bool)
+        //                [10]: csp (nsIContentSecurityPolicy)
         let referrerURI = window.arguments[2];
         if (typeof(referrerURI) == "string") {
           try {
@@ -1720,7 +1786,7 @@ var gBrowserInit = {
                 window.arguments[7], !!window.arguments[7], window.arguments[8],
                 // TODO fix allowInheritPrincipal to default to false.
                 // Default to true unless explicitly set to false because of bug 1475201.
-                window.arguments[9] !== false);
+                window.arguments[9] !== false, window.arguments[10]);
         window.focus();
       } else {
         // Note: loadOneOrMoreURIs *must not* be called if window.arguments.length >= 3.
@@ -1949,8 +2015,6 @@ var gBrowserInit = {
       ToolbarKeyboardNavigator.uninit();
     }
 
-    LanguagePrompt.uninit();
-
     BrowserSearch.uninit();
 
     // Now either cancel delayedStartup, or clean up the services initialized from
@@ -2060,6 +2124,8 @@ function HandleAppCommandEvent(evt) {
 }
 
 function gotoHistoryIndex(aEvent) {
+  aEvent = getRootEvent(aEvent);
+
   let index = aEvent.target.getAttribute("index");
   if (!index)
     return false;
@@ -2136,6 +2202,7 @@ function BrowserStop() {
 }
 
 function BrowserReloadOrDuplicate(aEvent) {
+  aEvent = getRootEvent(aEvent);
   let metaKeyPressed = AppConstants.platform == "macosx"
                        ? aEvent.metaKey
                        : aEvent.ctrlKey;
@@ -2174,7 +2241,7 @@ function BrowserHome(aEvent) {
       aEvent.button == 2) // right-click: do nothing
     return;
 
-  var homePage = HomePage.get();
+  var homePage = HomePage.get(window);
   var where = whereToOpenLink(aEvent, false, true);
   var urls;
   var notifyObservers;
@@ -2438,7 +2505,7 @@ function BrowserTryToCloseWindow() {
 
 function loadURI(uri, referrer, postData, allowThirdPartyFixup, referrerPolicy,
                  userContextId, originPrincipal, forceAboutBlankViewerInCurrent,
-                 triggeringPrincipal, allowInheritPrincipal = false) {
+                 triggeringPrincipal, allowInheritPrincipal = false, csp = null) {
   if (!triggeringPrincipal) {
     throw new Error("Must load with a triggering Principal");
   }
@@ -2452,6 +2519,7 @@ function loadURI(uri, referrer, postData, allowThirdPartyFixup, referrerPolicy,
                  userContextId,
                  originPrincipal,
                  triggeringPrincipal,
+                 csp,
                  forceAboutBlankViewerInCurrent,
                  allowInheritPrincipal,
                });
@@ -2657,7 +2725,7 @@ function URLBarSetURI(aURI, updatePopupNotifications) {
   // back. See bug 304198.
   if (value === null) {
     let uri = aURI || gBrowser.currentURI;
-    // Strip off "wyciwyg://" and passwords for the location bar
+    // Strip off usernames and passwords for the location bar
     try {
       uri = Services.uriFixup.createExposableURI(uri);
     } catch (e) {}
@@ -2785,8 +2853,9 @@ function UpdateUrlbarSearchSplitterState() {
       splitter.className = "chromeclass-toolbar-additional";
     }
     urlbar.parentNode.insertBefore(splitter, ibefore);
-  } else if (splitter)
+  } else if (splitter) {
     splitter.remove();
+  }
 }
 
 function UpdatePageProxyState() {
@@ -3105,7 +3174,7 @@ var BrowserOnClick = {
   },
 
   ignoreWarningLink(reason, blockedInfo) {
-    let triggeringPrincipal = Utils.deserializePrincipal(blockedInfo.triggeringPrincipal) || _createNullPrincipalFromTabUserContextId();
+    let triggeringPrincipal = E10SUtils.deserializePrincipal(blockedInfo.triggeringPrincipal, _createNullPrincipalFromTabUserContextId());
     // Allow users to override and continue through to the site,
     // but add a notify bar as a reminder, so that they don't lose
     // track after, e.g., tab switching.
@@ -3266,7 +3335,7 @@ function BrowserReloadWithFlags(reloadFlags) {
   for (let tab of unchangedRemoteness) {
     SitePermissions.clearTemporaryPermissions(tab.linkedBrowser);
     // Also reset DOS mitigations for the basic auth prompt on reload.
-    delete tab.linkedBrowser.canceledAuthenticationPromptCounter;
+    delete tab.linkedBrowser.authPromptAbuseCounter;
   }
   PanelMultiView.hidePopup(gIdentityHandler._identityPopup);
 
@@ -3964,9 +4033,9 @@ const BrowserSearch = {
                    get icon() { return browser.mIconURL; },
                  });
 
-    if (hidden)
+    if (hidden) {
       browser.hiddenEngines = engines;
-    else {
+    } else {
       browser.engines = engines;
       if (browser == gBrowser.selectedBrowser)
         this.updateOpenSearchBadge();
@@ -4663,7 +4732,7 @@ var XULBrowserWindow = {
   },
 
   // Check whether this URI should load in the current process
-  shouldLoadURI(aDocShell, aURI, aReferrer, aHasPostData, aTriggeringPrincipal) {
+  shouldLoadURI(aDocShell, aURI, aReferrer, aHasPostData, aTriggeringPrincipal, aCsp) {
     if (!gMultiProcessBrowser)
       return true;
 
@@ -4680,7 +4749,7 @@ var XULBrowserWindow = {
       // XXX: Do we want to complain if we have post data but are still
       // redirecting the load? Perhaps a telemetry probe? Theoretically we
       // shouldn't do this, as it throws out data. See bug 1348018.
-      E10SUtils.redirectLoad(aDocShell, aURI, aReferrer, aTriggeringPrincipal, false);
+      E10SUtils.redirectLoad(aDocShell, aURI, aReferrer, aTriggeringPrincipal, false, null, aCsp);
       return false;
     }
 
@@ -4947,6 +5016,7 @@ var XULBrowserWindow = {
     }
 
     ContentBlocking.onContentBlockingEvent(this._event, aWebProgress, aIsSimulated);
+    gBrowser.selectedBrowser.updateSecurityUIForContentBlockingEvent(aEvent);
   },
 
   // This is called in multiple ways:
@@ -5395,13 +5465,13 @@ nsBrowserAccess.prototype = {
                    aIsExternal, aForceNotRemote = false,
                    aUserContextId = Ci.nsIScriptSecurityManager.DEFAULT_USER_CONTEXT_ID,
                    aOpenerWindow = null, aOpenerBrowser = null,
-                   aTriggeringPrincipal = null, aNextTabParentId = 0, aName = "") {
+                   aTriggeringPrincipal = null, aNextTabParentId = 0, aName = "", aCsp = null) {
     let win, needToFocusWin;
 
     // try the current window.  if we're in a popup, fall back on the most recent browser window
-    if (window.toolbar.visible)
+    if (window.toolbar.visible) {
       win = window;
-    else {
+    } else {
       win = BrowserWindowTracker.getTopWindow({private: aIsPrivate});
       needToFocusWin = true;
     }
@@ -5431,6 +5501,7 @@ nsBrowserAccess.prototype = {
                                       openerBrowser: aOpenerBrowser,
                                       nextTabParentId: aNextTabParentId,
                                       name: aName,
+                                      csp: aCsp,
                                       });
     let browser = win.gBrowser.getBrowserForTab(tab);
 
@@ -5490,6 +5561,8 @@ nsBrowserAccess.prototype = {
     if (aOpener && aOpener.document) {
       referrerPolicy = aOpener.document.referrerPolicy;
     }
+    // Bug 965637, query the CSP from the doc instead of the Principal
+    let csp = aTriggeringPrincipal.csp;
     let isPrivate = aOpener
                   ? PrivateBrowsingUtils.isContentWindowPrivate(aOpener)
                   : PrivateBrowsingUtils.isWindowPrivate(window);
@@ -5528,7 +5601,8 @@ nsBrowserAccess.prototype = {
         let browser = this._openURIInNewTab(aURI, referrer, referrerPolicy,
                                             isPrivate, isExternal,
                                             forceNotRemote, userContextId,
-                                            openerWindow, null, aTriggeringPrincipal);
+                                            openerWindow, null, aTriggeringPrincipal,
+                                            0, "", csp);
         if (browser)
           newWindow = browser.contentWindow;
         break;
@@ -5540,6 +5614,7 @@ nsBrowserAccess.prototype = {
                             Ci.nsIWebNavigation.LOAD_FLAGS_NONE;
           gBrowser.loadURI(aURI.spec, {
             triggeringPrincipal: aTriggeringPrincipal,
+            csp,
             flags: loadflags,
             referrerURI: referrer,
             referrerPolicy,
@@ -5587,7 +5662,7 @@ nsBrowserAccess.prototype = {
                                  isExternal, false,
                                  userContextId, null, aParams.openerBrowser,
                                  aParams.triggeringPrincipal,
-                                 aNextTabParentId, aName);
+                                 aNextTabParentId, aName, aParams.csp);
   },
 
   isTabContentWindow(aWindow) {
@@ -6139,6 +6214,9 @@ function handleLinkClick(event, href, linkNode) {
 
   let frameOuterWindowID = WebNavigationFrames.getFrameId(doc.defaultView);
 
+  // Bug 965637, query the CSP from the doc instead of the Principal
+  let csp = doc.nodePrincipal.csp;
+
   urlSecurityCheck(href, doc.nodePrincipal);
   let params = {
     charset: doc.characterSet,
@@ -6148,6 +6226,7 @@ function handleLinkClick(event, href, linkNode) {
     noReferrer: BrowserUtils.linkHasNoReferrer(linkNode),
     originPrincipal: doc.nodePrincipal,
     triggeringPrincipal: doc.nodePrincipal,
+    csp,
     frameOuterWindowID,
   };
 
@@ -6818,7 +6897,7 @@ var IndexedDBPromptHelper = {
       browser, topic, message, this._notificationIcon, mainAction, secondaryActions,
       {
         persistent: true,
-        hideClose: !Services.prefs.getBoolPref("privacy.permissionPrompts.showCloseButton"),
+        hideClose: true,
       });
   },
 };

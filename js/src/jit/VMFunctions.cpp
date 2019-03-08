@@ -24,6 +24,7 @@
 
 #include "jit/BaselineFrame-inl.h"
 #include "jit/JitFrames-inl.h"
+#include "jit/VMFunctionList-inl.h"
 #include "vm/Debugger-inl.h"
 #include "vm/Interpreter-inl.h"
 #include "vm/NativeObject-inl.h"
@@ -37,8 +38,116 @@ using namespace js::jit;
 namespace js {
 namespace jit {
 
+// Helper template to build the VMFunctionData for a function.
+template <typename... Args>
+struct VMFunctionDataHelper;
+
+template <class R, typename... Args>
+struct VMFunctionDataHelper<R (*)(JSContext*, Args...)>
+    : public VMFunctionData {
+  using Fun = R (*)(JSContext*, Args...);
+
+  static constexpr DataType returnType() { return TypeToDataType<R>::result; }
+  static constexpr DataType outParam() {
+    return OutParamToDataType<typename LastArg<Args...>::Type>::result;
+  }
+  static constexpr RootType outParamRootType() {
+    return OutParamToRootType<typename LastArg<Args...>::Type>::result;
+  }
+  static constexpr size_t NbArgs() { return LastArg<Args...>::nbArgs; }
+  static constexpr size_t explicitArgs() {
+    return NbArgs() - (outParam() != Type_Void ? 1 : 0);
+  }
+  static constexpr uint32_t argumentProperties() {
+    return BitMask<TypeToArgProperties, uint32_t, 2, Args...>::result;
+  }
+  static constexpr uint32_t argumentPassedInFloatRegs() {
+    return BitMask<TypeToPassInFloatReg, uint32_t, 2, Args...>::result;
+  }
+  static constexpr uint64_t argumentRootTypes() {
+    return BitMask<TypeToRootType, uint64_t, 3, Args...>::result;
+  }
+  constexpr VMFunctionDataHelper(Fun fun, const char* name,
+                                 PopValues extraValuesToPop = PopValues(0))
+      : VMFunctionData((void*)fun, name, explicitArgs(), argumentProperties(),
+                       argumentPassedInFloatRegs(), argumentRootTypes(),
+                       outParam(), outParamRootType(), returnType(),
+                       extraValuesToPop.numValues, NonTailCall) {}
+  constexpr VMFunctionDataHelper(Fun fun, const char* name,
+                                 MaybeTailCall expectTailCall,
+                                 PopValues extraValuesToPop = PopValues(0))
+      : VMFunctionData((void*)fun, name, explicitArgs(), argumentProperties(),
+                       argumentPassedInFloatRegs(), argumentRootTypes(),
+                       outParam(), outParamRootType(), returnType(),
+                       extraValuesToPop.numValues, expectTailCall) {}
+};
+
+// GCC warns when the signature does not have matching attributes (for example
+// MOZ_MUST_USE). Squelch this warning to avoid a GCC-only footgun.
+#if MOZ_IS_GCC
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wignored-attributes"
+#endif
+
+// Generate VMFunctionData array.
+static constexpr VMFunctionData vmFunctions[] = {
+#define DEF_VMFUNCTION(name, fp) \
+  VMFunctionDataHelper<decltype(&(::fp))>(::fp, #name),
+    VMFUNCTION_LIST(DEF_VMFUNCTION)
+#undef DEF_VMFUNCTION
+};
+
+#if MOZ_IS_GCC
+#  pragma GCC diagnostic pop
+#endif
+
+const VMFunctionData& GetVMFunction(VMFunctionId id) {
+  return vmFunctions[size_t(id)];
+}
+
+bool JitRuntime::generateVMWrappers(JSContext* cx, MacroAssembler& masm) {
+  // Generate all VM function wrappers.
+
+  static constexpr size_t NumVMFunctions = size_t(VMFunctionId::Count);
+
+  if (!functionWrapperOffsets_.reserve(NumVMFunctions)) {
+    return false;
+  }
+
+#ifdef DEBUG
+  const char* lastName = nullptr;
+#endif
+
+  for (size_t i = 0; i < NumVMFunctions; i++) {
+    VMFunctionId id = VMFunctionId(i);
+    const VMFunctionData& fun = GetVMFunction(id);
+
+#ifdef DEBUG
+    // Assert the list is sorted by name.
+    if (lastName) {
+      MOZ_ASSERT(strcmp(lastName, fun.name()) < 0,
+                 "VM function list must be sorted by name");
+    }
+    lastName = fun.name();
+#endif
+
+    JitSpew(JitSpew_Codegen, "# VM function wrapper (%s)", fun.name());
+
+    uint32_t offset;
+    if (!generateVMWrapper(cx, masm, fun, &offset)) {
+      return false;
+    }
+
+    MOZ_ASSERT(functionWrapperOffsets_.length() == size_t(id));
+    functionWrapperOffsets_.infallibleAppend(offset);
+  }
+
+  return true;
+}
+
 // Statics are initialized to null.
-/* static */ VMFunction* VMFunction::functions;
+/* static */
+VMFunction* VMFunction::functions;
 
 AutoDetectInvalidation::AutoDetectInvalidation(JSContext* cx,
                                                MutableHandleValue rval)
@@ -792,7 +901,7 @@ void FrameIsDebuggeeCheck(BaselineFrame* frame) {
 }
 
 JSObject* CreateGenerator(JSContext* cx, BaselineFrame* frame) {
-  return GeneratorObject::create(cx, frame);
+  return AbstractGeneratorObject::create(cx, frame);
 }
 
 bool NormalSuspend(JSContext* cx, HandleObject obj, BaselineFrame* frame,
@@ -820,19 +929,19 @@ bool NormalSuspend(JSContext* cx, HandleObject obj, BaselineFrame* frame,
 
   MOZ_ASSERT(exprStack.length() == stackDepth - 1);
 
-  return GeneratorObject::normalSuspend(cx, obj, frame, pc, exprStack.begin(),
-                                        stackDepth - 1);
+  return AbstractGeneratorObject::normalSuspend(
+      cx, obj, frame, pc, exprStack.begin(), stackDepth - 1);
 }
 
 bool FinalSuspend(JSContext* cx, HandleObject obj, jsbytecode* pc) {
   MOZ_ASSERT(*pc == JSOP_FINALYIELDRVAL);
-  GeneratorObject::finalSuspend(obj);
+  AbstractGeneratorObject::finalSuspend(obj);
   return true;
 }
 
 bool InterpretResume(JSContext* cx, HandleObject obj, HandleValue val,
                      HandlePropertyName kind, MutableHandleValue rval) {
-  MOZ_ASSERT(obj->is<GeneratorObject>());
+  MOZ_ASSERT(obj->is<AbstractGeneratorObject>());
 
   FixedInvokeArgs<3> args(cx);
 
@@ -862,8 +971,8 @@ bool DebugAfterYield(JSContext* cx, BaselineFrame* frame, jsbytecode* pc,
 }
 
 bool GeneratorThrowOrReturn(JSContext* cx, BaselineFrame* frame,
-                            Handle<GeneratorObject*> genObj, HandleValue arg,
-                            uint32_t resumeKind) {
+                            Handle<AbstractGeneratorObject*> genObj,
+                            HandleValue arg, uint32_t resumeKind) {
   // Set the frame's pc to the current resume pc, so that frame iterators
   // work. This function always returns false, so we're guaranteed to enter
   // the exception handler where we will clear the pc.
@@ -872,8 +981,8 @@ bool GeneratorThrowOrReturn(JSContext* cx, BaselineFrame* frame,
   jsbytecode* pc = script->offsetToPC(offset);
   frame->setOverridePc(pc);
 
-  // In the interpreter, GeneratorObject::resume marks the generator as running,
-  // so we do the same.
+  // In the interpreter, AbstractGeneratorObject::resume marks the generator as
+  // running, so we do the same.
   genObj->setRunning();
 
   bool mustReturn = false;
@@ -881,7 +990,7 @@ bool GeneratorThrowOrReturn(JSContext* cx, BaselineFrame* frame,
     return false;
   }
   if (mustReturn) {
-    resumeKind = GeneratorObject::RETURN;
+    resumeKind = AbstractGeneratorObject::RETURN;
   }
 
   MOZ_ALWAYS_FALSE(
@@ -1808,7 +1917,7 @@ MOZ_MUST_USE bool TrySkipAwait(JSContext* cx, HandleValue val,
 }
 
 bool IsPossiblyWrappedTypedArray(JSContext* cx, JSObject* obj, bool* result) {
-  JSObject* unwrapped = CheckedUnwrap(obj);
+  JSObject* unwrapped = CheckedUnwrapDynamic(obj, cx);
   if (!unwrapped) {
     ReportAccessDenied(cx);
     return false;

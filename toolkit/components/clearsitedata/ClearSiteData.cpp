@@ -107,7 +107,8 @@ NS_INTERFACE_MAP_END
 NS_IMPL_ADDREF(ClearSiteData::PendingCleanupHolder)
 NS_IMPL_RELEASE(ClearSiteData::PendingCleanupHolder)
 
-/* static */ void ClearSiteData::Initialize() {
+/* static */
+void ClearSiteData::Initialize() {
   MOZ_ASSERT(!gClearSiteData);
   MOZ_ASSERT(NS_IsMainThread());
 
@@ -127,7 +128,8 @@ NS_IMPL_RELEASE(ClearSiteData::PendingCleanupHolder)
   gClearSiteData = service;
 }
 
-/* static */ void ClearSiteData::Shutdown() {
+/* static */
+void ClearSiteData::Shutdown() {
   MOZ_ASSERT(NS_IsMainThread());
 
   if (!gClearSiteData) {
@@ -159,11 +161,6 @@ ClearSiteData::Observe(nsISupports* aSubject, const char* aTopic,
 
   MOZ_ASSERT(!strcmp(aTopic, NS_HTTP_ON_EXAMINE_RESPONSE_TOPIC));
 
-  // Pref disabled.
-  if (!StaticPrefs::dom_clearSiteData_enabled()) {
-    return NS_OK;
-  }
-
   nsCOMPtr<nsIHttpChannel> channel = do_QueryInterface(aSubject);
   if (NS_WARN_IF(!channel)) {
     return NS_OK;
@@ -178,17 +175,6 @@ void ClearSiteData::ClearDataFromChannel(nsIHttpChannel* aChannel) {
 
   nsresult rv;
   nsCOMPtr<nsIURI> uri;
-
-  uint32_t status;
-  rv = aChannel->GetResponseStatus(&status);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return;
-  }
-
-  // We just care about 2xx response status.
-  if (status < 200 || status >= 300) {
-    return;
-  }
 
   nsIScriptSecurityManager* ssm = nsContentUtils::GetSecurityManager();
   if (NS_WARN_IF(!ssm)) {
@@ -258,9 +244,18 @@ void ClearSiteData::ClearDataFromChannel(nsIHttpChannel* aChannel) {
     }
   }
 
+  // We consider eExecutionContexts only for 2xx response status.
   if (flags & eExecutionContexts) {
-    LogOpToConsole(aChannel, uri, eExecutionContexts);
-    BrowsingContextsReload(holder, principal);
+    uint32_t status;
+    rv = aChannel->GetResponseStatus(&status);
+    if (NS_WARN_IF(NS_FAILED(rv))) {
+      return;
+    }
+
+    if (status >= 200 && status < 300) {
+      LogOpToConsole(aChannel, uri, eExecutionContexts);
+      BrowsingContextsReload(holder, principal);
+    }
   }
 }
 

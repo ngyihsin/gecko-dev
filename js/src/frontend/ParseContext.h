@@ -209,8 +209,7 @@ class ParseContext : public Nestable<ParseContext> {
 
    public:
     LabelStatement(ParseContext* pc, JSAtom* label)
-        : Statement(pc, StatementKind::Label),
-          label_(pc->sc_->context, label) {}
+        : Statement(pc, StatementKind::Label), label_(pc->sc_->cx_, label) {}
 
     HandleAtom label() const { return label_; }
   };
@@ -246,7 +245,7 @@ class ParseContext : public Nestable<ParseContext> {
 
     bool maybeReportOOM(ParseContext* pc, bool result) {
       if (!result) {
-        ReportOutOfMemory(pc->sc()->context);
+        ReportOutOfMemory(pc->sc()->cx_);
       }
       return result;
     }
@@ -271,7 +270,7 @@ class ParseContext : public Nestable<ParseContext> {
         return false;
       }
 
-      return declared_.acquire(pc->sc()->context);
+      return declared_.acquire(pc->sc()->cx_);
     }
 
     bool isEmpty() const { return declared_->all().empty(); }
@@ -563,6 +562,12 @@ class ParseContext : public Nestable<ParseContext> {
   // True if we are at the topmost level of a module only.
   bool atModuleLevel() { return atBodyLevel() && sc_->isModuleContext(); }
 
+  // True if we are at the topmost level of an entire script or module.  For
+  // example, in the comment on |atBodyLevel()| above, we would encounter |f1|
+  // and the outermost |if (cond)| at top level, and everything else would not
+  // be at top level.
+  bool atTopLevel() { return atBodyLevel() && sc_->isTopLevelContext(); }
+
   void setIsStandaloneFunctionBody() { isStandaloneFunctionBody_ = true; }
 
   bool isStandaloneFunctionBody() const { return isStandaloneFunctionBody_; }
@@ -621,6 +626,16 @@ class ParseContext : public Nestable<ParseContext> {
                      uint32_t beginPos,
                      mozilla::Maybe<DeclarationKind>* redeclaredKind,
                      uint32_t* prevPos);
+
+  bool hasUsedName(const UsedNameTracker& usedNames, HandlePropertyName name);
+  bool hasUsedFunctionSpecialName(const UsedNameTracker& usedNames,
+                                  HandlePropertyName name);
+
+  bool declareFunctionThis(const UsedNameTracker& usedNames,
+                           bool canSkipLazyClosedOverBindings);
+  bool declareFunctionArgumentsObject(const UsedNameTracker& usedNames,
+                                      bool canSkipLazyClosedOverBindings);
+  bool declareDotGeneratorName();
 
  private:
   mozilla::Maybe<DeclarationKind> isVarRedeclaredInInnermostScope(

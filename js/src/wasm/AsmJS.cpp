@@ -609,10 +609,6 @@ static inline ParseNode* ObjectNormalFieldInitializer(ParseNode* pn) {
   return BinaryRight(pn);
 }
 
-static inline ParseNode* MaybeInitializer(ParseNode* pn) {
-  return pn->as<NameNode>().initializer();
-}
-
 static inline bool IsUseOfName(ParseNode* pn, PropertyName* name) {
   return pn->isName(name);
 }
@@ -1955,8 +1951,8 @@ class MOZ_STACK_CLASS JS_HAZ_ROOTED ModuleValidator
     asmJSMetadata_->toStringStart =
         moduleFunctionNode_->funbox()->toStringStart;
     asmJSMetadata_->srcStart = moduleFunctionNode_->body()->pn_pos.begin;
-    asmJSMetadata_->strict =
-        parser_.pc->sc()->strict() && !parser_.pc->sc()->hasExplicitUseStrict();
+    asmJSMetadata_->strict = parser_.pc_->sc()->strict() &&
+                             !parser_.pc_->sc()->hasExplicitUseStrict();
     asmJSMetadata_->scriptSource.reset(parser_.ss);
 
     if (!addStandardLibraryMathInfo()) {
@@ -2074,7 +2070,7 @@ class MOZ_STACK_CLASS JS_HAZ_ROOTED ModuleValidator
                       str);
   }
 
-  SharedModule finish(UniqueLinkData* linkData) {
+  SharedModule finish() {
     MOZ_ASSERT(env_.funcTypes.empty());
     if (!env_.funcTypes.resize(funcImportMap_.count() + funcDefs_.length())) {
       return nullptr;
@@ -2167,7 +2163,7 @@ class MOZ_STACK_CLASS JS_HAZ_ROOTED ModuleValidator
       return nullptr;
     }
 
-    return mg.finishModule(*bytes, nullptr, linkData);
+    return mg.finishModule(*bytes);
   }
 };
 
@@ -3040,8 +3036,15 @@ static bool CheckGlobalDotImport(ModuleValidatorShared& m,
   return m.addFFI(varName, field);
 }
 
-static bool CheckModuleGlobal(ModuleValidatorShared& m, ParseNode* var,
+static bool CheckModuleGlobal(ModuleValidatorShared& m, ParseNode* decl,
                               bool isConst) {
+  if (!decl->isKind(ParseNodeKind::AssignExpr)) {
+    return m.fail(decl, "module import needs initializer");
+  }
+  AssignmentNode* assignNode = &decl->as<AssignmentNode>();
+
+  ParseNode* var = assignNode->left();
+
   if (!var->isKind(ParseNodeKind::Name)) {
     return m.fail(var, "import variable is not a plain name");
   }
@@ -3051,10 +3054,7 @@ static bool CheckModuleGlobal(ModuleValidatorShared& m, ParseNode* var,
     return false;
   }
 
-  ParseNode* initNode = MaybeInitializer(var);
-  if (!initNode) {
-    return m.fail(var, "module import needs initializer");
-  }
+  ParseNode* initNode = assignNode->right();
 
   if (IsNumericLiteral(m, initNode)) {
     return CheckGlobalVariableInitConstant(m, varName, initNode, isConst);
@@ -3254,8 +3254,17 @@ static bool CheckFinalReturn(FunctionValidatorShared& f,
   return true;
 }
 
-static bool CheckVariable(FunctionValidatorShared& f, ParseNode* var,
+static bool CheckVariable(FunctionValidatorShared& f, ParseNode* decl,
                           ValTypeVector* types, Vector<NumLit>* inits) {
+  if (!decl->isKind(ParseNodeKind::AssignExpr)) {
+    return f.failName(
+        decl, "var '%s' needs explicit type declaration via an initial value",
+        decl->as<NameNode>().name());
+  }
+  AssignmentNode* assignNode = &decl->as<AssignmentNode>();
+
+  ParseNode* var = assignNode->left();
+
   if (!var->isKind(ParseNodeKind::Name)) {
     return f.fail(var, "local variable is not a plain name");
   }
@@ -3266,12 +3275,7 @@ static bool CheckVariable(FunctionValidatorShared& f, ParseNode* var,
     return false;
   }
 
-  ParseNode* initNode = MaybeInitializer(var);
-  if (!initNode) {
-    return f.failName(
-        var, "var '%s' needs explicit type declaration via an initial value",
-        name);
-  }
+  ParseNode* initNode = assignNode->right();
 
   NumLit lit;
   if (!IsLiteralOrConst(f, initNode, &lit)) {
@@ -6014,7 +6018,7 @@ static bool ParseFunction(ModuleValidator<Unit>& m, FunctionNode** funNodeOut,
     return false;
   }
 
-  FunctionNode* funNode = m.parser().handler.newFunction(
+  FunctionNode* funNode = m.parser().handler_.newFunction(
       FunctionSyntaxKind::Statement, m.parser().pos());
   if (!funNode) {
     return false;
@@ -6024,7 +6028,7 @@ static bool ParseFunction(ModuleValidator<Unit>& m, FunctionNode** funNodeOut,
   fun->setAtom(name);
   fun->setArgCount(0);
 
-  ParseContext* outerpc = m.parser().pc;
+  ParseContext* outerpc = m.parser().pc_;
   Directives directives(outerpc);
   FunctionBox* funbox = m.parser().newFunctionBox(
       funNode, fun, toStringStart, directives, GeneratorKind::NotGenerator,
@@ -6154,13 +6158,21 @@ static bool CheckFunctions(ModuleValidator<Unit>& m) {
 }
 
 template <typename Unit>
-static bool CheckFuncPtrTable(ModuleValidator<Unit>& m, ParseNode* var) {
+static bool CheckFuncPtrTable(ModuleValidator<Unit>& m, ParseNode* decl) {
+  if (!decl->isKind(ParseNodeKind::AssignExpr)) {
+    return m.fail(decl, "function-pointer table must have initializer");
+  }
+  AssignmentNode* assignNode = &decl->as<AssignmentNode>();
+
+  ParseNode* var = assignNode->left();
+
   if (!var->isKind(ParseNodeKind::Name)) {
     return m.fail(var, "function-pointer table name is not a plain name");
   }
 
-  ParseNode* arrayLiteral = MaybeInitializer(var);
-  if (!arrayLiteral || !arrayLiteral->isKind(ParseNodeKind::ArrayExpr)) {
+  ParseNode* arrayLiteral = assignNode->right();
+
+  if (!arrayLiteral->isKind(ParseNodeKind::ArrayExpr)) {
     return m.fail(
         var, "function-pointer table's initializer must be an array literal");
   }
@@ -6350,11 +6362,10 @@ static bool CheckModuleEnd(ModuleValidator<Unit>& m) {
 
 template <typename Unit>
 static SharedModule CheckModule(JSContext* cx, AsmJSParser<Unit>& parser,
-                                ParseNode* stmtList, UniqueLinkData* linkData,
-                                unsigned* time) {
+                                ParseNode* stmtList, unsigned* time) {
   int64_t before = PRMJ_Now();
 
-  FunctionNode* moduleFunctionNode = parser.pc->functionBox()->functionNode;
+  FunctionNode* moduleFunctionNode = parser.pc_->functionBox()->functionNode;
 
   ModuleValidator<Unit> m(cx, parser, moduleFunctionNode);
   if (!m.init()) {
@@ -6401,7 +6412,7 @@ static SharedModule CheckModule(JSContext* cx, AsmJSParser<Unit>& parser,
     return nullptr;
   }
 
-  SharedModule module = m.finish(linkData);
+  SharedModule module = m.finish();
   if (!module) {
     return nullptr;
   }
@@ -6754,7 +6765,7 @@ static bool CheckBuffer(JSContext* cx, const AsmJSMetadata& metadata,
   if (buffer->is<ArrayBufferObject>()) {
     Rooted<ArrayBufferObject*> arrayBuffer(cx,
                                            &buffer->as<ArrayBufferObject>());
-    if (!ArrayBufferObject::prepareForAsmJS(cx, arrayBuffer)) {
+    if (!arrayBuffer->prepareForAsmJS()) {
       return LinkFail(cx, "Unable to prepare ArrayBuffer for asm.js use");
     }
   } else {
@@ -7037,20 +7048,20 @@ static bool EstablishPreconditions(JSContext* cx,
       break;
   }
 
-  if (parser.pc->isGenerator()) {
+  if (parser.pc_->isGenerator()) {
     return TypeFailureWarning(parser, "Disabled by generator context");
   }
 
-  if (parser.pc->isAsync()) {
+  if (parser.pc_->isAsync()) {
     return TypeFailureWarning(parser, "Disabled by async context");
   }
 
-  if (parser.pc->isArrowFunction()) {
+  if (parser.pc_->isArrowFunction()) {
     return TypeFailureWarning(parser, "Disabled by arrow function context");
   }
 
   // Class constructors are also methods
-  if (parser.pc->isMethod() || parser.pc->isGetterOrSetter()) {
+  if (parser.pc_->isMethod() || parser.pc_->isGetterOrSetter()) {
     return TypeFailureWarning(
         parser, "Disabled by class constructor or method context");
   }
@@ -7068,18 +7079,12 @@ static bool DoCompileAsmJS(JSContext* cx, AsmJSParser<Unit>& parser,
     return NoExceptionPending(cx);
   }
 
-  // Validate and generate code in a single linear pass over the chars of the
-  // asm.js module.
-  SharedModule module;
+  // "Checking" parses, validates and compiles, producing a fully compiled
+  // WasmModuleObject as result.
   unsigned time;
-  {
-    // "Checking" parses, validates and compiles, producing a fully compiled
-    // WasmModuleObject as result.
-    UniqueLinkData linkData;
-    module = CheckModule(cx, parser, stmtList, &linkData, &time);
-    if (!module) {
-      return NoExceptionPending(cx);
-    }
+  SharedModule module = CheckModule(cx, parser, stmtList, &time);
+  if (!module) {
+    return NoExceptionPending(cx);
   }
 
   // Hand over ownership to a GC object wrapper which can then be referenced
@@ -7092,7 +7097,7 @@ static bool DoCompileAsmJS(JSContext* cx, AsmJSParser<Unit>& parser,
 
   // The module function dynamically links the AsmJSModule when called and
   // generates a set of functions wrapping all the exports.
-  FunctionBox* funbox = parser.pc->functionBox();
+  FunctionBox* funbox = parser.pc_->functionBox();
   RootedFunction moduleFun(
       cx, NewAsmJSModuleFunction(cx, funbox->function(), moduleObj));
   if (!moduleFun) {

@@ -216,7 +216,8 @@ class nsFrame : public nsBox {
           PeekOffsetCharacterOptions()) override;
   FrameSearchResult PeekOffsetWord(bool aForward, bool aWordSelectEatSpace,
                                    bool aIsKeyboardSelect, int32_t* aOffset,
-                                   PeekWordState* aState) override;
+                                   PeekWordState* aState, bool aTrimSpaces)
+                                   override;
   /**
    * Check whether we should break at a boundary between punctuation and
    * non-punctuation. Only call it at a punctuation boundary
@@ -536,8 +537,8 @@ class nsFrame : public nsBox {
    *                           Must not be null.
    * @param aChildPseudo the child's pseudo type, if any.
    */
-  static nsIFrame* CorrectStyleParentFrame(nsIFrame* aProspectiveParent,
-                                           nsAtom* aChildPseudo);
+  static nsIFrame* CorrectStyleParentFrame(
+      nsIFrame* aProspectiveParent, mozilla::PseudoStyleType aChildPseudo);
 
  protected:
   // Protected constructor and destructor

@@ -69,10 +69,8 @@ var whitelist = [
   // See bug 1339424 for why this is hard to fix.
   {file: "chrome://global/locale/fallbackMenubar.properties",
    platforms: ["linux", "win"]},
-  {file: "chrome://global/locale/printPageSetup.dtd", platforms: ["linux", "macosx"]},
-  {file: "chrome://global/locale/printPreviewProgress.dtd",
+  {file: "resource://gre/localization/en-US/toolkit/printing/printDialogs.ftl",
    platforms: ["macosx"]},
-  {file: "chrome://global/locale/printProgress.dtd", platforms: ["macosx"]},
 
   // toolkit/content/aboutRights-unbranded.xhtml doesn't use aboutRights.css
   {file: "chrome://global/skin/aboutRights.css", skipUnofficial: true},
@@ -96,10 +94,6 @@ var whitelist = [
   // layout/mathml/nsMathMLChar.cpp
   {file: "resource://gre/res/fonts/mathfontSTIXGeneral.properties"},
   {file: "resource://gre/res/fonts/mathfontUnicode.properties"},
-
-  // toolkit/components/places/ColorAnalyzer_worker.js
-  {file: "resource://gre/modules/ClusterLib.js"},
-  {file: "resource://gre/modules/ColorConversion.js"},
 
   // Needed by HiddenFrame.jsm, but can't be packaged test-only
   {file: "chrome://global/content/win.xul"},
@@ -150,8 +144,6 @@ var whitelist = [
    platforms: ["linux"]},
   // Bug 1348559
   {file: "chrome://pippki/content/resetpassword.xul"},
-  // Bug 1351078
-  {file: "resource://gre/modules/Battery.jsm"},
   // Bug 1337345
   {file: "resource://gre/modules/Manifest.jsm"},
   // Bug 1351097
@@ -177,10 +169,6 @@ var whitelist = [
   {file: "chrome://devtools/skin/images/aboutdebugging-firefox-release.svg",
    isFromDevTools: true},
   {file: "chrome://devtools/skin/images/next.svg", isFromDevTools: true},
-  // Feature gates are available but not used yet - Bug 1479127
-  {file: "resource://gre-resources/featuregates/FeatureGate.jsm"},
-  {file: "resource://gre-resources/featuregates/FeatureGateImplementation.jsm"},
-  {file: "resource://gre-resources/featuregates/feature_definitions.json"},
   // kvstore.jsm wraps the API in nsIKeyValue.idl in a more ergonomic API
   // It landed in bug 1490496, and we expect to start using it shortly.
   {file: "resource://gre/modules/kvstore.jsm"},
@@ -189,6 +177,8 @@ var whitelist = [
   // Bug 1526672
   {file: "resource://app/localization/en-US/browser/touchbar/touchbar.ftl",
    platforms: ["linux", "win"]},
+  // Referenced by the webcompat system addon for localization
+  {file: "resource://gre/localization/en-US/toolkit/about/aboutCompat.ftl"},
 ];
 
 whitelist = new Set(whitelist.filter(item =>
@@ -286,8 +276,11 @@ function parseManifest(manifestUri) {
         // The webcompat reporter's locale directory may not exist if
         // the addon is preffed-off, and since it's a hack until we
         // get bz1425104 landed, we'll just skip it for now.
+        // Same issue with fxmonitor, which is also pref'd off.
         if (chromeUri === "chrome://webcompat-reporter/locale/") {
           gChromeMap.set("chrome://webcompat-reporter/locale/", true);
+        } else if (chromeUri === "chrome://fxmonitor/locale/") {
+          gChromeMap.set("chrome://fxmonitor/locale/", true);
         } else {
           trackChromeUri(chromeUri);
         }

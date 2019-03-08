@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/dom/PExternalHelperAppParent.h"
+#include "mozilla/ipc/BackgroundUtils.h"
 #include "nsIChannel.h"
 #include "nsIMultiPartChannel.h"
 #include "nsIResumableChannel.h"
@@ -83,15 +84,15 @@ class ExternalHelperAppParent
 
   bool WasFileChannel() override { return mWasFileChannel; }
 
-  ExternalHelperAppParent(const OptionalURIParams& uri,
-                          const int64_t& contentLength,
-                          const bool& wasFileChannel,
-                          const nsCString& aContentDispositionHeader,
-                          const uint32_t& aContentDispositionHint,
-                          const nsString& aContentDispositionFilename);
-  void Init(ContentParent* parent, const nsCString& aMimeContentType,
-            const bool& aForceSave, const OptionalURIParams& aReferrer,
-            PBrowserParent* aBrowser);
+  ExternalHelperAppParent(
+      const OptionalURIParams& uri,
+      const int64_t& contentLength, const bool& wasFileChannel,
+      const nsCString& aContentDispositionHeader,
+      const uint32_t& aContentDispositionHint,
+      const nsString& aContentDispositionFilename);
+  void Init(const mozilla::net::OptionalLoadInfoArgs& aLoadInfoArgs,
+            const nsCString& aMimeContentType, const bool& aForceSave,
+            const OptionalURIParams& aReferrer, PBrowserParent* aBrowser);
 
  protected:
   virtual ~ExternalHelperAppParent();
@@ -102,6 +103,7 @@ class ExternalHelperAppParent
  private:
   nsCOMPtr<nsIStreamListener> mListener;
   nsCOMPtr<nsIURI> mURI;
+  nsCOMPtr<nsILoadInfo> mLoadInfo;
   bool mPending;
 #ifdef DEBUG
   bool mDiverted;

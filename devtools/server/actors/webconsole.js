@@ -1282,7 +1282,6 @@ WebConsoleActor.prototype =
     if (this.parentActor.isRootActor) {
       Services.console.reset();
     }
-    return {};
   },
 
   /**
@@ -1449,6 +1448,11 @@ WebConsoleActor.prototype =
     this.conn.send(packet);
   },
 
+  getActorIdForInternalSourceId(id) {
+    const actor = this.parentActor.sources.getSourceActorByInternalSourceId(id);
+    return actor ? actor.actorID : null;
+  },
+
   /**
    * Prepare an nsIScriptError to be sent to the client.
    *
@@ -1468,6 +1472,7 @@ WebConsoleActor.prototype =
       while (s !== null) {
         stack.push({
           filename: s.source,
+          sourceId: this.getActorIdForInternalSourceId(s.sourceId),
           lineNumber: s.line,
           columnNumber: s.column,
           functionName: s.functionDisplayName,
@@ -1490,6 +1495,7 @@ WebConsoleActor.prototype =
           messageBody: this._createStringGrip(note.errorMessage),
           frame: {
             source: note.sourceName,
+            sourceId: this.getActorIdForInternalSourceId(note.sourceId),
             line: note.lineNumber,
             column: note.columnNumber,
           },
@@ -1502,6 +1508,7 @@ WebConsoleActor.prototype =
       errorMessageName: pageError.errorMessageName,
       exceptionDocURL: ErrorDocs.GetURL(pageError),
       sourceName: pageError.sourceName,
+      sourceId: this.getActorIdForInternalSourceId(pageError.sourceId),
       lineText: lineText,
       lineNumber: pageError.lineNumber,
       columnNumber: pageError.columnNumber,
@@ -1528,12 +1535,9 @@ WebConsoleActor.prototype =
    *        The console API call we need to send to the remote client.
    */
   onConsoleAPICall: function(message) {
-    const packet = {
-      from: this.actorID,
-      type: "consoleAPICall",
+    this.conn.sendActorEvent(this.actorID, "consoleAPICall", {
       message: this.prepareConsoleMessageForRemote(message),
-    };
-    this.conn.send(packet);
+    });
   },
 
   /**
@@ -1606,8 +1610,10 @@ WebConsoleActor.prototype =
 
     channel.requestMethod = method;
 
-    for (const {name, value} of headers) {
-      channel.setRequestHeader(name, value, false);
+    if (headers) {
+      for (const {name, value} of headers) {
+        channel.setRequestHeader(name, value, false);
+      }
     }
 
     if (body) {
@@ -1663,28 +1669,6 @@ WebConsoleActor.prototype =
     this.conn.send(packet);
   },
 
-  /**
-   * Handler for reflow activity. This method forwards reflow events to the
-   * remote Web Console client.
-   *
-   * @see ConsoleReflowListener
-   * @param Object reflowInfo
-   */
-  onReflowActivity: function(reflowInfo) {
-    const packet = {
-      from: this.actorID,
-      type: "reflowActivity",
-      interruptible: reflowInfo.interruptible,
-      start: reflowInfo.start,
-      end: reflowInfo.end,
-      sourceURL: reflowInfo.sourceURL,
-      sourceLine: reflowInfo.sourceLine,
-      functionName: reflowInfo.functionName,
-    };
-
-    this.conn.send(packet);
-  },
-
   // End of event handlers for various listeners.
 
   /**
@@ -1703,6 +1687,8 @@ WebConsoleActor.prototype =
     const result = WebConsoleUtils.cloneObject(message);
 
     result.workerType = WebConsoleUtils.getWorkerType(result) || "none";
+
+    result.sourceId = this.getActorIdForInternalSourceId(result.sourceId);
 
     delete result.wrappedJSObject;
     delete result.ID;

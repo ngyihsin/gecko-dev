@@ -1087,7 +1087,7 @@ void nsGlobalWindowInner::CleanupCachedXBLHandlers() {
   }
 }
 
-void nsGlobalWindowInner::FreeInnerObjects(bool aForDocumentOpen) {
+void nsGlobalWindowInner::FreeInnerObjects() {
   if (IsDying()) {
     return;
   }
@@ -1150,10 +1150,8 @@ void nsGlobalWindowInner::FreeInnerObjects(bool aForDocumentOpen) {
     mDocumentURI = mDoc->GetDocumentURI();
     mDocBaseURI = mDoc->GetDocBaseURI();
 
-    if (!aForDocumentOpen) {
-      while (mDoc->EventHandlingSuppressed()) {
-        mDoc->UnsuppressEventHandlingAndFireEvents(false);
-      }
+    while (mDoc->EventHandlingSuppressed()) {
+      mDoc->UnsuppressEventHandlingAndFireEvents(false);
     }
 
     if (mObservingDidRefresh) {
@@ -1608,27 +1606,6 @@ bool nsGlobalWindowInner::ShouldResetBrowsingContextUserGestureActivation() {
          Window()->GetUserGestureActivation();
 }
 
-nsresult nsGlobalWindowInner::SetNewDocument(Document* aDocument,
-                                             nsISupports* aState,
-                                             bool aForceReuseInnerWindow) {
-  MOZ_ASSERT(mDocumentPrincipal == nullptr,
-             "mDocumentPrincipal prematurely set!");
-  MOZ_ASSERT(aDocument);
-
-  if (!mOuterWindow) {
-    return NS_ERROR_NOT_INITIALIZED;
-  }
-
-  // Refuse to set a new document if the call came from an inner
-  // window that's not the current inner window.
-  if (mOuterWindow->GetCurrentInnerWindow() != this) {
-    return NS_ERROR_NOT_AVAILABLE;
-  }
-
-  return GetOuterWindowInternal()->SetNewDocument(aDocument, aState,
-                                                  aForceReuseInnerWindow);
-}
-
 void nsGlobalWindowInner::InnerSetNewDocument(JSContext* aCx,
                                               Document* aDocument) {
   MOZ_ASSERT(aDocument);
@@ -1718,7 +1695,7 @@ nsresult nsGlobalWindowInner::EnsureClientSource() {
     }
 
     if (!ignoreLoadInfo) {
-      loadInfo = channel->GetLoadInfo();
+      loadInfo = channel->LoadInfo();
     }
   }
 
@@ -2375,31 +2352,6 @@ void nsGlobalWindowInner::NoteDOMContentLoaded() {
   mClientSource->NoteDOMContentLoaded();
 }
 
-void nsGlobalWindowInner::MigrateStateForDocumentOpen(
-    nsGlobalWindowInner* aOldInner) {
-  MOZ_DIAGNOSTIC_ASSERT(aOldInner);
-  MOZ_DIAGNOSTIC_ASSERT(aOldInner != this);
-  MOZ_DIAGNOSTIC_ASSERT(mDoc);
-
-  // Rebind DETH objects to the new global created by document.open().
-  // XXX: Is this correct?  We should consider if the spec and our
-  //      implementation should change to match other browsers by
-  //      just reusing the current window.  (Bug 1449992)
-  aOldInner->ForEachEventTargetObject(
-      [&](DOMEventTargetHelper* aDETH, bool* aDoneOut) {
-        aDETH->BindToOwner(this->AsInner());
-      });
-
-  // Move the old Performance object from the old window to the new window.
-  // The Performance object was also rebound in the DETH loop above.
-  mPerformance = aOldInner->mPerformance.forget();
-
-  if (aOldInner->mIndexedDB) {
-    aOldInner->mIndexedDB->RebindToNewWindow(this);
-    mIndexedDB = aOldInner->mIndexedDB.forget();
-  }
-}
-
 void nsGlobalWindowInner::UpdateTopInnerWindow() {
   if (IsTopInnerWindow() || !mTopInnerWindow) {
     return;
@@ -2898,8 +2850,9 @@ void nsGlobalWindowInner::GetOwnPropertyNames(JSContext* aCx,
   }
 }
 
-/* static */ bool nsGlobalWindowInner::IsPrivilegedChromeWindow(
-    JSContext* aCx, JSObject* aObj) {
+/* static */
+bool nsGlobalWindowInner::IsPrivilegedChromeWindow(JSContext* aCx,
+                                                   JSObject* aObj) {
   // For now, have to deal with XPConnect objects here.
   nsGlobalWindowInner* win = xpc::WindowOrNull(aObj);
   return win && win->IsChromeWindow() &&
@@ -2907,27 +2860,30 @@ void nsGlobalWindowInner::GetOwnPropertyNames(JSContext* aCx,
              nsContentUtils::GetSystemPrincipal();
 }
 
-/* static */ bool nsGlobalWindowInner::OfflineCacheAllowedForContext(
-    JSContext* aCx, JSObject* aObj) {
+/* static */
+bool nsGlobalWindowInner::OfflineCacheAllowedForContext(JSContext* aCx,
+                                                        JSObject* aObj) {
   return IsSecureContextOrObjectIsFromSecureContext(aCx, aObj) ||
          Preferences::GetBool("browser.cache.offline.insecure.enable");
 }
 
-/* static */ bool nsGlobalWindowInner::IsRequestIdleCallbackEnabled(
-    JSContext* aCx, JSObject* aObj) {
+/* static */
+bool nsGlobalWindowInner::IsRequestIdleCallbackEnabled(JSContext* aCx,
+                                                       JSObject* aObj) {
   // The requestIdleCallback should always be enabled for system code.
   return nsContentUtils::RequestIdleCallbackEnabled() ||
          nsContentUtils::IsSystemCaller(aCx);
 }
 
-/* static */ bool nsGlobalWindowInner::RegisterProtocolHandlerAllowedForContext(
+/* static */
+bool nsGlobalWindowInner::RegisterProtocolHandlerAllowedForContext(
     JSContext* aCx, JSObject* aObj) {
   return IsSecureContextOrObjectIsFromSecureContext(aCx, aObj) ||
          Preferences::GetBool("dom.registerProtocolHandler.insecure.enabled");
 }
 
-/* static */ bool nsGlobalWindowInner::DeviceSensorsEnabled(JSContext* aCx,
-                                                            JSObject* aObj) {
+/* static */
+bool nsGlobalWindowInner::DeviceSensorsEnabled(JSContext* aCx, JSObject* aObj) {
   return Preferences::GetBool("device.sensors.enabled");
 }
 
@@ -4423,7 +4379,13 @@ Storage* nsGlobalWindowInner::GetLocalStorage(ErrorResult& aError) {
   }
 
   if (access == nsContentUtils::StorageAccess::eDeny) {
-    aError.Throw(NS_ERROR_DOM_SECURITY_ERR);
+    if (mDoc && (mDoc->GetSandboxFlags() & SANDBOXED_ORIGIN) != 0) {
+      // Only raise the exception if we are denying storage access due to
+      // sandbox restrictions.  If we're denying storage access due to other
+      // reasons (e.g. cookie policy enforcement), withhold raising the
+      // exception in an effort to achieve more web compatibility.
+      aError.Throw(NS_ERROR_DOM_SECURITY_ERR);
+    }
     return nullptr;
   }
 
@@ -7256,7 +7218,8 @@ mozilla::dom::TabGroup* nsPIDOMWindowInner::TabGroup() {
   return nsGlobalWindowInner::Cast(this)->TabGroupInner();
 }
 
-/* static */ already_AddRefed<nsGlobalWindowInner> nsGlobalWindowInner::Create(
+/* static */
+already_AddRefed<nsGlobalWindowInner> nsGlobalWindowInner::Create(
     nsGlobalWindowOuter* aOuterWindow, bool aIsChrome) {
   RefPtr<nsGlobalWindowInner> window = new nsGlobalWindowInner(aOuterWindow);
   if (aIsChrome) {

@@ -150,7 +150,8 @@ void ColumnSetWrapperFrame::MarkIntrinsicISizesDirty() {
 
 #ifdef DEBUG
 
-/* static */ void ColumnSetWrapperFrame::AssertColumnSpanWrapperSubtreeIsSane(
+/* static */
+void ColumnSetWrapperFrame::AssertColumnSpanWrapperSubtreeIsSane(
     const nsIFrame* aFrame) {
   MOZ_ASSERT(aFrame->IsColumnSpan(), "aFrame is not column-span?");
 
@@ -162,7 +163,7 @@ void ColumnSetWrapperFrame::MarkIntrinsicISizesDirty() {
   }
 
   MOZ_ASSERT(
-      aFrame->Style()->GetPseudo() == nsCSSAnonBoxes::columnSpanWrapper(),
+      aFrame->Style()->GetPseudoType() == PseudoStyleType::columnSpanWrapper,
       "aFrame should be ::-moz-column-span-wrapper");
 
   MOZ_ASSERT(!aFrame->HasAnyStateBits(NS_FRAME_OWNS_ANON_BOXES),

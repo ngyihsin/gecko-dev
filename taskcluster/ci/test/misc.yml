@@ -13,9 +13,9 @@ geckoview-junit:
             default: default
     chunks:
         by-test-platform:
-            android-em-4.3-arm7-api-16-ccov/debug: 6
-            android-em-4.3-arm7-api-16/debug: 6
-            android-em-4.3-arm7-api-16/opt: 2
+            android-em-4.3-arm7-api-16-ccov/debug: 8
+            android-em-4.3-arm7-api-16/debug: 8
+            android-em-4.3-arm7-api-16/opt: 3
             default: 1
     mozharness:
         script: android_emulator_unittest.py
@@ -80,6 +80,7 @@ test-verify:
             # do not run on ccov
             .*-ccov/.*: []
             .*-asan/.*: []
+            (?:windows10-64|windows7-32|linux64)(?:-qr)?/opt: ['mozilla-central', 'try']
             # do not run on beta or release: usually just confirms earlier results
             default: ['trunk', 'try']
     tier: 2
@@ -123,6 +124,7 @@ test-verify-gpu:
             # do not run on ccov
             .*-ccov/.*: []
             .*-asan/.*: []
+            (?:windows10-64|windows7-32|linux64)(?:-qr)?/opt: ['mozilla-central', 'try']
             # do not run on beta or release: usually just confirms earlier results
             default: ['trunk', 'try']
     tier: 2

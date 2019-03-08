@@ -39,6 +39,8 @@ class ChangesView {
     this.onChangesFront = this.onChangesFront.bind(this);
     this.onContextMenu = this.onContextMenu.bind(this);
     this.onCopy = this.onCopy.bind(this);
+    this.onCopyAllChanges = this.copyAllChanges.bind(this);
+    this.onCopyRule = this.copyRule.bind(this);
     this.destroy = this.destroy.bind(this);
 
     this.init();
@@ -56,6 +58,8 @@ class ChangesView {
     const changesApp = ChangesApp({
       onContextMenu: this.onContextMenu,
       onCopy: this.onCopy,
+      onCopyAllChanges: this.onCopyAllChanges,
+      onCopyRule: this.onCopyRule,
     });
 
     // listen to the front for initialization, add listeners
@@ -104,6 +108,14 @@ class ChangesView {
   }
 
   /**
+   * Handler for the "Copy All Changes" button. Simple wrapper that just calls
+   * |this.copyChanges()| with no filters in order to trigger default operation.
+   */
+  copyAllChanges() {
+    this.copyChanges();
+  }
+
+  /**
    * Handler for the "Copy Changes" option from the context menu.
    * Builds a CSS text with the aggregated changes and copies it to the clipboard.
    *
@@ -131,6 +143,36 @@ class ChangesView {
     }
 
     const text = getChangesStylesheet(state, filter);
+    clipboardHelper.copyString(text);
+  }
+
+  /**
+   * Handler for the "Copy Declaration" option from the context menu.
+   * Builds a CSS declaration string with the property name and value, and copies it
+   * to the clipboard. The declaration is commented out if it is marked as removed.
+   *
+   * @param {DOMElement} element
+   *        Host element of a CSS declaration rendered the Changes panel.
+   */
+  copyDeclaration(element) {
+    const name = element.querySelector(".changes__declaration-name").textContent;
+    const value = element.querySelector(".changes__declaration-value").textContent;
+    const isRemoved = element.classList.contains("diff-remove");
+    const text = isRemoved ? `/* ${name}: ${value}; */` : `${name}: ${value};`;
+    clipboardHelper.copyString(text);
+  }
+
+  /**
+   * Handler for the "Copy Rule" option from the context menu.
+   * Gets the full content of the target CSS rule (including any changes applied)
+   * and copies it to the clipboard.
+   *
+   * @param {String} ruleId
+   *        Rule id of the target CSS rule.
+   */
+  async copyRule(ruleId) {
+    const rule = await this.inspector.pageStyle.getRule(ruleId);
+    const text = await rule.getRuleText();
     clipboardHelper.copyString(text);
   }
 

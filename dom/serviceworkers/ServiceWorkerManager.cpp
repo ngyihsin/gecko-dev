@@ -1556,8 +1556,9 @@ ServiceWorkerManager::GetServiceWorkerRegistrationInfo(
   return registration.forget();
 }
 
-/* static */ nsresult ServiceWorkerManager::PrincipalToScopeKey(
-    nsIPrincipal* aPrincipal, nsACString& aKey) {
+/* static */
+nsresult ServiceWorkerManager::PrincipalToScopeKey(nsIPrincipal* aPrincipal,
+                                                   nsACString& aKey) {
   MOZ_ASSERT(aPrincipal);
 
   if (!BasePrincipal::Cast(aPrincipal)->IsCodebasePrincipal()) {
@@ -1572,7 +1573,8 @@ ServiceWorkerManager::GetServiceWorkerRegistrationInfo(
   return NS_OK;
 }
 
-/* static */ nsresult ServiceWorkerManager::PrincipalInfoToScopeKey(
+/* static */
+nsresult ServiceWorkerManager::PrincipalInfoToScopeKey(
     const PrincipalInfo& aPrincipalInfo, nsACString& aKey) {
   if (aPrincipalInfo.type() != PrincipalInfo::TContentPrincipalInfo) {
     return NS_ERROR_FAILURE;
@@ -1589,7 +1591,8 @@ ServiceWorkerManager::GetServiceWorkerRegistrationInfo(
   return NS_OK;
 }
 
-/* static */ void ServiceWorkerManager::AddScopeAndRegistration(
+/* static */
+void ServiceWorkerManager::AddScopeAndRegistration(
     const nsACString& aScope, ServiceWorkerRegistrationInfo* aInfo) {
   MOZ_ASSERT(aInfo);
   MOZ_ASSERT(aInfo->Principal());
@@ -1638,7 +1641,8 @@ ServiceWorkerManager::GetServiceWorkerRegistrationInfo(
   swm->NotifyListenersOnRegister(aInfo);
 }
 
-/* static */ bool ServiceWorkerManager::FindScopeForPath(
+/* static */
+bool ServiceWorkerManager::FindScopeForPath(
     const nsACString& aScopeKey, const nsACString& aPath,
     RegistrationDataPerPrincipal** aData, nsACString& aMatch) {
   MOZ_ASSERT(aData);
@@ -1660,8 +1664,9 @@ ServiceWorkerManager::GetServiceWorkerRegistrationInfo(
   return false;
 }
 
-/* static */ bool ServiceWorkerManager::HasScope(nsIPrincipal* aPrincipal,
-                                                 const nsACString& aScope) {
+/* static */
+bool ServiceWorkerManager::HasScope(nsIPrincipal* aPrincipal,
+                                    const nsACString& aScope) {
   RefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
   if (!swm) {
     return false;
@@ -1681,7 +1686,8 @@ ServiceWorkerManager::GetServiceWorkerRegistrationInfo(
   return data->mOrderedScopes.Contains(aScope);
 }
 
-/* static */ void ServiceWorkerManager::RemoveScopeAndRegistration(
+/* static */
+void ServiceWorkerManager::RemoveScopeAndRegistration(
     ServiceWorkerRegistrationInfo* aRegistration) {
   RefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
   if (!swm) {
@@ -1873,38 +1879,36 @@ class ContinueDispatchFetchEventRunnable : public Runnable {
 
     nsString clientId;
     nsString resultingClientId;
-    nsCOMPtr<nsILoadInfo> loadInfo = channel->GetLoadInfo();
-    if (loadInfo) {
-      char buf[NSID_LENGTH];
-      Maybe<ClientInfo> clientInfo = loadInfo->GetClientInfo();
-      if (clientInfo.isSome()) {
-        clientInfo.ref().Id().ToProvidedString(buf);
-        NS_ConvertASCIItoUTF16 uuid(buf);
+    nsCOMPtr<nsILoadInfo> loadInfo = channel->LoadInfo();
+    char buf[NSID_LENGTH];
+    Maybe<ClientInfo> clientInfo = loadInfo->GetClientInfo();
+    if (clientInfo.isSome()) {
+      clientInfo.ref().Id().ToProvidedString(buf);
+      NS_ConvertASCIItoUTF16 uuid(buf);
 
-        // Remove {} and the null terminator
-        clientId.Assign(Substring(uuid, 1, NSID_LENGTH - 3));
-      }
+      // Remove {} and the null terminator
+      clientId.Assign(Substring(uuid, 1, NSID_LENGTH - 3));
+    }
 
-      // Having an initial or reserved client are mutually exclusive events:
-      // either an initial client is used upon navigating an about:blank
-      // iframe, or a new, reserved environment/client is created (e.g.
-      // upon a top-level navigation). See step 4 of
-      // https://html.spec.whatwg.org/#process-a-navigate-fetch as well as
-      // https://github.com/w3c/ServiceWorker/issues/1228#issuecomment-345132444
-      Maybe<ClientInfo> resulting = loadInfo->GetInitialClientInfo();
+    // Having an initial or reserved client are mutually exclusive events:
+    // either an initial client is used upon navigating an about:blank
+    // iframe, or a new, reserved environment/client is created (e.g.
+    // upon a top-level navigation). See step 4 of
+    // https://html.spec.whatwg.org/#process-a-navigate-fetch as well as
+    // https://github.com/w3c/ServiceWorker/issues/1228#issuecomment-345132444
+    Maybe<ClientInfo> resulting = loadInfo->GetInitialClientInfo();
 
-      if (resulting.isNothing()) {
-        resulting = loadInfo->GetReservedClientInfo();
-      } else {
-        MOZ_ASSERT(loadInfo->GetReservedClientInfo().isNothing());
-      }
+    if (resulting.isNothing()) {
+      resulting = loadInfo->GetReservedClientInfo();
+    } else {
+      MOZ_ASSERT(loadInfo->GetReservedClientInfo().isNothing());
+    }
 
-      if (resulting.isSome()) {
-        resulting.ref().Id().ToProvidedString(buf);
-        NS_ConvertASCIItoUTF16 uuid(buf);
+    if (resulting.isSome()) {
+      resulting.ref().Id().ToProvidedString(buf);
+      NS_ConvertASCIItoUTF16 uuid(buf);
 
-        resultingClientId.Assign(Substring(uuid, 1, NSID_LENGTH - 3));
-      }
+      resultingClientId.Assign(Substring(uuid, 1, NSID_LENGTH - 3));
     }
 
     rv = mServiceWorkerPrivate->SendFetchEvent(mChannel, mLoadGroup, clientId,
@@ -1936,12 +1940,7 @@ void ServiceWorkerManager::DispatchFetchEvent(nsIInterceptedChannel* aChannel,
     return;
   }
 
-  nsCOMPtr<nsILoadInfo> loadInfo = internalChannel->GetLoadInfo();
-  if (NS_WARN_IF(!loadInfo)) {
-    aRv.Throw(NS_ERROR_UNEXPECTED);
-    return;
-  }
-
+  nsCOMPtr<nsILoadInfo> loadInfo = internalChannel->LoadInfo();
   RefPtr<ServiceWorkerInfo> serviceWorker;
 
   if (!nsContentUtils::IsNonSubresourceRequest(internalChannel)) {

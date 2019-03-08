@@ -17,7 +17,7 @@ import {
 import { getGeneratedLocation } from "../../utils/source-maps";
 import { getTextAtPosition } from "../../utils/source";
 import { originalToGeneratedId, isOriginalId } from "devtools-source-map";
-import { getSource } from "../../selectors";
+import { getSource, getBreakpointPositionsForSource } from "../../selectors";
 import { features } from "../../utils/prefs";
 
 import type { ThunkArgs, Action } from "../types";
@@ -34,6 +34,19 @@ type BreakpointSyncData = {
   previousLocation: SourceLocation,
   breakpoint: ?Breakpoint
 };
+
+async function isPossiblePosition(state, location, dispatch) {
+  if (!features.columnBreakpoints || location.column != undefined) {
+    return true;
+  }
+
+  await dispatch(setBreakpointPositions(location.sourceId));
+  const positions = getBreakpointPositionsForSource(state, location.sourceId);
+  return (
+    positions &&
+    positions.some(({ generatedLocation }) => generatedLocation.column)
+  );
+}
 
 async function makeScopedLocation(
   { name, offset, index }: ASTLocation,
@@ -136,15 +149,11 @@ export async function syncBreakpointPromise(
     generatedLocation
   );
 
-  let possiblePosition = true;
-  if (features.columnBreakpoints && generatedLocation.column != undefined) {
-    const { positions } = await dispatch(
-      setBreakpointPositions(generatedLocation)
-    );
-    if (!positions.includes(generatedLocation.column)) {
-      possiblePosition = false;
-    }
-  }
+  const possiblePosition = await isPossiblePosition(
+    getState(),
+    generatedLocation,
+    dispatch
+  );
 
   /** ******* CASE 1: No server change ***********/
   // early return if breakpoint is disabled or we are in the sameLocation

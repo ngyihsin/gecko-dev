@@ -319,6 +319,12 @@ VARCACHE_PREF(
 )
 
 VARCACHE_PREF(
+  "dom.webnotifications.allowinsecure",
+   dom_webnotifications_allowinsecure,
+  RelaxedAtomicBool, false
+)
+
+VARCACHE_PREF(
   "dom.webnotifications.serviceworker.enabled",
    dom_webnotifications_serviceworker_enabled,
   RelaxedAtomicBool, true
@@ -515,16 +521,6 @@ VARCACHE_PREF(
 )
 
 //---------------------------------------------------------------------------
-// Clear-Site-Data prefs
-//---------------------------------------------------------------------------
-
-VARCACHE_PREF(
-  "dom.clearSiteData.enabled",
-   dom_clearSiteData_enabled,
-  bool, true
-)
-
-//---------------------------------------------------------------------------
 // Extension prefs
 //---------------------------------------------------------------------------
 
@@ -547,6 +543,14 @@ VARCACHE_PREF(
 //---------------------------------------------------------------------------
 // Graphics prefs
 //---------------------------------------------------------------------------
+
+// In theory: 0 = never, 1 = quick, 2 = always, though we always just use it as
+// a bool!
+VARCACHE_PREF(
+  "browser.display.use_document_fonts",
+   browser_display_use_document_fonts,
+  RelaxedAtomicInt32, 1
+)
 
 VARCACHE_PREF(
   "gfx.font_rendering.opentype_svg.enabled",
@@ -1559,6 +1563,16 @@ VARCACHE_PREF(
 )
 #undef PREF_VALUE
 
+// Max number of HLS players that can be created concurrently. Used only on
+// Android and when "media.hls.enabled" is true.
+#ifdef ANDROID
+VARCACHE_PREF(
+  "media.hls.max-allocations",
+   MediaHlsMaxAllocations,
+  uint32_t, 20
+)
+#endif
+
 #ifdef MOZ_FMP4
 # define PREF_VALUE true
 #else
@@ -1943,6 +1957,13 @@ VARCACHE_PREF(
   uint32_t, 1800 // 30 minutes (in seconds)
 )
 
+// Maximum client-side cookie life-time cap
+VARCACHE_PREF(
+  "privacy.documentCookies.maxage",
+   privacy_documentCookies_maxage,
+  uint32_t, 0 // Disabled (in seconds, set to 0 to disable)
+)
+
 // Anti-fingerprinting, disabled by default
 VARCACHE_PREF(
   "privacy.resistFingerprinting",
@@ -2181,6 +2202,12 @@ VARCACHE_PREF(
   "dom.reporting.delivering.maxReports",
    dom_reporting_delivering_maxReports,
   uint32_t, 100
+)
+
+VARCACHE_PREF(
+  "medium_high_event_queue.enabled",
+   medium_high_event_queue_enabled,
+  RelaxedAtomicBool, true
 )
 
 //---------------------------------------------------------------------------

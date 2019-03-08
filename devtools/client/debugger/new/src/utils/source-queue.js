@@ -5,7 +5,7 @@
 // @flow
 
 import { throttle } from "lodash";
-import type { CreateSourceResult } from "../client/firefox/types";
+import type { Source } from "../types";
 
 let newSources;
 let queuedSources;
@@ -24,13 +24,15 @@ export default {
     newSources = actions.newSources;
     queuedSources = [];
   },
-  queue: (source: CreateSourceResult) => {
+  queue: (source: Source) => {
     queuedSources.push(source);
     queue();
   },
-  queueSources: (sources: CreateSourceResult[]) => {
-    queuedSources = queuedSources.concat(sources);
-    queue();
+  queueSources: (sources: Source[]) => {
+    if (sources.length > 0) {
+      queuedSources = queuedSources.concat(sources);
+      queue();
+    }
   },
 
   flush: () => Promise.all([queue.flush(), currentWork]),

@@ -32,7 +32,10 @@ pub use self::GenericPosition as Position;
 impl<H, V> Position<H, V> {
     /// Returns a new position.
     pub fn new(horizontal: H, vertical: V) -> Self {
-        Self { horizontal, vertical }
+        Self {
+            horizontal,
+            vertical,
+        }
     }
 }
 
@@ -45,17 +48,21 @@ impl<H, V> Position<H, V> {
     Debug,
     MallocSizeOf,
     PartialEq,
+    Parse,
     SpecifiedValueInfo,
     ToAnimatedZero,
     ToComputedValue,
     ToCss,
 )]
-pub enum ZIndex<Integer> {
+#[repr(C, u8)]
+pub enum GenericZIndex<I> {
     /// An integer value.
-    Integer(Integer),
+    Integer(I),
     /// The keyword `auto`.
     Auto,
 }
+
+pub use self::GenericZIndex as ZIndex;
 
 impl<Integer> ZIndex<Integer> {
     /// Returns `auto`

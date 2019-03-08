@@ -18,8 +18,8 @@ import type {
   Script,
   SourceId,
   SourceActor,
-  SourceActorLocation,
-  Worker
+  Worker,
+  Range
 } from "../../types";
 
 import type {
@@ -31,8 +31,6 @@ import type {
   SourcesPacket
 } from "./types";
 
-import type { PausePointsMap } from "../../workers/parser";
-
 let workerClients: Object;
 let threadClient: ThreadClient;
 let tabTarget: TabTarget;
@@ -40,6 +38,8 @@ let debuggerClient: DebuggerClient;
 let sourceActors: { [ActorId]: SourceId };
 let breakpoints: { [string]: Object };
 let supportsWasm: boolean;
+
+let shouldWaitForWorkers = false;
 
 type Dependencies = {
   threadClient: ThreadClient,
@@ -89,6 +89,10 @@ function lookupConsoleClient(thread: string) {
     return tabTarget.activeConsole;
   }
   return workerClients[thread].console;
+}
+
+function listWorkerThreadClients() {
+  return (Object.values(workerClients): any).map(({ thread }) => thread);
 }
 
 function resume(thread: string): Promise<*> {
@@ -168,11 +172,8 @@ function locationKey(location) {
   return `${(sourceUrl: any)}:${(sourceId: any)}:${line}:${(column: any)}`;
 }
 
-function* getAllThreadClients() {
-  yield threadClient;
-  for (const { thread } of (Object.values(workerClients): any)) {
-    yield thread;
-  }
+function waitForWorkers(shouldWait: boolean) {
+  shouldWaitForWorkers = shouldWait;
 }
 
 async function setBreakpoint(
@@ -180,15 +181,39 @@ async function setBreakpoint(
   options: BreakpointOptions
 ) {
   breakpoints[locationKey(location)] = { location, options };
-  for (const thread of getAllThreadClients()) {
-    await thread.setBreakpoint(location, options);
+  await threadClient.setBreakpoint(location, options);
+
+  // Set breakpoints in other threads as well, but do not wait for the requests
+  // to complete, so that we don't get hung up if one of the threads stops
+  // responding. We don't strictly need to wait for the main thread to finish
+  // setting its breakpoint, but this leads to more consistent behavior if the
+  // user sets a breakpoint and immediately starts interacting with the page.
+  // If the main thread stops responding then we're toast regardless.
+  if (shouldWaitForWorkers) {
+    for (const thread of listWorkerThreadClients()) {
+      await thread.setBreakpoint(location, options);
+    }
+  } else {
+    for (const thread of listWorkerThreadClients()) {
+      thread.setBreakpoint(location, options);
+    }
   }
 }
 
 async function removeBreakpoint(location: BreakpointLocation) {
   delete breakpoints[locationKey(location)];
-  for (const thread of getAllThreadClients()) {
-    await thread.removeBreakpoint(location);
+  await threadClient.removeBreakpoint(location);
+
+  // Remove breakpoints without waiting for the thread to respond, for the same
+  // reason as in setBreakpoint.
+  if (shouldWaitForWorkers) {
+    for (const thread of listWorkerThreadClients()) {
+      await thread.removeBreakpoint(location);
+    }
+  } else {
+    for (const thread of listWorkerThreadClients()) {
+      thread.removeBreakpoint(location);
+    }
   }
 }
 
@@ -295,17 +320,6 @@ async function blackBox(
   }
 }
 
-async function setPausePoints(
-  sourceActor: SourceActor,
-  pausePoints: PausePointsMap
-) {
-  return sendPacket({
-    to: sourceActor.actor,
-    type: "setPausePoints",
-    pausePoints
-  });
-}
-
 async function setSkipPausing(thread: string, shouldSkip: boolean) {
   const client = lookupThreadClient(thread);
   return client.request({
@@ -365,11 +379,17 @@ function getSourceForActor(actor: ActorId) {
 
 async function fetchWorkers(): Promise<Worker[]> {
   if (features.windowlessWorkers) {
+    const options = {
+      breakpoints,
+      observeAsmJS: true
+    };
+
     const newWorkerClients = await updateWorkerClients({
       tabTarget,
       debuggerClient,
       threadClient,
-      workerClients
+      workerClients,
+      options
     });
 
     // Fetch the sources and install breakpoints on any new workers.
@@ -378,9 +398,6 @@ async function fetchWorkers(): Promise<Worker[]> {
       if (!workerClients[actor]) {
         const client = newWorkerClients[actor].thread;
         createSources(client);
-        for (const { location, options } of (Object.values(breakpoints): any)) {
-          client.setBreakpoint(location, options);
-        }
       }
     }
 
@@ -404,20 +421,16 @@ function getMainThread() {
 }
 
 async function getBreakpointPositions(
-  location: SourceActorLocation
-): Promise<Array<Number>> {
-  const {
-    sourceActor: { thread, actor },
-    line
-  } = location;
+  sourceActor: SourceActor,
+  range: ?Range
+): Promise<{ [string]: number[] }> {
+  const { thread, actor } = sourceActor;
   const sourceThreadClient = lookupThreadClient(thread);
   const sourceClient = sourceThreadClient.source({ actor });
-  const { positions } = await sourceClient.getBreakpointPositionsCompressed({
-    start: { line },
-    end: { line }
-  });
-
-  return positions ? positions[line] : [];
+  const { positions } = await sourceClient.getBreakpointPositionsCompressed(
+    range
+  );
+  return positions;
 }
 
 const clientCommands = {
@@ -457,9 +470,9 @@ const clientCommands = {
   fetchWorkers,
   getMainThread,
   sendPacket,
-  setPausePoints,
   setSkipPausing,
-  setEventListenerBreakpoints
+  setEventListenerBreakpoints,
+  waitForWorkers
 };
 
 export { setupCommands, clientCommands };

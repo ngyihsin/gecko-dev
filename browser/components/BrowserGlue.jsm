@@ -123,9 +123,9 @@ let ACTORS = {
     },
   },
 
-  FormSubmit: {
+  FormValidation: {
     child: {
-      module: "resource:///actors/FormSubmitChild.jsm",
+      module: "resource:///actors/FormValidationChild.jsm",
       events: {
         "MozInvalidForm": {},
       },
@@ -241,6 +241,16 @@ let ACTORS = {
       observers: [
         "decoder-doctor-notification",
       ],
+    },
+  },
+
+  RFPHelper: {
+    child: {
+      module: "resource:///actors/RFPHelperChild.jsm",
+      group: "browsers",
+      events: {
+        "resize": {},
+      },
     },
   },
 
@@ -397,7 +407,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   HybridContentTelemetry: "resource://gre/modules/HybridContentTelemetry.jsm",
   Integration: "resource://gre/modules/Integration.jsm",
   L10nRegistry: "resource://gre/modules/L10nRegistry.jsm",
-  LanguagePrompt: "resource://gre/modules/LanguagePrompt.jsm",
   LightweightThemeManager: "resource://gre/modules/LightweightThemeManager.jsm",
   LiveBookmarkMigrator: "resource:///modules/LiveBookmarkMigrator.jsm",
   NewTabUtils: "resource://gre/modules/NewTabUtils.jsm",
@@ -415,6 +424,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.jsm",
   ProcessHangMonitor: "resource:///modules/ProcessHangMonitor.jsm",
   RemoteSettings: "resource://services-settings/remote-settings.js",
+  RFPHelper: "resource://gre/modules/RFPHelper.jsm",
   SafeBrowsing: "resource://gre/modules/SafeBrowsing.jsm",
   Sanitizer: "resource:///modules/Sanitizer.jsm",
   SaveToPocket: "chrome://pocket/content/SaveToPocket.jsm",
@@ -423,6 +433,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   SessionStore: "resource:///modules/sessionstore/SessionStore.jsm",
   ShellService: "resource:///modules/ShellService.jsm",
   TabCrashHandler: "resource:///modules/ContentCrashHandlers.jsm",
+  TabUnloader: "resource:///modules/TabUnloader.jsm",
   UIState: "resource://services-sync/UIState.jsm",
   UITour: "resource:///modules/UITour.jsm",
   WebChannel: "resource://gre/modules/WebChannel.jsm",
@@ -1406,6 +1417,29 @@ BrowserGlue.prototype = {
       }
     }
     Services.telemetry.scalarSet("contentblocking.exceptions", exceptions);
+
+    let fpEnabled = Services.prefs.getBoolPref("privacy.trackingprotection.fingerprinting.enabled");
+    let cmEnabled = Services.prefs.getBoolPref("privacy.trackingprotection.cryptomining.enabled");
+    let categoryPref;
+    switch (Services.prefs.getStringPref("browser.contentblocking.category", null)) {
+    case "standard":
+      categoryPref = 0;
+      break;
+    case "strict":
+      categoryPref = 1;
+      break;
+    case "custom":
+      categoryPref = 2;
+      break;
+    default:
+      // Any other value is unsupported.
+      categoryPref = 3;
+      break;
+    }
+
+    Services.telemetry.scalarSet("contentblocking.fingerprinting_blocking_enabled", fpEnabled);
+    Services.telemetry.scalarSet("contentblocking.cryptomining_blocking_enabled", cmEnabled);
+    Services.telemetry.scalarSet("contentblocking.category", categoryPref);
   },
 
   _sendMediaTelemetry() {
@@ -1455,6 +1489,7 @@ BrowserGlue.prototype = {
     DateTimePickerParent.uninit();
 
     Normandy.uninit();
+    RFPHelper.uninit();
   },
 
   // Set up a listener to enable/disable the screenshots extension
@@ -1668,7 +1703,7 @@ BrowserGlue.prototype = {
     }
 
     Services.tm.idleDispatchToMainThread(() => {
-      LanguagePrompt.init();
+      RFPHelper.init();
     });
 
     Services.tm.idleDispatchToMainThread(() => {
@@ -1680,6 +1715,10 @@ BrowserGlue.prototype = {
         LiveBookmarkMigrator.migrate().catch(Cu.reportError);
       });
     }
+
+    Services.tm.idleDispatchToMainThread(() => {
+      TabUnloader.init();
+    });
   },
 
   /**
@@ -2222,7 +2261,7 @@ BrowserGlue.prototype = {
   _migrateUI: function BG__migrateUI() {
     // Use an increasing number to keep track of the current migration state.
     // Completely unrelated to the current Firefox release number.
-    const UI_VERSION = 79;
+    const UI_VERSION = 80;
     const BROWSER_DOCURL = AppConstants.BROWSER_CHROME_URL;
 
     let currentUIVersion;
@@ -2595,6 +2634,14 @@ BrowserGlue.prototype = {
       // The handler app service will read this. We need to wait with migrating
       // until the handler service has started up, so just set a pref here.
       Services.prefs.setCharPref("browser.handlers.migrations", "30boxes");
+    }
+
+    if (currentUIVersion < 80) {
+      let hosts = Services.prefs.getCharPref("network.proxy.no_proxies_on");
+      // remove "localhost" and "127.0.0.1" from the no_proxies_on list
+      const kLocalHosts = new Set(["localhost", "127.0.0.1"]);
+      hosts = hosts.split(/[ ,]+/).filter(host => !kLocalHosts.has(host)).join(", ");
+      Services.prefs.setCharPref("network.proxy.no_proxies_on", hosts);
     }
 
     // Update the migration version.
@@ -3051,6 +3098,15 @@ var ContentBlockingCategoriesPrefs = {
     } else if (this.prefsMatch("strict")) {
       Services.prefs.setStringPref(this.PREF_CB_CATEGORY, "strict");
     } else {
+      Services.prefs.setStringPref(this.PREF_CB_CATEGORY, "custom");
+    }
+
+    // If there is a custom policy which changes a related pref, then put the user in custom so
+    // they still have access to other content blocking prefs, and to keep our default definitions
+    // from changing.
+    let policy = Services.policies.getActivePolicies();
+    if (policy && (policy.EnableTrackingProtection ||
+        policy.Cookies)) {
       Services.prefs.setStringPref(this.PREF_CB_CATEGORY, "custom");
     }
   },

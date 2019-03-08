@@ -1852,8 +1852,8 @@ nsresult WebSocketChannel::ProcessInput(uint8_t *buffer, uint32_t count) {
   return NS_OK;
 }
 
-/* static */ void WebSocketChannel::ApplyMask(uint32_t mask, uint8_t *data,
-                                              uint64_t len) {
+/* static */
+void WebSocketChannel::ApplyMask(uint32_t mask, uint8_t *data, uint64_t len) {
   if (!data || len == 0) return;
 
   // Optimally we want to apply the mask 32 bits at a time,
@@ -3387,7 +3387,7 @@ WebSocketChannel::AsyncOpen(nsIURI *aURI, const nsACString &aOrigin,
 
   // Ideally we'd call newChannelFromURIWithLoadInfo here, but that doesn't
   // allow setting proxy uri/flags
-  rv = ioService->NewChannelFromURIWithProxyFlags2(
+  rv = ioService->NewChannelFromURIWithProxyFlags(
       localURI, mURI,
       nsIProtocolProxyService::RESOLVE_PREFER_HTTPS_PROXY |
           nsIProtocolProxyService::RESOLVE_ALWAYS_TUNNEL,
@@ -3662,7 +3662,7 @@ WebSocketChannel::OnTransportAvailable(nsISocketTransport *aTransport,
 // nsIRequestObserver (from nsIStreamListener)
 
 NS_IMETHODIMP
-WebSocketChannel::OnStartRequest(nsIRequest *aRequest, nsISupports *aContext) {
+WebSocketChannel::OnStartRequest(nsIRequest *aRequest) {
   LOG(("WebSocketChannel::OnStartRequest(): %p [%p %p] recvdhttpupgrade=%d\n",
        this, aRequest, mHttpChannel.get(), mRecvdHttpUpgradeTransport));
   MOZ_ASSERT(NS_IsMainThread(), "not main thread");
@@ -3847,7 +3847,7 @@ WebSocketChannel::OnStartRequest(nsIRequest *aRequest, nsISupports *aContext) {
 }
 
 NS_IMETHODIMP
-WebSocketChannel::OnStopRequest(nsIRequest *aRequest, nsISupports *aContext,
+WebSocketChannel::OnStopRequest(nsIRequest *aRequest,
                                 nsresult aStatusCode) {
   LOG(("WebSocketChannel::OnStopRequest() %p [%p %p %" PRIx32 "]\n", this,
        aRequest, mHttpChannel.get(), static_cast<uint32_t>(aStatusCode)));
@@ -4004,7 +4004,7 @@ WebSocketChannel::OnOutputStreamReady(nsIAsyncOutputStream *aStream) {
 // nsIStreamListener
 
 NS_IMETHODIMP
-WebSocketChannel::OnDataAvailable(nsIRequest *aRequest, nsISupports *aContext,
+WebSocketChannel::OnDataAvailable(nsIRequest *aRequest,
                                   nsIInputStream *aInputStream,
                                   uint64_t aOffset, uint32_t aCount) {
   LOG(("WebSocketChannel::OnDataAvailable() %p [%p %p %p %" PRIu64 " %u]\n",

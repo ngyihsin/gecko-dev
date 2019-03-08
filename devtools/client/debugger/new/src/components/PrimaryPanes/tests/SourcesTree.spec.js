@@ -9,7 +9,7 @@ import { shallow } from "enzyme";
 import { showMenu } from "devtools-contextmenu";
 
 import SourcesTree from "../SourcesTree";
-import { createSource } from "../../../reducers/sources";
+import { makeMockSource } from "../../../utils/test-mockup";
 import { copyToTheClipboard } from "../../../utils/clipboard";
 
 jest.mock("devtools-contextmenu", () => ({ showMenu: jest.fn() }));
@@ -177,26 +177,17 @@ describe("SourcesTree", () => {
     });
   });
 
-  describe("focusItem", () => {
-    it("update the focused item", async () => {
+  describe("activateItem", () => {
+    it("select activated item", async () => {
+      const { instance, props } = render();
       const item = createMockItem();
-      const { component, props } = render({ focused: item });
+      const spy = jest.spyOn(instance, "selectItem");
 
-      await component
-        .find(".sources-list")
-        .simulate("keydown", { keyCode: 13 });
-
-      expect(props.selectSource).toHaveBeenCalledWith(item.contents.id);
-    });
-
-    it("allows focus on the (index)", async () => {
-      const item = createMockItem("https://davidwalsh.name/", "(index)");
-
-      const { component, props } = render({ focused: item });
-      await component
-        .find(".sources-list")
-        .simulate("keydown", { keyCode: 13 });
-      expect(props.selectSource).toHaveBeenCalledWith(item.contents.id);
+      instance.onActivate(item);
+      expect(spy).toHaveBeenCalledWith(item);
+      expect(props.selectSource).toHaveBeenCalledWith(
+        "server1.conn13.child1/39"
+      );
     });
   });
 
@@ -212,14 +203,6 @@ describe("SourcesTree", () => {
     it("should not select item with children", async () => {
       const { props, instance } = render();
       instance.selectItem(createMockDirectory());
-      expect(props.selectSource).not.toHaveBeenCalled();
-    });
-
-    it("does not select if no item is focused on", async () => {
-      const { component, props } = render();
-      await component
-        .find(".sources-list")
-        .simulate("keydown", { keyCode: 13 });
       expect(props.selectSource).not.toHaveBeenCalled();
     });
   });
@@ -399,16 +382,11 @@ function createMockSource(
   sourceMapURL = null,
   thread = ""
 ) {
-  return createSource({
-    id: id,
-    thread,
-    url: url,
-    isPrettyPrinted: false,
-    isWasm: false,
-    sourceMapURL,
-    isBlackBoxed: isBlackBoxed,
-    loadedState: "unloaded"
-  });
+  return {
+    ...makeMockSource(url, id),
+    isBlackBoxed,
+    sourceMapURL
+  };
 }
 
 function createMockDirectory(path = "folder/", name = "folder", contents = []) {

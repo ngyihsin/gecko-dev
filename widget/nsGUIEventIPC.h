@@ -1096,6 +1096,7 @@ struct ParamTraits<mozilla::InputData> {
     WriteParam(aMsg, aParam.mTimeStamp);
     WriteParam(aMsg, aParam.modifiers);
     WriteParam(aMsg, aParam.mFocusSequenceNumber);
+    WriteParam(aMsg, aParam.mLayersId);
   }
 
   static bool Read(const Message* aMsg, PickleIterator* aIter,
@@ -1104,7 +1105,8 @@ struct ParamTraits<mozilla::InputData> {
            ReadParam(aMsg, aIter, &aResult->mTime) &&
            ReadParam(aMsg, aIter, &aResult->mTimeStamp) &&
            ReadParam(aMsg, aIter, &aResult->modifiers) &&
-           ReadParam(aMsg, aIter, &aResult->mFocusSequenceNumber);
+           ReadParam(aMsg, aIter, &aResult->mFocusSequenceNumber) &&
+           ReadParam(aMsg, aIter, &aResult->mLayersId);
   }
 };
 

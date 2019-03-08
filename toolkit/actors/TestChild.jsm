@@ -15,12 +15,20 @@ class TestChild extends JSWindowActorChild {
     switch (aMessage.name) {
       case "toChild":
         aMessage.data.toChild = true;
-        this.sendAsyncMessage("Test", "toParent", aMessage.data);
+        this.sendAsyncMessage("toParent", aMessage.data);
         break;
       case "done":
         this.done(aMessage.data);
         break;
     }
+  }
+
+  handleEvent(aEvent) {
+    this.sendAsyncMessage("event", { type: aEvent.type });
+  }
+
+  observe(subject, topic, data) {
+    this.lastObserved = {subject, topic, data};
   }
 
   show() {

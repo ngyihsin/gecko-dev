@@ -27,7 +27,6 @@ logger = logging.getLogger(__name__)
     title='Retrigger',
     name='retrigger',
     symbol='rt',
-    kind='hook',
     cb_name='retrigger-decision',
     description=textwrap.dedent('''\
         Create a clone of the task (retriggering decision, action, and cron tasks requires
@@ -55,7 +54,6 @@ def retrigger_decision_action(parameters, graph_config, input, task_group_id, ta
     title='Retrigger',
     name='retrigger',
     symbol='rt',
-    kind='hook',
     generic=True,
     description=(
         'Create a clone of the task.'
@@ -101,7 +99,15 @@ def retrigger_action(parameters, graph_config, input, task_group_id, task_id):
 
     times = input.get('times', 1)
     for i in xrange(times):
-        create_tasks(to_run, full_task_graph, label_to_taskid, parameters, decision_task_id, i)
+        create_tasks(
+            graph_config,
+            to_run,
+            full_task_graph,
+            label_to_taskid,
+            parameters,
+            decision_task_id,
+            i,
+        )
 
         logger.info('Scheduled {}{}(time {}/{})'.format(label, with_downstream, i+1, times))
     combine_task_graph_files(list(range(times)))

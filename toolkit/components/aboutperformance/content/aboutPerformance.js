@@ -251,13 +251,19 @@ var State = {
       if (host.startsWith("about:") || host.startsWith("moz-nullprincipal"))
         return false;
 
-      let principal =
-        Services.scriptSecurityManager.createCodebasePrincipalFromOrigin("http://" + host);
+      let uri = Services.io.newURI("http://" + host);
       let classifier =
         Cc["@mozilla.org/url-classifier/dbservice;1"].getService(Ci.nsIURIClassifier);
-      classifier.classify(principal, null, true,
-                          (aErrorCode, aList, aProvider, aFullHash) => {
-        this._trackingState.set(host, ChromeUtils.IsClassifierBlockingErrorCode(aErrorCode));
+      let feature = classifier.getFeatureByName("tracking-protection");
+      if (!feature) {
+        return false;
+      }
+
+      classifier.asyncClassifyLocalWithFeatures(uri, [feature],
+        Ci.nsIUrlClassifierFeature.blacklist, list => {
+          if (list.length) {
+            this._trackingState.set(host, true);
+          }
       });
     }
     return this._trackingState.get(host);
@@ -402,9 +408,9 @@ var View = {
     this._fragment = document.createDocumentFragment();
   },
   displayEnergyImpact(elt, energyImpact) {
-    if (!energyImpact)
+    if (!energyImpact) {
       elt.textContent = "–";
-    else {
+    } else {
       let impact = "high";
       if (energyImpact < 1)
         impact = "low";

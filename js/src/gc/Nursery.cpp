@@ -86,8 +86,8 @@ inline void js::NurseryChunk::poisonAfterSweep(size_t extent) {
   Poison(this, JS_SWEPT_NURSERY_PATTERN, extent, MemCheckKind::MakeNoAccess);
 }
 
-/* static */ inline js::NurseryChunk* js::NurseryChunk::fromChunk(
-    Chunk* chunk) {
+/* static */
+inline js::NurseryChunk* js::NurseryChunk::fromChunk(Chunk* chunk) {
   return reinterpret_cast<NurseryChunk*>(chunk);
 }
 
@@ -142,7 +142,7 @@ bool js::Nursery::init(uint32_t maxNurseryBytes, AutoLockGCBgAlloc& lock) {
   if (!allocateNextChunk(0, lock)) {
     return false;
   }
-  capacity_ = NurseryChunkUsableSize;
+  capacity_ = SubChunkLimit;
   /* After this point the Nursery has been enabled */
 
   setCurrentChunk(0, true);
@@ -221,6 +221,7 @@ void js::Nursery::disable() {
   // nursery.  JIT'd code uses this even if the nursery is disabled.
   currentEnd_ = 0;
   currentStringEnd_ = 0;
+  position_ = 0;
   runtime()->gc.storeBuffer().disable();
 }
 
@@ -657,7 +658,8 @@ void js::Nursery::renderProfileJSON(JSONPrinter& json) const {
   json.endObject();
 }
 
-/* static */ void js::Nursery::printProfileHeader() {
+/* static */
+void js::Nursery::printProfileHeader() {
   fprintf(stderr, "MinorGC:               Reason  PRate Size        ");
 #define PRINT_HEADER(name, text) fprintf(stderr, " %6s", text);
   FOR_EACH_NURSERY_PROFILE_TIME(PRINT_HEADER)
@@ -665,8 +667,8 @@ void js::Nursery::renderProfileJSON(JSONPrinter& json) const {
   fprintf(stderr, "\n");
 }
 
-/* static */ void js::Nursery::printProfileDurations(
-    const ProfileDurations& times) {
+/* static */
+void js::Nursery::printProfileDurations(const ProfileDurations& times) {
   for (auto time : times) {
     fprintf(stderr, " %6" PRIi64, static_cast<int64_t>(time.ToMicroseconds()));
   }
@@ -697,8 +699,35 @@ inline void js::Nursery::endProfile(ProfileKey key) {
 }
 
 bool js::Nursery::shouldCollect() const {
-  uint32_t threshold = tunables().nurseryFreeThresholdForIdleCollection();
-  return !isEmpty() && (minorGCRequested() || freeSpace() < threshold);
+  if (minorGCRequested()) {
+    return true;
+  }
+
+  bool belowBytesThreshold =
+      freeSpace() < tunables().nurseryFreeThresholdForIdleCollection();
+  bool belowFractionThreshold =
+      float(freeSpace()) / float(capacity()) <
+      tunables().nurseryFreeThresholdForIdleCollectionFraction();
+
+  // We want to use belowBytesThreshold when the nursery is sufficiently large,
+  // and belowFractionThreshold when it's small.
+  //
+  // When the nursery is small then belowBytesThreshold is a lower threshold
+  // (triggered earlier) than belowFractionThreshold.  So if the fraction
+  // threshold is true, the bytes one will be true also.  The opposite is true
+  // when the nursery is large.
+  //
+  // Therefore, by the time we cross the threshold we care about, we've already
+  // crossed the other one, and we can boolean AND to use either condition
+  // without encoding any "is the nursery big/small" test/threshold.  The point
+  // at which they cross is when the nursery is:  BytesThreshold /
+  // FractionThreshold large.
+  //
+  // With defaults that's:
+  //
+  //   1MB = 256KB / 0.25
+  //
+  return belowBytesThreshold && belowFractionThreshold;
 }
 
 static inline bool IsFullStoreBufferReason(JS::GCReason reason) {
@@ -1186,26 +1215,31 @@ void js::Nursery::maybeResizeNursery(JS::GCReason reason) {
       float(previousGC.tenuredBytes) / float(previousGC.nurseryCapacity);
 
   /*
-   * Object lifetimes arn't going to behave linearly, but a better
+   * Object lifetimes aren't going to behave linearly, but a better
    * relationship that works for all programs and can be predicted in
    * advance doesn't exist.
    */
   const float factor = promotionRate / PromotionGoal;
-  const unsigned newCapacity = unsigned(float(capacity()) * factor);
+  MOZ_ASSERT(factor >= 0.0f);
+
+  MOZ_ASSERT((float(capacity()) * factor) <= SIZE_MAX);
+  const size_t newCapacity = size_t(float(capacity()) * factor);
 
   // If one of these conditions is true then we always shrink or grow the
   // nursery.  This way the thresholds still have an effect even if the goal
   // seeking says the current size is ideal.
   if (maxChunkCount() < chunkCountLimit() && promotionRate > GrowThreshold) {
-    unsigned lowLimit = capacity() + SubChunkStep;
-    unsigned highLimit =
-        Min(chunkCountLimit() * NurseryChunkUsableSize, capacity() * 2);
+    size_t lowLimit = (CheckedInt<size_t>(capacity()) + SubChunkStep).value();
+    size_t highLimit =
+        Min((CheckedInt<size_t>(chunkCountLimit()) * NurseryChunkUsableSize)
+                .value(),
+            (CheckedInt<size_t>(capacity()) * 2).value());
 
     growAllocableSpace(mozilla::Clamp(newCapacity, lowLimit, highLimit));
   } else if (capacity() >= SubChunkLimit + SubChunkStep &&
              promotionRate < ShrinkThreshold) {
-    unsigned lowLimit = Max(SubChunkLimit, capacity() / 2);
-    unsigned highLimit = capacity() - SubChunkStep;
+    size_t lowLimit = Max(SubChunkLimit, capacity() / 2);
+    size_t highLimit = (CheckedInt<size_t>(capacity()) - SubChunkStep).value();
 
     shrinkAllocableSpace(mozilla::Clamp(newCapacity, lowLimit, highLimit));
   }
@@ -1217,7 +1251,7 @@ void js::Nursery::maybeResizeNursery(JS::GCReason reason) {
       "Nursery limit must be at least one step from the full chunk size");
 }
 
-void js::Nursery::growAllocableSpace(unsigned newCapacity) {
+void js::Nursery::growAllocableSpace(size_t newCapacity) {
   MOZ_ASSERT_IF(!isSubChunkMode(),
                 newCapacity > currentChunk_ * NurseryChunkUsableSize);
   if (isSubChunkMode()) {
@@ -1241,16 +1275,16 @@ void js::Nursery::freeChunksFrom(unsigned firstFreeChunk) {
   chunks_.shrinkTo(firstFreeChunk);
 }
 
-void js::Nursery::shrinkAllocableSpace(unsigned newCapacity) {
+void js::Nursery::shrinkAllocableSpace(size_t newCapacity) {
 #ifdef JS_GC_ZEAL
   if (runtime()->hasZealMode(ZealMode::GenerationalGC)) {
     return;
   }
 #endif
 
-  unsigned stepSize = newCapacity < NurseryChunkUsableSize
-                          ? SubChunkStep
-                          : NurseryChunkUsableSize;
+  size_t stepSize = newCapacity < NurseryChunkUsableSize
+                        ? SubChunkStep
+                        : NurseryChunkUsableSize;
   newCapacity -= newCapacity % stepSize;
   // Don't shrink the nursery to zero (use Nursery::disable() instead)
   // This can't happen due to the rounding-down performed above because of the

@@ -74,7 +74,7 @@ class LogCollector;
 namespace net {
 extern mozilla::LazyLogModule gHttpLog;
 
-typedef nsTArray<Tuple<nsCString, nsCString>> ArrayOfStringPairs;
+class PreferredAlternativeDataTypeParams;
 
 enum CacheDisposition : uint8_t {
   kCacheUnresolved = 0,
@@ -442,6 +442,7 @@ class HttpBaseChannel : public nsHashPropertyBag,
     if (NS_FAILED(rv)) {
       return rv;
     }
+    mOriginalReferrer = referrer;
     mReferrer = referrer;
     mReferrerPolicy = referrerPolicy;
     rv = mRequestHead.SetHeader(nsHttp::Referer, spec);
@@ -545,6 +546,11 @@ class HttpBaseChannel : public nsHashPropertyBag,
   nsCOMPtr<nsILoadInfo> mLoadInfo;
   nsCOMPtr<nsIInterfaceRequestor> mCallbacks;
   nsCOMPtr<nsIProgressEventSink> mProgressSink;
+  // When the referrer is set before calling AsyncOpen, we remember the referrer
+  // argument passed in case we need to readjust the referrer header being used
+  // depending on the active cookie policy once we have determined whether the
+  // channel is a tracking third-party resource or not.
+  nsCOMPtr<nsIURI> mOriginalReferrer;
   nsCOMPtr<nsIURI> mReferrer;
   nsCOMPtr<nsIApplicationCache> mApplicationCache;
   nsCOMPtr<nsIURI> mAPIRedirectToURI;
@@ -580,7 +586,7 @@ class HttpBaseChannel : public nsHashPropertyBag,
   // the HTML file.
   nsString mInitiatorType;
   // Holds the name of the preferred alt-data type for each contentType.
-  ArrayOfStringPairs mPreferredCachedAltDataTypes;
+  nsTArray<PreferredAlternativeDataTypeParams> mPreferredCachedAltDataTypes;
   // Holds the name of the alternative data type the channel returned.
   nsCString mAvailableCachedAltDataType;
   nsString mIntegrityMetadata;

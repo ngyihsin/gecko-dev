@@ -21,7 +21,6 @@ import { getRawSourceURL, isPrettyURL, isOriginal } from "../../utils/source";
 import {
   getBlackBoxList,
   getSource,
-  hasSourceActor,
   getPendingSelectedLocation,
   getPendingBreakpointsForSource
 } from "../../selectors";
@@ -31,7 +30,6 @@ import sourceQueue from "../../utils/source-queue";
 
 import type { Source, SourceId } from "../../types";
 import type { Action, ThunkArgs } from "../types";
-import type { CreateSourceResult } from "../../client/firefox/types";
 
 function createOriginalSource(
   originalUrl,
@@ -46,7 +44,9 @@ function createOriginalSource(
     isWasm: false,
     isBlackBoxed: false,
     loadedState: "unloaded",
-    introductionUrl: null
+    introductionUrl: null,
+    isExtension: false,
+    actors: []
   };
 }
 
@@ -62,12 +62,20 @@ function loadSourceMaps(sources: Source[]) {
     const sourceList = await Promise.all(
       sources.map(async ({ id }) => {
         const originalSources = await dispatch(loadSourceMap(id));
-        sourceQueue.queueSources(originalSources.map(source => ({ source })));
+        sourceQueue.queueSources(originalSources);
         return originalSources;
       })
     );
 
     await sourceQueue.flush();
+
+    // We would like to sync breakpoints after we are done
+    // loading source maps as sometimes generated and original
+    // files share the same paths.
+    for (const source of sources) {
+      dispatch(checkPendingBreakpoints(source.id));
+    }
+
     return flatten(sourceList);
   };
 }
@@ -203,51 +211,25 @@ function restoreBlackBoxedSources(sources: Source[]) {
  * @memberof actions/sources
  * @static
  */
-export function newSource(source: CreateSourceResult) {
+export function newSource(source: Source) {
   return async ({ dispatch }: ThunkArgs) => {
     await dispatch(newSources([source]));
   };
 }
 
-export function newSources(createdSources: CreateSourceResult[]) {
+export function newSources(sources: Source[]) {
   return async ({ dispatch, getState }: ThunkArgs) => {
-    // Find any sources we haven't seen before.
-    const sources = createdSources
-      .map(csr => csr.source)
-      .filter(source => !getSource(getState(), source.id));
+    const _newSources = sources.filter(
+      source => !getSource(getState(), source.id)
+    );
 
-    // Find any source actors we haven't seen before.
-    const sourceActors = createdSources
-      .map(csr => csr.sourceActor)
-      .filter(
-        sourceActor => sourceActor && !hasSourceActor(getState(), sourceActor)
-      );
+    dispatch({ type: "ADD_SOURCES", sources });
 
-    if (sources.length == 0 && sourceActors.length == 0) {
-      return;
-    }
-
-    dispatch({ type: "ADD_SOURCES", sources, sourceActors });
-
-    if (sources.length == 0) {
-      return;
-    }
-
-    for (const source of sources) {
+    for (const source of _newSources) {
       dispatch(checkSelectedSource(source.id));
     }
 
-    // We would like to restore the blackboxed state
-    // after loading all states to make sure the correctness.
-    dispatch(restoreBlackBoxedSources(sources));
-
-    dispatch(loadSourceMaps(sources)).then(() => {
-      // We would like to sync breakpoints after we are done
-      // loading source maps as sometimes generated and original
-      // files share the same paths.
-      for (const source of sources) {
-        dispatch(checkPendingBreakpoints(source.id));
-      }
-    });
+    dispatch(restoreBlackBoxedSources(_newSources));
+    dispatch(loadSourceMaps(_newSources));
   };
 }

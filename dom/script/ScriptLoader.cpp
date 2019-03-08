@@ -819,7 +819,8 @@ JSObject* HostResolveImportedModule(JSContext* aCx,
   return module;
 }
 
-/* static */ void ScriptLoader::ResolveImportedModule(
+/* static */
+void ScriptLoader::ResolveImportedModule(
     JSContext* aCx, JS::Handle<JS::Value> aReferencingPrivate,
     JS::Handle<JSString*> aSpecifier, JS::MutableHandle<JSObject*> aModuleOut) {
   MOZ_ASSERT(!aModuleOut);
@@ -1275,7 +1276,7 @@ nsresult ScriptLoader::StartLoad(ScriptLoadRequest* aRequest) {
     if (element && element->IsHTMLElement()) {
       nsAutoString cspNonce;
       element->GetAttribute(NS_LITERAL_STRING("nonce"), cspNonce);
-      nsCOMPtr<nsILoadInfo> loadInfo = channel->GetLoadInfo();
+      nsCOMPtr<nsILoadInfo> loadInfo = channel->LoadInfo();
       loadInfo->SetCspNonce(cspNonce);
     }
   }
@@ -1293,7 +1294,7 @@ nsresult ScriptLoader::StartLoad(ScriptLoadRequest* aRequest) {
       // registered.
       LOG(("ScriptLoadRequest (%p): Maybe request bytecode", aRequest));
       cic->PreferAlternativeDataType(nsContentUtils::JSBytecodeMimeType(),
-                                     EmptyCString());
+                                     EmptyCString(), true);
     } else {
       // If we are explicitly loading from the sources, such as after a
       // restarted request, we might still want to save the bytecode after.
@@ -1302,7 +1303,7 @@ nsresult ScriptLoader::StartLoad(ScriptLoadRequest* aRequest) {
       // does not exist, such that we can later save the bytecode with a
       // different alternative data type.
       LOG(("ScriptLoadRequest (%p): Request saving bytecode later", aRequest));
-      cic->PreferAlternativeDataType(kNullMimeType, EmptyCString());
+      cic->PreferAlternativeDataType(kNullMimeType, EmptyCString(), true);
     }
   }
 
@@ -2369,8 +2370,8 @@ nsresult ScriptLoader::FillCompileOptionsForRequest(
   return NS_OK;
 }
 
-/* static */ bool ScriptLoader::ShouldCacheBytecode(
-    ScriptLoadRequest* aRequest) {
+/* static */
+bool ScriptLoader::ShouldCacheBytecode(ScriptLoadRequest* aRequest) {
   using mozilla::TimeDuration;
   using mozilla::TimeStamp;
 
@@ -2573,7 +2574,9 @@ nsresult ScriptLoader::EvaluateScript(ScriptLoadRequest* aRequest) {
   }
 
   nsCOMPtr<nsPIDOMWindowOuter> window = mDocument->GetWindow();
+#ifdef MOZ_GECKO_PROFILER
   nsIDocShell* docShell = window ? window->GetDocShell() : nullptr;
+#endif
   nsAutoCString profilerLabelString;
   GetProfilerLabelForRequest(aRequest, profilerLabelString);
   AUTO_PROFILER_TEXT_MARKER_DOCSHELL("Script", profilerLabelString, JS,
@@ -2743,7 +2746,8 @@ nsresult ScriptLoader::EvaluateScript(ScriptLoadRequest* aRequest) {
   return rv;
 }
 
-/* static */ LoadedScript* ScriptLoader::GetActiveScript(JSContext* aCx) {
+/* static */
+LoadedScript* ScriptLoader::GetActiveScript(JSContext* aCx) {
   JS::Value value = JS::GetScriptedCallerPrivate(aCx);
   if (value.isUndefined()) {
     return nullptr;
@@ -3047,10 +3051,12 @@ bool ScriptLoader::ReadyToExecuteParserBlockingScripts() {
   return true;
 }
 
-/* static */ nsresult ScriptLoader::ConvertToUTF16(
-    nsIChannel* aChannel, const uint8_t* aData, uint32_t aLength,
-    const nsAString& aHintCharset, Document* aDocument, char16_t*& aBufOut,
-    size_t& aLengthOut) {
+/* static */
+nsresult ScriptLoader::ConvertToUTF16(nsIChannel* aChannel,
+                                      const uint8_t* aData, uint32_t aLength,
+                                      const nsAString& aHintCharset,
+                                      Document* aDocument, char16_t*& aBufOut,
+                                      size_t& aLengthOut) {
   if (!aLength) {
     aBufOut = nullptr;
     aLengthOut = 0;
@@ -3208,9 +3214,9 @@ nsresult ScriptLoader::VerifySRI(ScriptLoadRequest* aRequest,
       rv = NS_ERROR_SRI_CORRUPT;
     }
   } else {
-    nsCOMPtr<nsILoadInfo> loadInfo = channel->GetLoadInfo();
+    nsCOMPtr<nsILoadInfo> loadInfo = channel->LoadInfo();
 
-    if (loadInfo && loadInfo->GetEnforceSRI()) {
+    if (loadInfo->GetEnforceSRI()) {
       MOZ_LOG(SRILogHelper::GetSriLog(), mozilla::LogLevel::Debug,
               ("ScriptLoader::OnStreamComplete, required SRI not found"));
       nsCOMPtr<nsIContentSecurityPolicy> csp;

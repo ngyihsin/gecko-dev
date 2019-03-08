@@ -1895,6 +1895,14 @@ toolbar#nav-bar {
             self.log.info("Increasing default timeout to 90 seconds")
             prefs["testing.browserTestHarness.timeout"] = 90
 
+        if (mozinfo.info["os"] == "win" and
+                mozinfo.info["processor"] == "aarch64"):
+            extended_timeout = self.DEFAULT_TIMEOUT * 4
+            self.log.info("Increasing default timeout to {} seconds".format(
+                extended_timeout
+            ))
+            prefs["testing.browserTestHarness.timeout"] = extended_timeout
+
         if getattr(self, 'testRootAbs', None):
             prefs['mochitest.testRoot'] = self.testRootAbs
 
@@ -2543,6 +2551,8 @@ toolbar#nav-bar {
             "headless": options.headless,
             "serviceworker_e10s": self.extraPrefs.get(
                 'dom.serviceWorkers.parent_intercept', False),
+            "socketprocess_e10s": self.extraPrefs.get(
+                'network.process.enabled', False),
         })
 
         self.setTestRoot(options)
@@ -2769,6 +2779,8 @@ toolbar#nav-bar {
                 self.log.info("runtests.py | Running with e10s: {}".format(options.e10s))
                 self.log.info("runtests.py | Running with serviceworker_e10s: {}".format(
                     mozinfo.info.get('serviceworker_e10s', False)))
+                self.log.info("runtests.py | Running with socketprocess_e10s: {}".format(
+                    mozinfo.info.get('socketprocess_e10s', False)))
                 self.log.info("runtests.py | Running tests: start.\n")
                 ret, _ = self.runApp(
                     testURL,

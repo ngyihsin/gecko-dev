@@ -45,15 +45,15 @@ COMMON_ARGUMENT_GROUPS = {
           }],
         [['--list-presets'],
          {'action': 'store_const',
-          'const': 'list_presets',
-          'dest': 'mod_presets',
+          'dest': 'preset_action',
+          'const': 'list',
           'default': None,
           'help': 'List available preset selections.',
           }],
         [['--edit-presets'],
          {'action': 'store_const',
-          'const': 'edit_presets',
-          'dest': 'mod_presets',
+          'dest': 'preset_action',
+          'const': 'edit',
           'default': None,
           'help': 'Edit the preset file.',
           }],
@@ -90,10 +90,16 @@ class BaseTryParser(ArgumentParser):
         for name in self.common_groups:
             group = self.add_argument_group("{} arguments".format(name))
             arguments = COMMON_ARGUMENT_GROUPS[name]
+
+            # Preset arguments are all mutually exclusive.
+            if name == 'preset':
+                group = group.add_mutually_exclusive_group()
+
             for cli, kwargs in arguments:
                 group.add_argument(*cli, **kwargs)
 
         group = self.add_argument_group("template arguments")
+        self.set_defaults(templates={})
         self.templates = {t: all_templates[t]() for t in self.templates}
         for template in self.templates.values():
             template.add_arguments(group)
@@ -116,7 +122,6 @@ class BaseTryParser(ArgumentParser):
         self.validate(args)
 
         if self.templates:
-            args.templates = {}
             for cls in self.templates.itervalues():
                 context = cls.context(**vars(args))
                 if context is not None:

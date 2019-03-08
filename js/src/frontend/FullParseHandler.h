@@ -173,7 +173,7 @@ class FullParseHandler {
 
   void addToCallSiteObject(CallSiteNodeType callSiteObj, Node rawNode,
                            Node cookedNode) {
-    MOZ_ASSERT(callSiteObj->isKind(ParseNodeKind::CallSiteObjExpr));
+    MOZ_ASSERT(callSiteObj->isKind(ParseNodeKind::CallSiteObj));
 
     addArrayElement(callSiteObj, cookedNode);
     addArrayElement(callSiteObj->rawNodes(), rawNode);
@@ -461,7 +461,7 @@ class FullParseHandler {
   }
 
   MOZ_MUST_USE bool addClassFieldDefinition(ListNodeType memberList, Node name,
-                                            Node initializer) {
+                                            FunctionNodeType initializer) {
     MOZ_ASSERT(memberList->isKind(ParseNodeKind::ClassMemberList));
     MOZ_ASSERT(isUsableAsObjectPropertyName(name));
 
@@ -790,6 +790,10 @@ class FullParseHandler {
     return newBinary(ParseNodeKind::Shorthand, key, value, JSOP_INITPROP);
   }
 
+  ListNodeType newParamsBody(const TokenPos& pos) {
+    return new_<ListNode>(ParseNodeKind::ParamsBody, pos);
+  }
+
   void setFunctionFormalParametersAndBody(FunctionNodeType funNode,
                                           ListNodeType paramsBody) {
     MOZ_ASSERT_IF(paramsBody, paramsBody->isKind(ParseNodeKind::ParamsBody));
@@ -875,8 +879,15 @@ class FullParseHandler {
            node->isKind(ParseNodeKind::ComputedName);
   }
 
-  inline MOZ_MUST_USE bool finishInitializerAssignment(NameNodeType nameNode,
-                                                       Node init);
+  AssignmentNodeType finishInitializerAssignment(NameNodeType nameNode,
+                                                 Node init) {
+    MOZ_ASSERT(nameNode->isKind(ParseNodeKind::Name));
+    MOZ_ASSERT(!nameNode->isInParens());
+
+    checkAndSetIsDirectRHSAnonFunction(init);
+
+    return newAssignment(ParseNodeKind::AssignExpr, nameNode, init);
+  }
 
   void setBeginPosition(Node pn, Node oth) {
     setBeginPosition(pn, oth->pn_pos.begin);
@@ -1020,21 +1031,6 @@ inline bool FullParseHandler::setLastFunctionFormalParameterDefault(
   }
 
   body->replaceLast(pn);
-  return true;
-}
-
-inline bool FullParseHandler::finishInitializerAssignment(NameNodeType nameNode,
-                                                          Node init) {
-  MOZ_ASSERT(nameNode->isKind(ParseNodeKind::Name));
-  MOZ_ASSERT(!nameNode->isInParens());
-
-  checkAndSetIsDirectRHSAnonFunction(init);
-
-  nameNode->setInitializer(init);
-  nameNode->setOp(JSOP_SETNAME);
-
-  /* The declarator's position must include the initializer. */
-  nameNode->pn_pos.end = init->pn_pos.end;
   return true;
 }
 

@@ -52,9 +52,12 @@ class UrlbarView {
   }
 
   get oneOffSearchButtons() {
-    return this._oneOffSearchButtons ||
-      (this._oneOffSearchButtons =
-         new this.window.SearchOneOffs(this.panel.querySelector(".search-one-offs")));
+    if (!this._oneOffSearchButtons) {
+      this._oneOffSearchButtons =
+        new this.window.SearchOneOffs(this.panel.querySelector(".search-one-offs"));
+      this._oneOffSearchButtons.addEventListener("SelectedOneOffButtonChanged", this);
+    }
+    return this._oneOffSearchButtons;
   }
 
   /**
@@ -123,33 +126,60 @@ class UrlbarView {
   }
 
   /**
-   * Selects the next or previous view item. An item could be an autocomplete
-   * result or a one-off search button.
+   * Moves the view selection forward or backward.
    *
+   * @param {number} amount
+   *   The number of steps to move.
    * @param {boolean} options.reverse
    *   Set to true to select the previous item. By default the next item
    *   will be selected.
    */
-  selectNextItem({reverse = false} = {}) {
+  selectBy(amount, {reverse = false} = {}) {
     if (!this.isOpen) {
       throw new Error("UrlbarView: Cannot select an item if the view isn't open.");
     }
 
-    let row;
-    if (reverse) {
-      row = (this._selected && this._selected.previousElementSibling) ||
-            ((this._selected && this.allowEmptySelection) ? null : this._rows.lastElementChild);
-    } else {
-      row = (this._selected && this._selected.nextElementSibling) ||
-            ((this._selected && this.allowEmptySelection) ? null : this._rows.firstElementChild);
+    let row = this._selected;
+
+    if (!row) {
+      this._selectItem(reverse ? this._rows.lastElementChild :
+                                 this._rows.firstElementChild);
+      return;
+    }
+
+    let endReached = reverse ?
+      (row == this._rows.firstElementChild) :
+      (row == this._rows.lastElementChild);
+    if (endReached) {
+      if (this.allowEmptySelection) {
+        row = null;
+      } else {
+        row = reverse ? this._rows.lastElementChild :
+                        this._rows.firstElementChild;
+      }
+      this._selectItem(row);
+      return;
+    }
+
+    while (amount-- > 0) {
+      let next = reverse ? row.previousElementSibling : row.nextElementSibling;
+      if (!next) {
+        break;
+      }
+      row = next;
     }
     this._selectItem(row);
   }
 
   /**
-   * Closes the autocomplete results popup.
+   * Closes the autocomplete popup, cancelling the query if necessary.
+   *
+   * @param {UrlbarUtils.CANCEL_REASON} [cancelReason]
+   *   Indicates if this close is being triggered as a result of a user action
+   *   which would cancel a query, e.g. on blur.
    */
-  close() {
+  close(cancelReason) {
+    this.controller.cancelQuery(cancelReason);
     this.panel.hidePopup();
   }
 
@@ -245,6 +275,16 @@ class UrlbarView {
     if (newSelectionIndex >= 0) {
       this.selectedIndex = newSelectionIndex;
     }
+  }
+
+  /**
+   * Notified when the view context changes, for example when switching tabs.
+   * It can be used to reset internal state tracking.
+   */
+  onViewContextChanged() {
+    // Clear rows, so that when reusing results we don't visually leak them
+    // across different contexts.
+    this._rows.textContent = "";
   }
 
   /**
@@ -429,6 +469,9 @@ class UrlbarView {
           setAction(bundle.GetStringFromName("visit"));
         }
         break;
+      case UrlbarUtils.RESULT_TYPE.OMNIBOX:
+        setAction(result.payload.content);
+        break;
       default:
         if (result.heuristic) {
           setAction(bundle.GetStringFromName("visit"));
@@ -519,6 +562,51 @@ class UrlbarView {
       this.oneOffSearchButtons.style.display = "none";
       this.oneOffSearchButtons.textbox = null;
       this.oneOffSearchButtons.view = null;
+    }
+  }
+
+  _on_SelectedOneOffButtonChanged() {
+    if (!this._queryContext) {
+      return;
+    }
+
+    // Update all search suggestion results to use the newly selected engine, or
+    // if no engine is selected, revert to their original engines.
+    let engine =
+      this._oneOffSearchButtons.selectedButton &&
+      this._oneOffSearchButtons.selectedButton.engine;
+    for (let i = 0; i < this._queryContext.results.length; i++) {
+      let result = this._queryContext.results[i];
+      if (result.type != UrlbarUtils.RESULT_TYPE.SEARCH ||
+          (!result.heuristic && !result.payload.suggestion)) {
+        continue;
+      }
+      if (engine) {
+        if (!result.payload.originalEngine) {
+          result.payload.originalEngine = result.payload.engine;
+        }
+        result.payload.engine = engine.name;
+      } else if (result.payload.originalEngine) {
+        result.payload.engine = result.payload.originalEngine;
+        delete result.payload.originalEngine;
+      }
+      let item = this._rows.children[i];
+      let action = item.querySelector(".urlbarView-action");
+      action.textContent =
+        bundle.formatStringFromName("searchWithEngine",
+          [(engine && engine.name) || result.payload.engine], 1);
+      // If we just changed the engine from the original engine and it had an
+      // icon, then make sure the result now uses the new engine's icon or
+      // failing that the default icon.  If we changed it back to the original
+      // engine, go back to the original or default icon.
+      let favicon = item.querySelector(".urlbarView-favicon");
+      if (engine && result.payload.icon) {
+        favicon.src =
+          (engine.iconURI && engine.iconURI.spec) ||
+          UrlbarUtils.ICON.SEARCH_GLASS;
+      } else if (!engine) {
+        favicon.src = result.payload.icon || UrlbarUtils.ICON.SEARCH_GLASS;
+      }
     }
   }
 

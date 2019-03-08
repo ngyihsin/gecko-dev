@@ -74,16 +74,6 @@ warning heuristic.
 '''
 
 
-# Function used by clang-format to run it in parallel, according to the given
-# arguments. Must be defined at the top-level so it can be used with
-# multiprocessing.Pool.imap_unordered.
-def run_one_clang_format_batch(args):
-    try:
-        subprocess.check_output(args)
-    except subprocess.CalledProcessError as e:
-        return e
-
-
 class StoreDebugParamsAndWarnAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         sys.stderr.write('The --debugparams argument is deprecated. Please ' +
@@ -1194,22 +1184,41 @@ class MachDebug(MachCommandBase):
                 return json.JSONEncoder.default(self, obj)
         json.dump(self, cls=EnvironmentEncoder, sort_keys=True, fp=out)
 
+
+JOB_CHOICES = {
+    'android-api-16-opt',
+    'android-api-16-debug',
+    'android-x86-opt',
+    'android-x86_64-opt',
+    'android-x86_64-debug',
+    'android-aarch64-opt',
+    'android-aarch64-debug',
+    'linux-opt',
+    'linux-pgo',
+    'linux-debug',
+    'linux64-opt',
+    'linux64-pgo',
+    'linux64-debug',
+    'macosx64-opt',
+    'macosx64-debug',
+    'win32-opt',
+    'win32-pgo',
+    'win32-debug',
+    'win64-opt',
+    'win64-pgo',
+    'win64-debug',
+    'win64-aarch64-opt',
+    'win64-aarch64-debug',
+}
+
+
 class ArtifactSubCommand(SubCommand):
     def __call__(self, func):
         after = SubCommand.__call__(self, func)
-        jobchoices = {
-            'android-api-16',
-            'android-x86',
-            'linux',
-            'linux64',
-            'macosx64',
-            'win32',
-            'win64'
-        }
         args = [
             CommandArgument('--tree', metavar='TREE', type=str,
                 help='Firefox tree.'),
-            CommandArgument('--job', metavar='JOB', choices=jobchoices,
+            CommandArgument('--job', metavar='JOB', choices=JOB_CHOICES,
                 help='Build job.'),
             CommandArgument('--verbose', '-v', action='store_true',
                 help='Print verbose output.'),
@@ -1239,7 +1248,9 @@ class PackageFrontend(MachCommandBase):
         '''
         pass
 
-    def _make_artifacts(self, tree=None, job=None, skip_cache=False):
+    def _make_artifacts(self, tree=None, job=None, skip_cache=False,
+                        download_tests=True, download_symbols=False,
+                        download_host_bins=False):
         state_dir = self._mach_context.state_dir
         cache_dir = os.path.join(state_dir, 'package-frontend')
 
@@ -1251,11 +1262,19 @@ class PackageFrontend(MachCommandBase):
         if conditions.is_git(self):
             git = self.substs['GIT']
 
-        from mozbuild.artifacts import Artifacts
+        from mozbuild.artifacts import (Artifacts, JOB_DETAILS)
+        # We can't derive JOB_CHOICES from JOB_DETAILS because we don't want to
+        # import the artifacts module globally ; and this module can't be
+        # imported in unit tests, so do the check here.
+        assert set(JOB_DETAILS.keys()) == JOB_CHOICES
+
         artifacts = Artifacts(tree, self.substs, self.defines, job,
                               log=self.log, cache_dir=cache_dir,
                               skip_cache=skip_cache, hg=hg, git=git,
-                              topsrcdir=self.topsrcdir)
+                              topsrcdir=self.topsrcdir,
+                              download_tests=download_tests,
+                              download_symbols=download_symbols,
+                              download_host_bins=download_host_bins)
         return artifacts
 
     @ArtifactSubCommand('artifact', 'install',
@@ -1268,11 +1287,19 @@ class PackageFrontend(MachCommandBase):
     @CommandArgument('--skip-cache', action='store_true',
         help='Skip all local caches to force re-fetching remote artifacts.',
         default=False)
-    def artifact_install(self, source=None, skip_cache=False, tree=None, job=None, verbose=False):
+    @CommandArgument('--no-tests', action='store_true', help="Don't install tests.")
+    @CommandArgument('--symbols', action='store_true', help='Download symbols.')
+    @CommandArgument('--host-bins', action='store_true', help='Download host binaries.')
+    @CommandArgument('--distdir', help='Where to install artifacts to.')
+    def artifact_install(self, source=None, skip_cache=False, tree=None, job=None, verbose=False,
+                         no_tests=False, symbols=False, host_bins=False, distdir=None):
         self._set_log_level(verbose)
-        artifacts = self._make_artifacts(tree=tree, job=job, skip_cache=skip_cache)
+        artifacts = self._make_artifacts(tree=tree, job=job, skip_cache=skip_cache,
+                                         download_tests=not no_tests,
+                                         download_symbols=symbols,
+                                         download_host_bins=host_bins)
 
-        return artifacts.install_from(source, self.distdir)
+        return artifacts.install_from(source, distdir or self.distdir)
 
     @ArtifactSubCommand('artifact', 'clear-cache',
         'Delete local artifacts and reset local artifact cache.')
@@ -2875,10 +2902,13 @@ class StaticAnalysis(MachCommandBase):
 
         print("Processing %d file(s)..." % len(path_list))
 
+        batchsize = 200
         if show:
-            for i in range(0, len(path_list)):
-                l = path_list[i: (i + 1)]
+            batchsize = 1
 
+        for i in range(0, len(path_list), batchsize):
+            l = path_list[i: (i + batchsize)]
+            if show:
                 # Copy the files into a temp directory
                 # and run clang-format on the temp directory
                 # and show the diff
@@ -2891,14 +2921,15 @@ class StaticAnalysis(MachCommandBase):
                 shutil.copy(l[0], faketmpdir)
                 l[0] = target_file
 
-                # Run clang-format on the list
-                try:
-                    check_output(args + l)
-                except CalledProcessError as e:
-                    # Something wrong happend
-                    print("clang-format: An error occured while running clang-format.")
-                    return e.returncode
+            # Run clang-format on the list
+            try:
+                check_output(args + l)
+            except CalledProcessError as e:
+                # Something wrong happend
+                print("clang-format: An error occured while running clang-format.")
+                return e.returncode
 
+            if show:
                 # show the diff
                 diff_command = ["diff", "-u", original_path, target_file]
                 try:
@@ -2909,30 +2940,8 @@ class StaticAnalysis(MachCommandBase):
                     # there is a diff to show
                     if e.output:
                         print(e.output)
-
+        if show:
             shutil.rmtree(tmpdir)
-            return 0
-
-        import multiprocessing
-        import math
-
-        cpu_count = multiprocessing.cpu_count()
-        batchsize = int(math.ceil(float(len(path_list)) / cpu_count))
-
-        batches = []
-        for i in range(0, len(path_list), batchsize):
-            batches.append(args + path_list[i: (i + batchsize)])
-
-        pool = multiprocessing.Pool(cpu_count)
-
-        error_code = None
-        for result in pool.imap_unordered(run_one_clang_format_batch, batches):
-            if error_code is None and result is not None:
-                print("clang-format: An error occured while running clang-format.")
-                error_code = result.returncode
-
-        if error_code is not None:
-            return error_code
         return 0
 
 @CommandProvider

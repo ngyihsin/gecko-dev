@@ -14,6 +14,7 @@
 #include "js/PropertySpec.h"
 #include "mozilla/ChaosMode.h"
 #include "mozilla/dom/ScriptSettings.h"
+#include "mozilla/IOInterposer.h"
 #include "mozilla/Preferences.h"
 #include "nsServiceManagerUtils.h"
 #include "nsComponentManagerUtils.h"
@@ -447,7 +448,7 @@ static bool SendCommand(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
-  if (args.get(1).isObject() && !JS_ObjectIsFunction(cx, &args[1].toObject())) {
+  if (args.get(1).isObject() && !JS_ObjectIsFunction(&args[1].toObject())) {
     JS_ReportErrorASCII(cx, "Could not convert argument 2 to function!");
     return false;
   }
@@ -1075,6 +1076,10 @@ int XRE_XPCShellMain(int argc, char** argv, char** envp,
 
   mozilla::LogModule::Init(argc, argv);
 
+  // This guard ensures that all threads that attempt to register themselves
+  // with the IOInterposer will be properly tracked.
+  mozilla::IOInterposerInit ioInterposerGuard;
+
 #ifdef MOZ_GECKO_PROFILER
   char aLocal;
   profiler_init(&aLocal);
@@ -1321,7 +1326,7 @@ int XRE_XPCShellMain(int argc, char** argv, char** envp,
 
     // Ensure that DLL Services are running
     RefPtr<DllServices> dllSvc(DllServices::Get());
-    auto dllServicesDisable = MakeScopeExit([&dllSvc]() { dllSvc->Disable(); });
+    auto dllServicesDisable = MakeScopeExit([&dllSvc]() { dllSvc->DisableFull(); });
 
 #  if defined(MOZ_SANDBOX)
     // Required for sandboxed child processes.

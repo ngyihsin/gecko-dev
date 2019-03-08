@@ -118,12 +118,16 @@ Services.prefs.setCharPref(
   "\"startTime\",\"status\",\"transferred\",\"type\",\"waterfall\"]"
 );
 
+// Increase UI limit for responses rendered using CodeMirror in tests.
+Services.prefs.setIntPref("devtools.netmonitor.response.ui.limit", 1024 * 105);
+
 registerCleanupFunction(() => {
   info("finish() was called, cleaning up...");
 
   Services.prefs.setBoolPref("devtools.debugger.log", gEnableLogging);
   Services.prefs.setCharPref("devtools.netmonitor.filters", gDefaultFilters);
   Services.prefs.clearUserPref("devtools.cache.disabled");
+  Services.prefs.clearUserPref("devtools.netmonitor.response.ui.limit");
   Services.cookies.removeAll();
 });
 
@@ -684,8 +688,7 @@ function waitForContentMessage(name) {
 }
 
 function testColumnsAlignment(headers, requestList) {
-  // Get first request line, not child 0 as this is the headers
-  const firstRequestLine = requestList.childNodes[1];
+  const firstRequestLine = requestList.childNodes[0];
 
   // Find number of columns
   const numberOfColumns = headers.childElementCount;
@@ -704,7 +707,7 @@ async function hideColumn(monitor, column) {
 
   info(`Clicking context-menu item for ${column}`);
   EventUtils.sendMouseEvent({ type: "contextmenu" },
-    document.querySelector(".devtools-toolbar.requests-list-headers"));
+    document.querySelector(".requests-list-headers"));
 
   const onHeaderRemoved = waitForDOM(document, `#requests-list-${column}-button`, 0);
   parent.document.querySelector(`#request-list-header-${column}-toggle`).click();
@@ -719,7 +722,7 @@ async function showColumn(monitor, column) {
 
   info(`Clicking context-menu item for ${column}`);
   EventUtils.sendMouseEvent({ type: "contextmenu" },
-    document.querySelector(".devtools-toolbar.requests-list-headers"));
+    document.querySelector(".requests-list-headers"));
 
   const onHeaderAdded = waitForDOM(document, `#requests-list-${column}-button`, 1);
   parent.document.querySelector(`#request-list-header-${column}-toggle`).click();

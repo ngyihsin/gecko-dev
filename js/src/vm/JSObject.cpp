@@ -113,28 +113,30 @@ void js::ReportNotObjectWithName(JSContext* cx, const char* name,
 }
 
 JS_PUBLIC_API const char* JS::InformalValueTypeName(const Value& v) {
-  if (v.isObject()) {
-    return v.toObject().getClass()->name;
+  switch (v.type()) {
+    case ValueType::Double:
+    case ValueType::Int32:
+      return "number";
+    case ValueType::Boolean:
+      return "boolean";
+    case ValueType::Undefined:
+      return "undefined";
+    case ValueType::Null:
+      return "null";
+    case ValueType::String:
+      return "string";
+    case ValueType::Symbol:
+      return "symbol";
+    case ValueType::BigInt:
+      return "bigint";
+    case ValueType::Object:
+      return v.toObject().getClass()->name;
+    case ValueType::Magic:
+    case ValueType::PrivateGCThing:
+      break;
   }
-  if (v.isString()) {
-    return "string";
-  }
-  if (v.isSymbol()) {
-    return "symbol";
-  }
-  if (v.isNumber()) {
-    return "number";
-  }
-  if (v.isBoolean()) {
-    return "boolean";
-  }
-  if (v.isNull()) {
-    return "null";
-  }
-  if (v.isUndefined()) {
-    return "undefined";
-  }
-  return "value";
+
+  MOZ_CRASH("unexpected type");
 }
 
 // ES6 draft rev37 6.2.4.4 FromPropertyDescriptor
@@ -1185,7 +1187,7 @@ bool js::GetPrototypeFromConstructor(JSContext* cx, HandleObject newTarget,
     proto.set(nullptr);
   } else {
     // Step 4.a: Let realm be ? GetFunctionRealm(constructor);
-    JSObject* unwrappedConstructor = CheckedUnwrap(newTarget);
+    JSObject* unwrappedConstructor = CheckedUnwrapStatic(newTarget);
     if (!unwrappedConstructor) {
       ReportAccessDenied(cx);
       return false;
@@ -1233,18 +1235,19 @@ JSObject* js::CreateThisForFunction(JSContext* cx, HandleFunction callee,
   return obj;
 }
 
-/* static */ bool JSObject::nonNativeSetProperty(JSContext* cx,
-                                                 HandleObject obj, HandleId id,
-                                                 HandleValue v,
-                                                 HandleValue receiver,
-                                                 ObjectOpResult& result) {
+/* static */
+bool JSObject::nonNativeSetProperty(JSContext* cx, HandleObject obj,
+                                    HandleId id, HandleValue v,
+                                    HandleValue receiver,
+                                    ObjectOpResult& result) {
   return obj->getOpsSetProperty()(cx, obj, id, v, receiver, result);
 }
 
-/* static */ bool JSObject::nonNativeSetElement(JSContext* cx, HandleObject obj,
-                                                uint32_t index, HandleValue v,
-                                                HandleValue receiver,
-                                                ObjectOpResult& result) {
+/* static */
+bool JSObject::nonNativeSetElement(JSContext* cx, HandleObject obj,
+                                   uint32_t index, HandleValue v,
+                                   HandleValue receiver,
+                                   ObjectOpResult& result) {
   RootedId id(cx);
   if (!IndexToId(cx, index, &id)) {
     return false;
@@ -1709,10 +1712,9 @@ template XDRResult js::XDRObjectLiteral(XDRState<XDR_ENCODE>* xdr,
 template XDRResult js::XDRObjectLiteral(XDRState<XDR_DECODE>* xdr,
                                         MutableHandleObject obj);
 
-/* static */ bool NativeObject::fillInAfterSwap(JSContext* cx,
-                                                HandleNativeObject obj,
-                                                const AutoValueVector& values,
-                                                void* priv) {
+/* static */
+bool NativeObject::fillInAfterSwap(JSContext* cx, HandleNativeObject obj,
+                                   const AutoValueVector& values, void* priv) {
   // This object has just been swapped with some other object, and its shape
   // no longer reflects its allocated size. Correct this information and
   // fill the slots in with the specified values.
@@ -2220,7 +2222,8 @@ static bool SetProto(JSContext* cx, HandleObject obj,
   return true;
 }
 
-/* static */ bool JSObject::changeToSingleton(JSContext* cx, HandleObject obj) {
+/* static */
+bool JSObject::changeToSingleton(JSContext* cx, HandleObject obj) {
   MOZ_ASSERT(!obj->isSingleton());
 
   MarkObjectGroupUnknownProperties(cx, obj->group());
@@ -3467,65 +3470,81 @@ void GetObjectSlotNameFunctor::operator()(JS::CallbackTracer* trc, char* buf,
  */
 
 static void dumpValue(const Value& v, js::GenericPrinter& out) {
-  if (v.isNull()) {
-    out.put("null");
-  } else if (v.isUndefined()) {
-    out.put("undefined");
-  } else if (v.isInt32()) {
-    out.printf("%d", v.toInt32());
-  } else if (v.isDouble()) {
-    out.printf("%g", v.toDouble());
-  } else if (v.isString()) {
-    v.toString()->dumpNoNewline(out);
-  } else if (v.isSymbol()) {
-    v.toSymbol()->dump(out);
-  } else if (v.isObject() && v.toObject().is<JSFunction>()) {
-    JSFunction* fun = &v.toObject().as<JSFunction>();
-    if (fun->displayAtom()) {
-      out.put("<function ");
-      EscapedStringPrinter(out, fun->displayAtom(), 0);
-    } else {
-      out.put("<unnamed function");
-    }
-    if (fun->hasScript()) {
-      JSScript* script = fun->nonLazyScript();
-      out.printf(" (%s:%u)", script->filename() ? script->filename() : "",
-                 script->lineno());
-    }
-    out.printf(" at %p>", (void*)fun);
-  } else if (v.isObject()) {
-    JSObject* obj = &v.toObject();
-    const Class* clasp = obj->getClass();
-    out.printf("<%s%s at %p>", clasp->name,
-               (clasp == &PlainObject::class_) ? "" : " object", (void*)obj);
-  } else if (v.isBoolean()) {
-    if (v.toBoolean()) {
-      out.put("true");
-    } else {
-      out.put("false");
-    }
-  } else if (v.isMagic()) {
-    out.put("<invalid");
-    switch (v.whyMagic()) {
-      case JS_ELEMENTS_HOLE:
-        out.put(" elements hole");
-        break;
-      case JS_NO_ITER_VALUE:
-        out.put(" no iter value");
-        break;
-      case JS_GENERATOR_CLOSING:
-        out.put(" generator closing");
-        break;
-      case JS_OPTIMIZED_OUT:
-        out.put(" optimized out");
-        break;
-      default:
-        out.put(" ?!");
-        break;
-    }
-    out.putChar('>');
-  } else {
-    out.put("unexpected value");
+  switch (v.type()) {
+    case ValueType::Null:
+      out.put("null");
+      break;
+    case ValueType::Undefined:
+      out.put("undefined");
+      break;
+    case ValueType::Int32:
+      out.printf("%d", v.toInt32());
+      break;
+    case ValueType::Double:
+      out.printf("%g", v.toDouble());
+      break;
+    case ValueType::String:
+      v.toString()->dumpNoNewline(out);
+      break;
+    case ValueType::Symbol:
+      v.toSymbol()->dump(out);
+      break;
+    case ValueType::BigInt:
+      v.toBigInt()->dump(out);
+      break;
+    case ValueType::Object:
+      if (v.toObject().is<JSFunction>()) {
+        JSFunction* fun = &v.toObject().as<JSFunction>();
+        if (fun->displayAtom()) {
+          out.put("<function ");
+          EscapedStringPrinter(out, fun->displayAtom(), 0);
+        } else {
+          out.put("<unnamed function");
+        }
+        if (fun->hasScript()) {
+          JSScript* script = fun->nonLazyScript();
+          out.printf(" (%s:%u)", script->filename() ? script->filename() : "",
+                     script->lineno());
+        }
+        out.printf(" at %p>", (void*)fun);
+      } else {
+        JSObject* obj = &v.toObject();
+        const Class* clasp = obj->getClass();
+        out.printf("<%s%s at %p>", clasp->name,
+                   (clasp == &PlainObject::class_) ? "" : " object", (void*)obj);
+      }
+      break;
+    case ValueType::Boolean:
+      if (v.toBoolean()) {
+        out.put("true");
+      } else {
+        out.put("false");
+      }
+      break;
+    case ValueType::Magic:
+      out.put("<magic");
+      switch (v.whyMagic()) {
+        case JS_ELEMENTS_HOLE:
+          out.put(" elements hole");
+          break;
+        case JS_NO_ITER_VALUE:
+          out.put(" no iter value");
+          break;
+        case JS_GENERATOR_CLOSING:
+          out.put(" generator closing");
+          break;
+        case JS_OPTIMIZED_OUT:
+          out.put(" optimized out");
+          break;
+        default:
+          out.put(" ?!");
+          break;
+      }
+      out.putChar('>');
+      break;
+    case ValueType::PrivateGCThing:
+      out.printf("<PrivateGCThing %p>", v.toGCThing());
+      break;
   }
 }
 
@@ -4102,9 +4121,9 @@ static JSAtom* displayAtomFromObjectGroup(ObjectGroup& group) {
   return script->function()->displayAtom();
 }
 
-/* static */ bool JSObject::constructorDisplayAtom(JSContext* cx,
-                                                   js::HandleObject obj,
-                                                   js::MutableHandleAtom name) {
+/* static */
+bool JSObject::constructorDisplayAtom(JSContext* cx, js::HandleObject obj,
+                                      js::MutableHandleAtom name) {
   ObjectGroup* g = JSObject::getGroup(cx, obj);
   if (!g) {
     return false;
@@ -4225,10 +4244,10 @@ bool js::Unbox(JSContext* cx, HandleObject obj, MutableHandleValue vp) {
 }
 
 #ifdef DEBUG
-/* static */ void JSObject::debugCheckNewObject(ObjectGroup* group,
-                                                Shape* shape,
-                                                js::gc::AllocKind allocKind,
-                                                js::gc::InitialHeap heap) {
+/* static */
+void JSObject::debugCheckNewObject(ObjectGroup* group, Shape* shape,
+                                   js::gc::AllocKind allocKind,
+                                   js::gc::InitialHeap heap) {
   const js::Class* clasp = group->clasp();
   MOZ_ASSERT(clasp != &ArrayObject::class_);
 

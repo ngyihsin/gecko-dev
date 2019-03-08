@@ -4,6 +4,38 @@ Change log
 All notable changes to this program is documented in this file.
 
 
+Unreleased
+----------
+
+### Removed
+
+- Dropped support for legacy Selenium web element references
+
+  The legacy way of serialising web elements, using `{"ELEMENT": <UUID>}`,
+  has been removed in this release.  This may break older Selenium
+  clients and clients which are otherwise not compatible with the
+  WebDriver standard.
+
+  Thanks to Shivam Singhal for this patch.
+
+- Removed `--webdriver-port` command-line option
+
+  `--webdriver-port <PORT>` was an undocumented alias for `--port`,
+  initially used for backwards compatibility with clients
+  prior to Selenium 3.0.0.
+
+### Changed
+
+- Improved error messages for incorrect command-line usage
+
+### Fixed
+
+- Errors related to incorrect command-line usage no longer hidden
+
+  By mistake, earlier versions of geckodriver failed to print incorrect
+  flag use.  With this release problems are again written to stderr.
+
+
 0.24.0 (2019-01-28, `917474f3473e`)
 -----------------------------------
 

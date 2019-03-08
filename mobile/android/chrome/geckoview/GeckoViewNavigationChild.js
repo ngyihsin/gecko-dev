@@ -77,19 +77,11 @@ class GeckoViewNavigationChild extends GeckoViewChildModule {
   }
 
   // nsIWebBrowserChrome
-  shouldLoadURI(aDocShell, aURI, aReferrer, aHasPostData, aTriggeringPrincipal) {
+  shouldLoadURI(aDocShell, aURI, aReferrer, aHasPostData, aTriggeringPrincipal, aCsp) {
     debug `shouldLoadURI ${aURI.displaySpec}`;
 
-    // We currently only support one remoteType, "web", so we only need to bail out
-    // if we want to load this URI in the parent.
-    // const remoteType = E10SUtils.getRemoteTypeForURIObject(aURI, true);
-    // if (!remoteType) {
-    //   E10SUtils.redirectLoad(aDocShell, aURI, aReferrer, aTriggeringPrincipal, false);
-    //   return false;
-    // }
-
     if (!E10SUtils.shouldLoadURI(aDocShell, aURI, aReferrer, aHasPostData)) {
-      E10SUtils.redirectLoad(aDocShell, aURI, aReferrer, aTriggeringPrincipal, false);
+      E10SUtils.redirectLoad(aDocShell, aURI, aReferrer, aTriggeringPrincipal, false, null, aCsp);
       return false;
     }
 
@@ -103,9 +95,9 @@ class GeckoViewNavigationChild extends GeckoViewChildModule {
   }
 
   // nsIWebBrowserChrome
-  reloadInFreshProcess(aDocShell, aURI, aReferrer, aTriggeringPrincipal, aLoadFlags) {
+  reloadInFreshProcess(aDocShell, aURI, aReferrer, aTriggeringPrincipal, aLoadFlags, aCsp) {
     debug `reloadInFreshProcess ${aURI.displaySpec}`;
-    E10SUtils.redirectLoad(aDocShell, aURI, aReferrer, aTriggeringPrincipal, true, aLoadFlags);
+    E10SUtils.redirectLoad(aDocShell, aURI, aReferrer, aTriggeringPrincipal, true, aLoadFlags, aCsp);
     return true;
   }
 
@@ -137,5 +129,5 @@ class GeckoViewNavigationChild extends GeckoViewChildModule {
   }
 }
 
-let {debug, warn} = GeckoViewNavigationChild.initLogging("GeckoViewNavigation");
-let module = GeckoViewNavigationChild.create(this);
+const {debug, warn} = GeckoViewNavigationChild.initLogging("GeckoViewNavigation"); // eslint-disable-line no-unused-vars
+const module = GeckoViewNavigationChild.create(this);

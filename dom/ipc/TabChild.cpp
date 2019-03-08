@@ -349,10 +349,12 @@ already_AddRefed<TabChild> TabChild::FindTabChild(const TabId& aTabId) {
   return tabChild.forget();
 }
 
-/*static*/ already_AddRefed<TabChild> TabChild::Create(
-    nsIContentChild* aManager, const TabId& aTabId,
-    const TabId& aSameTabGroupAs, const TabContext& aContext,
-    uint32_t aChromeFlags) {
+/*static*/
+already_AddRefed<TabChild> TabChild::Create(ContentChild* aManager,
+                                            const TabId& aTabId,
+                                            const TabId& aSameTabGroupAs,
+                                            const TabContext& aContext,
+                                            uint32_t aChromeFlags) {
   RefPtr<TabChild> groupChild = FindTabChild(aSameTabGroupAs);
   dom::TabGroup* group = groupChild ? groupChild->TabGroup() : nullptr;
   RefPtr<TabChild> iframe =
@@ -360,7 +362,7 @@ already_AddRefed<TabChild> TabChild::FindTabChild(const TabId& aTabId) {
   return iframe.forget();
 }
 
-TabChild::TabChild(nsIContentChild* aManager, const TabId& aTabId,
+TabChild::TabChild(ContentChild* aManager, const TabId& aTabId,
                    dom::TabGroup* aTabGroup, const TabContext& aContext,
                    uint32_t aChromeFlags)
     : TabContext(aContext),
@@ -2825,7 +2827,8 @@ nsresult TabChild::DoSendAsyncMessage(JSContext* aCx, const nsAString& aMessage,
   return NS_OK;
 }
 
-/* static */ nsTArray<RefPtr<TabChild>> TabChild::GetAll() {
+/* static */
+nsTArray<RefPtr<TabChild>> TabChild::GetAll() {
   StaticMutexAutoLock lock(sTabChildrenMutex);
 
   nsTArray<RefPtr<TabChild>> list;

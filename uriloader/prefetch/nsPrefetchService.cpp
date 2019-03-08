@@ -180,7 +180,7 @@ NS_IMPL_ISUPPORTS(nsPrefetchNode, nsIRequestObserver, nsIStreamListener,
 //-----------------------------------------------------------------------------
 
 NS_IMETHODIMP
-nsPrefetchNode::OnStartRequest(nsIRequest *aRequest, nsISupports *aContext) {
+nsPrefetchNode::OnStartRequest(nsIRequest *aRequest) {
   nsresult rv;
 
   nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(aRequest, &rv);
@@ -188,13 +188,11 @@ nsPrefetchNode::OnStartRequest(nsIRequest *aRequest, nsISupports *aContext) {
 
   // if the load is cross origin without CORS, or the CORS access is rejected,
   // always fire load event to avoid leaking site information.
-  nsCOMPtr<nsILoadInfo> loadInfo = httpChannel->GetLoadInfo();
-  if (loadInfo) {
-    mShouldFireLoadEvent =
-        loadInfo->GetTainting() == LoadTainting::Opaque ||
-        (loadInfo->GetTainting() == LoadTainting::CORS &&
-         (NS_FAILED(httpChannel->GetStatus(&rv)) || NS_FAILED(rv)));
-  }
+  nsCOMPtr<nsILoadInfo> loadInfo = httpChannel->LoadInfo();
+  mShouldFireLoadEvent =
+      loadInfo->GetTainting() == LoadTainting::Opaque ||
+      (loadInfo->GetTainting() == LoadTainting::CORS &&
+       (NS_FAILED(httpChannel->GetStatus(&rv)) || NS_FAILED(rv)));
 
   // no need to prefetch http error page
   bool requestSucceeded;
@@ -234,7 +232,7 @@ nsPrefetchNode::OnStartRequest(nsIRequest *aRequest, nsISupports *aContext) {
 }
 
 NS_IMETHODIMP
-nsPrefetchNode::OnDataAvailable(nsIRequest *aRequest, nsISupports *aContext,
+nsPrefetchNode::OnDataAvailable(nsIRequest *aRequest,
                                 nsIInputStream *aStream, uint64_t aOffset,
                                 uint32_t aCount) {
   uint32_t bytesRead = 0;
@@ -245,7 +243,7 @@ nsPrefetchNode::OnDataAvailable(nsIRequest *aRequest, nsISupports *aContext,
 }
 
 NS_IMETHODIMP
-nsPrefetchNode::OnStopRequest(nsIRequest *aRequest, nsISupports *aContext,
+nsPrefetchNode::OnStopRequest(nsIRequest *aRequest,
                               nsresult aStatus) {
   LOG(("done prefetching [status=%" PRIx32 "]\n",
        static_cast<uint32_t>(aStatus)));

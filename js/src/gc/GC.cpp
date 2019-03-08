@@ -347,8 +347,11 @@ static const bool CompactingEnabled = true;
 static const uint32_t NurseryFreeThresholdForIdleCollection =
     Nursery::NurseryChunkUsableSize / 4;
 
+/* JSGC_NURSERY_FREE_THRESHOLD_FOR_IDLE_COLLECTION_PERCENT */
+static const float NurseryFreeThresholdForIdleCollectionFraction = 0.25f;
+
 /* JSGC_PRETENURE_THRESHOLD */
-static const float PretenureThreashold = 0.6f;
+static const float PretenureThreshold = 0.6f;
 
 /* JSGC_PRETENURE_GROUP_THRESHOLD */
 static const float PretenureGroupThreshold = 3000;
@@ -536,7 +539,8 @@ void Arena::checkNoMarkedFreeCells() {
 }
 #endif
 
-/* static */ void Arena::staticAsserts() {
+/* static */
+void Arena::staticAsserts() {
   static_assert(size_t(AllocKind::LIMIT) <= 255,
                 "We must be able to fit the allockind into uint8_t.");
   static_assert(mozilla::ArrayLength(ThingSizes) == size_t(AllocKind::LIMIT),
@@ -1476,6 +1480,12 @@ bool GCSchedulingTunables::setParameter(JSGCParamKey key, uint32_t value,
       }
       nurseryFreeThresholdForIdleCollection_ = value;
       break;
+    case JSGC_NURSERY_FREE_THRESHOLD_FOR_IDLE_COLLECTION_PERCENT:
+      if (value == 0 || value > 100) {
+        return false;
+      }
+      nurseryFreeThresholdForIdleCollectionFraction_ = value / 100.0f;
+      break;
     case JSGC_PRETENURE_THRESHOLD: {
       // 100 disables pretenuring
       if (value == 0 || value > 100) {
@@ -1578,7 +1588,9 @@ GCSchedulingTunables::GCSchedulingTunables()
       maxEmptyChunkCount_(TuningDefaults::MaxEmptyChunkCount),
       nurseryFreeThresholdForIdleCollection_(
           TuningDefaults::NurseryFreeThresholdForIdleCollection),
-      pretenureThreshold_(TuningDefaults::PretenureThreashold),
+      nurseryFreeThresholdForIdleCollectionFraction_(
+          TuningDefaults::NurseryFreeThresholdForIdleCollectionFraction),
+      pretenureThreshold_(TuningDefaults::PretenureThreshold),
       pretenureGroupThreshold_(TuningDefaults::PretenureGroupThreshold) {}
 
 void GCRuntime::resetParameter(JSGCParamKey key, AutoLockGC& lock) {
@@ -1661,8 +1673,12 @@ void GCSchedulingTunables::resetParameter(JSGCParamKey key,
       nurseryFreeThresholdForIdleCollection_ =
           TuningDefaults::NurseryFreeThresholdForIdleCollection;
       break;
+    case JSGC_NURSERY_FREE_THRESHOLD_FOR_IDLE_COLLECTION_PERCENT:
+      nurseryFreeThresholdForIdleCollectionFraction_ =
+          TuningDefaults::NurseryFreeThresholdForIdleCollectionFraction;
+      break;
     case JSGC_PRETENURE_THRESHOLD:
-      pretenureThreshold_ = TuningDefaults::PretenureThreashold;
+      pretenureThreshold_ = TuningDefaults::PretenureThreshold;
       break;
     case JSGC_PRETENURE_GROUP_THRESHOLD:
       pretenureGroupThreshold_ = TuningDefaults::PretenureGroupThreshold;
@@ -1928,7 +1944,8 @@ float ZoneHeapThreshold::eagerAllocTrigger(bool highFrequencyGC) const {
   return eagerTriggerFactor * gcTriggerBytes();
 }
 
-/* static */ float ZoneHeapThreshold::computeZoneHeapGrowthFactorForHeapSize(
+/* static */
+float ZoneHeapThreshold::computeZoneHeapGrowthFactorForHeapSize(
     size_t lastBytes, const GCSchedulingTunables& tunables,
     const GCSchedulingState& state) {
   if (!tunables.isDynamicHeapGrowthEnabled()) {
@@ -1979,7 +1996,8 @@ float ZoneHeapThreshold::eagerAllocTrigger(bool highFrequencyGC) const {
   return factor;
 }
 
-/* static */ size_t ZoneHeapThreshold::computeZoneTriggerBytes(
+/* static */
+size_t ZoneHeapThreshold::computeZoneTriggerBytes(
     float growthFactor, size_t lastBytes, JSGCInvocationKind gckind,
     const GCSchedulingTunables& tunables, const AutoLockGC& lock) {
   size_t base =
@@ -2453,6 +2471,7 @@ void MovingTracer::onScopeEdge(Scope** scopep) { updateEdge(scopep); }
 void MovingTracer::onRegExpSharedEdge(RegExpShared** sharedp) {
   updateEdge(sharedp);
 }
+void MovingTracer::onBigIntEdge(BigInt** bip) { updateEdge(bip); }
 
 void Zone::prepareForCompacting() {
   FreeOp* fop = runtimeFromMainThread()->defaultFreeOp();
@@ -2464,11 +2483,11 @@ void GCRuntime::sweepTypesAfterCompacting(Zone* zone) {
 
   AutoClearTypeInferenceStateOnOOM oom(zone);
 
-  for (auto script = zone->cellIter<JSScript>(); !script.done();
+  for (auto script = zone->cellIterUnsafe<JSScript>(); !script.done();
        script.next()) {
     AutoSweepTypeScript sweep(script);
   }
-  for (auto group = zone->cellIter<ObjectGroup>(); !group.done();
+  for (auto group = zone->cellIterUnsafe<ObjectGroup>(); !group.done();
        group.next()) {
     AutoSweepObjectGroup sweep(group);
   }
@@ -3066,8 +3085,9 @@ inline void ArenaLists::queueForBackgroundSweep(AllocKind thingKind) {
   concurrentUse(thingKind) = ConcurrentUse::BackgroundFinalize;
 }
 
-/*static*/ void ArenaLists::backgroundFinalize(FreeOp* fop, Arena* listHead,
-                                               Arena** empty) {
+/*static*/
+void ArenaLists::backgroundFinalize(FreeOp* fop, Arena* listHead,
+                                    Arena** empty) {
   MOZ_ASSERT(listHead);
   MOZ_ASSERT(empty);
 
@@ -3670,7 +3690,8 @@ void GCRuntime::freeFromBackgroundThread(AutoLockHelperThreadState& lock) {
 
 void GCRuntime::waitBackgroundFreeEnd() { freeTask.join(); }
 
-/* static */ bool UniqueIdGCPolicy::needsSweep(Cell** cellp, uint64_t*) {
+/* static */
+bool UniqueIdGCPolicy::needsSweep(Cell** cellp, uint64_t*) {
   Cell* cell = *cellp;
   return MapGCThingTyped(cell, cell->getTraceKind(), [](auto t) {
     mozilla::DebugOnly<const Cell*> prior = t;
@@ -4053,8 +4074,8 @@ void GCRuntime::checkForCompartmentMismatches() {
   for (ZonesIter zone(rt, SkipAtoms); !zone.done(); zone.next()) {
     trc.zone = zone;
     for (auto thingKind : AllAllocKinds()) {
-      for (auto i = zone->cellIter<TenuredCell>(thingKind, empty); !i.done();
-           i.next()) {
+      for (auto i = zone->cellIterUnsafe<TenuredCell>(thingKind, empty);
+           !i.done(); i.next()) {
         trc.src = i.getCell();
         trc.srcKind = MapAllocToTraceKind(thingKind);
         trc.compartment = MapGCThingTyped(
@@ -4073,7 +4094,8 @@ static void RelazifyFunctions(Zone* zone, AllocKind kind) {
   JSRuntime* rt = zone->runtimeFromMainThread();
   AutoAssertEmptyNursery empty(rt->mainContextFromOwnThread());
 
-  for (auto i = zone->cellIter<JSObject>(kind, empty); !i.done(); i.next()) {
+  for (auto i = zone->cellIterUnsafe<JSObject>(kind, empty); !i.done();
+       i.next()) {
     JSFunction* fun = &i->as<JSFunction>();
     if (fun->hasScript()) {
       fun->maybeRelazify(rt);
@@ -4219,7 +4241,7 @@ static void PurgeShapeCachesForShrinkingGC(JSRuntime* rt) {
     if (!CanRelocateZone(zone) || zone->keepShapeCaches()) {
       continue;
     }
-    for (auto baseShape = zone->cellIter<BaseShape>(); !baseShape.done();
+    for (auto baseShape = zone->cellIterUnsafe<BaseShape>(); !baseShape.done();
          baseShape.next()) {
       baseShape->maybePurgeCache();
     }
@@ -5002,7 +5024,8 @@ static bool IsGrayListObject(JSObject* obj) {
   return obj->is<CrossCompartmentWrapperObject>() && !IsDeadProxyObject(obj);
 }
 
-/* static */ unsigned ProxyObject::grayLinkReservedSlot(JSObject* obj) {
+/* static */
+unsigned ProxyObject::grayLinkReservedSlot(JSObject* obj) {
   MOZ_ASSERT(IsGrayListObject(obj));
   return CrossCompartmentWrapperObject::GrayLinkReservedSlot;
 }
@@ -6255,6 +6278,9 @@ class SweepActionSequence final : public SweepAction<Args...> {
   bool init(UniquePtr<Action>* acts, size_t count) {
     for (size_t i = 0; i < count; i++) {
       auto& action = acts[i];
+      if (!action) {
+        return false;
+      }
       if (action->shouldSkip()) {
         continue;
       }
@@ -7442,10 +7468,10 @@ gcstats::ZoneGCStats GCRuntime::scanZonesBeforeGC() {
     zoneStats.compartmentCount += zone->compartments().length();
     if (zone->canCollect()) {
       zoneStats.collectableZoneCount++;
-    }
-    if (zone->isGCScheduled()) {
-      zoneStats.collectedZoneCount++;
-      zoneStats.collectedCompartmentCount += zone->compartments().length();
+      if (zone->isGCScheduled()) {
+        zoneStats.collectedZoneCount++;
+        zoneStats.collectedCompartmentCount += zone->compartments().length();
+      }
     }
   }
 
@@ -7998,7 +8024,7 @@ void GCRuntime::mergeRealms(Realm* source, Realm* target) {
   // Fixup realm pointers in source to refer to target, and make sure
   // type information generations are in sync.
 
-  for (auto script = source->zone()->cellIter<JSScript>(); !script.done();
+  for (auto script = source->zone()->cellIterUnsafe<JSScript>(); !script.done();
        script.next()) {
     MOZ_ASSERT(script->realm() == source);
     script->realm_ = target;
@@ -8008,8 +8034,8 @@ void GCRuntime::mergeRealms(Realm* source, Realm* target) {
   GlobalObject* global = target->maybeGlobal();
   MOZ_ASSERT(global);
 
-  for (auto group = source->zone()->cellIter<ObjectGroup>(); !group.done();
-       group.next()) {
+  for (auto group = source->zone()->cellIterUnsafe<ObjectGroup>();
+       !group.done(); group.next()) {
     // Replace placeholder object prototypes with the correct prototype in
     // the target realm.
     TaggedProto proto(group->proto());
@@ -8369,18 +8395,32 @@ JS_FRIEND_API const char* JS::GCTraceKindToAscii(JS::TraceKind kind) {
 }
 
 JS::GCCellPtr::GCCellPtr(const Value& v) : ptr(0) {
-  if (v.isString()) {
-    ptr = checkedCast(v.toString(), JS::TraceKind::String);
-  } else if (v.isObject()) {
-    ptr = checkedCast(&v.toObject(), JS::TraceKind::Object);
-  } else if (v.isSymbol()) {
-    ptr = checkedCast(v.toSymbol(), JS::TraceKind::Symbol);
-  } else if (v.isBigInt()) {
-    ptr = checkedCast(v.toBigInt(), JS::TraceKind::BigInt);
-  } else if (v.isPrivateGCThing()) {
-    ptr = checkedCast(v.toGCThing(), v.toGCThing()->getTraceKind());
-  } else {
-    ptr = checkedCast(nullptr, JS::TraceKind::Null);
+  switch (v.type()) {
+    case ValueType::String:
+      ptr = checkedCast(v.toString(), JS::TraceKind::String);
+      break;
+    case ValueType::Object:
+      ptr = checkedCast(&v.toObject(), JS::TraceKind::Object);
+      break;
+    case ValueType::Symbol:
+      ptr = checkedCast(v.toSymbol(), JS::TraceKind::Symbol);
+      break;
+    case ValueType::BigInt:
+      ptr = checkedCast(v.toBigInt(), JS::TraceKind::BigInt);
+      break;
+    case ValueType::PrivateGCThing:
+      ptr = checkedCast(v.toGCThing(), v.toGCThing()->getTraceKind());
+      break;
+    case ValueType::Double:
+    case ValueType::Int32:
+    case ValueType::Boolean:
+    case ValueType::Undefined:
+    case ValueType::Null:
+    case ValueType::Magic: {
+      MOZ_ASSERT(!v.isGCThing());
+      ptr = checkedCast(nullptr, JS::TraceKind::Null);
+      break;
+    }
   }
 }
 

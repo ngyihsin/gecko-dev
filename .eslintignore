@@ -22,7 +22,6 @@ extensions/spellcheck/**
 extensions/universalchardet/**
 image/**
 layout/**
-modules/**
 netwerk/cookie/test/browser/**
 netwerk/test/browser/**
 netwerk/test/mochitests/**
@@ -294,6 +293,9 @@ security/nss/**
 
 # services/ exclusions
 
+# Webpack-bundled library
+services/fxaccounts/FxAccountsPairingChannel.js
+
 # Uses `#filter substitution`
 services/sync/modules/constants.js
 services/sync/services-sync.js
@@ -327,6 +329,8 @@ testing/talos/talos/tests/v8_7/**
 testing/talos/talos/tests/kraken/**
 # Runing Talos may extract data here, see bug 1435677.
 testing/talos/talos/tests/tp5n/**
+# Raptor third party
+testing/raptor/raptor/playback/scripts/catapult/**
 
 testing/web-platform/**
 testing/xpcshell/moz-http2/**

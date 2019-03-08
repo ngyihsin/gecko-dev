@@ -218,7 +218,8 @@ bool Compartment::getNonWrapperObjectForCurrentCompartment(
   // Disallow creating new wrappers if we nuked the object's realm or the
   // current compartment.
   if (!AllowNewWrapper(this, obj)) {
-    JSObject* res = NewDeadProxyObject(cx);
+    JSObject* res = NewDeadProxyObject(cx, IsCallableFlag(obj->isCallable()),
+                                       IsConstructorFlag(obj->isConstructor()));
     if (!res) {
       return false;
     }
@@ -404,8 +405,8 @@ void Compartment::traceOutgoingCrossCompartmentWrappers(JSTracer* trc) {
   }
 }
 
-/* static */ void Compartment::traceIncomingCrossCompartmentEdgesForZoneGC(
-    JSTracer* trc) {
+/* static */
+void Compartment::traceIncomingCrossCompartmentEdgesForZoneGC(JSTracer* trc) {
   gcstats::AutoPhase ap(trc->runtime()->gc.stats(),
                         gcstats::PhaseKind::MARK_CCWS);
   MOZ_ASSERT(JS::RuntimeHeapIsMajorCollecting());
@@ -446,8 +447,8 @@ bool CrossCompartmentKey::needsSweep() {
   return applyToWrapped(needsSweep) || applyToDebugger(needsSweep);
 }
 
-/* static */ void Compartment::fixupCrossCompartmentWrappersAfterMovingGC(
-    JSTracer* trc) {
+/* static */
+void Compartment::fixupCrossCompartmentWrappersAfterMovingGC(JSTracer* trc) {
   MOZ_ASSERT(trc->runtime()->gc.isHeapCompacting());
 
   for (CompartmentsIter comp(trc->runtime()); !comp.done(); comp.next()) {

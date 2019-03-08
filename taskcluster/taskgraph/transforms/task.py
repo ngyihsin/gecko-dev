@@ -36,7 +36,7 @@ from taskgraph.util.scriptworker import (
     add_scope_prefix,
 )
 from taskgraph.util.signed_artifacts import get_signed_artifacts
-from voluptuous import Any, Required, Optional, Extra
+from voluptuous import Any, Required, Optional, Extra, Match
 from taskgraph import GECKO, MAX_DEPENDENCIES
 from ..util import docker as dockerutil
 
@@ -109,7 +109,7 @@ task_description_schema = Schema({
         # task platform, in the form platform/collection, used to set
         # treeherder.machine.platform and treeherder.collection or
         # treeherder.labels
-        'platform': basestring,
+        'platform': Match('^[A-Za-z0-9_-]{1,50}/[A-Za-z0-9_-]{1,50}$'),
     },
 
     # information for indexing this build so its artifacts can be discovered;
@@ -625,14 +625,14 @@ def build_docker_worker_payload(config, task, task_def):
         cache_version = 'v3'
 
         if run_task:
-            suffix = '-%s-%s' % (cache_version, _run_task_suffix())
+            suffix = '{}-{}'.format(cache_version, _run_task_suffix())
 
             if out_of_tree_image:
                 name_hash = hashlib.sha256(out_of_tree_image).hexdigest()
                 suffix += name_hash[0:12]
 
         else:
-            suffix = '-%s' % cache_version
+            suffix = cache_version
 
         skip_untrusted = config.params.is_try() or level == 1
 
@@ -642,7 +642,13 @@ def build_docker_worker_payload(config, task, task_def):
             if cache.get('skip-untrusted') and skip_untrusted:
                 continue
 
-            name = '%s%s' % (cache['name'], suffix)
+            name = '{trust_domain}-level-{level}-{name}-{suffix}'.format(
+                trust_domain=config.graph_config['trust-domain'],
+                level=config.params['level'],
+                name=cache['name'],
+                suffix=suffix,
+            )
+
             caches[name] = cache['mount-point']
             task_def['scopes'].append('docker-worker:cache:%s' % name)
 
@@ -803,7 +809,11 @@ def build_generic_worker_payload(config, task, task_def):
     mounts = deepcopy(worker.get('mounts', []))
     for mount in mounts:
         if 'cache-name' in mount:
-            mount['cacheName'] = mount.pop('cache-name')
+            mount['cacheName'] = '{trust_domain}-level-{level}-{name}'.format(
+                trust_domain=config.graph_config['trust-domain'],
+                level=config.params['level'],
+                name=mount.pop('cache-name'),
+            )
             task_def['scopes'].append('generic-worker:cache:{}'.format(mount['cacheName']))
         if 'content' in mount:
             if 'task-id' in mount['content']:
@@ -1783,9 +1793,9 @@ def chain_of_trust(config, tasks):
 @transforms.add
 def check_task_identifiers(config, tasks):
     """Ensures that all tasks have well defined identifiers:
-       ^[a-zA-Z0-9_-]{1,22}$
+       ^[a-zA-Z0-9_-]{1,38}$
     """
-    e = re.compile("^[a-zA-Z0-9_-]{1,22}$")
+    e = re.compile("^[a-zA-Z0-9_-]{1,38}$")
     for task in tasks:
         for attr in ('workerType', 'provisionerId'):
             if not e.match(task['task'][attr]):
@@ -1845,10 +1855,15 @@ def check_run_task_caches(config, tasks):
     THAT RUN-TASK ALREADY SOLVES. THINK LONG AND HARD BEFORE DOING THAT.
     """
     re_reserved_caches = re.compile('''^
-        (level-\d+-checkouts|level-\d+-tooltool-cache)
+        (checkouts|tooltool-cache)
     ''', re.VERBOSE)
 
-    re_sparse_checkout_cache = re.compile('^level-\d+-checkouts-sparse')
+    re_sparse_checkout_cache = re.compile('^checkouts-sparse')
+
+    cache_prefix = '{trust_domain}-level-{level}-'.format(
+        trust_domain=config.graph_config['trust-domain'],
+        level=config.params['level'],
+    )
 
     suffix = _run_task_suffix()
 
@@ -1886,6 +1901,15 @@ def check_run_task_caches(config, tasks):
                     break
 
         for cache in payload.get('cache', {}):
+            if not cache.startswith(cache_prefix):
+                raise Exception(
+                    '{} is using a cache ({}) which is not appropriate '
+                    'for its trust-domain and level. It should start with {}.'
+                    .format(task['label'], cache, cache_prefix)
+                )
+
+            cache = cache[len(cache_prefix):]
+
             if re_sparse_checkout_cache.match(cache):
                 have_sparse_cache = True
 

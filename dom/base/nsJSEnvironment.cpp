@@ -1904,16 +1904,17 @@ void nsJSContext::RunNextCollectorTimer(JS::GCReason aReason,
     // anything if a GC is in progress.
     MOZ_ASSERT(!sCCLockedOut,
                "Don't check the CC timers if the CC is locked out.");
-  }
 
-  if (sCCRunner) {
-    sCCRunner->SetDeadline(aDeadline);
-    runnable = sCCRunner;
-  }
-
-  if (sICCRunner) {
-    sICCRunner->SetDeadline(aDeadline);
-    runnable = sICCRunner;
+    if (sCCRunner) {
+      MOZ_ASSERT(!sICCRunner,
+                 "Shouldn't have both sCCRunner and sICCRunner active at the "
+                 "same time");
+      sCCRunner->SetDeadline(aDeadline);
+      runnable = sCCRunner;
+    } else if (sICCRunner) {
+      sICCRunner->SetDeadline(aDeadline);
+      runnable = sICCRunner;
+    }
   }
 
   if (runnable) {

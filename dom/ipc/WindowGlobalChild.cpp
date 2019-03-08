@@ -73,8 +73,9 @@ already_AddRefed<WindowGlobalChild> WindowGlobalChild::Create(
   return wgc.forget();
 }
 
-/* static */ already_AddRefed<WindowGlobalChild>
-WindowGlobalChild::GetByInnerWindowId(uint64_t aInnerWindowId) {
+/* static */
+already_AddRefed<WindowGlobalChild> WindowGlobalChild::GetByInnerWindowId(
+    uint64_t aInnerWindowId) {
   if (!gWindowGlobalChildById) {
     return nullptr;
   }
@@ -178,7 +179,7 @@ already_AddRefed<JSWindowActorChild> WindowGlobalChild::GetActor(
 
   MOZ_RELEASE_ASSERT(!actor->Manager(),
                      "mManager was already initialized once!");
-  actor->Init(this);
+  actor->Init(aName, this);
   mWindowActors.Put(aName, actor);
   return actor.forget();
 }

@@ -122,6 +122,7 @@
 #include "mozilla/dom/Promise.h"
 #include "mozilla/dom/ServiceWorkerUtils.h"
 #include "mozilla/net/AsyncUrlChannelClassifier.h"
+#include "mozilla/net/NeckoChannelParams.h"
 #include "mozilla/net/UrlClassifierFeatureFactory.h"
 #include "nsIWebNavigation.h"
 
@@ -1629,7 +1630,7 @@ nsresult nsHttpChannel::CallOnStartRequest() {
 
     if (mListener) {
       nsCOMPtr<nsIStreamListener> deleteProtector(mListener);
-      deleteProtector->OnStartRequest(this, nullptr);
+      deleteProtector->OnStartRequest(this);
     }
 
     mOnStartRequestCalled = true;
@@ -1701,7 +1702,7 @@ nsresult nsHttpChannel::CallOnStartRequest() {
     MOZ_ASSERT(!mOnStartRequestCalled,
                "We should not call OsStartRequest twice");
     nsCOMPtr<nsIStreamListener> deleteProtector(mListener);
-    rv = deleteProtector->OnStartRequest(this, nullptr);
+    rv = deleteProtector->OnStartRequest(this);
     mOnStartRequestCalled = true;
     if (NS_FAILED(rv)) return rv;
   } else {
@@ -3118,8 +3119,8 @@ nsresult nsHttpChannel::AsyncDoReplaceWithProxy(nsIProxyInfo *pi) {
   nsresult rv;
 
   nsCOMPtr<nsIChannel> newChannel;
-  rv = gHttpHandler->NewProxiedChannel2(mURI, pi, mProxyResolveFlags, mProxyURI,
-                                        mLoadInfo, getter_AddRefs(newChannel));
+  rv = gHttpHandler->NewProxiedChannel(mURI, pi, mProxyResolveFlags, mProxyURI,
+                                       mLoadInfo, getter_AddRefs(newChannel));
   if (NS_FAILED(rv)) return rv;
 
   uint32_t flags = nsIChannelEventSink::REDIRECT_INTERNAL;
@@ -3667,7 +3668,7 @@ nsresult nsHttpChannel::ProcessFallback(bool *waitingForRedirectCallback) {
 
   // Create a new channel to load the fallback entry.
   RefPtr<nsIChannel> newChannel;
-  rv = gHttpHandler->NewChannel2(mURI, mLoadInfo, getter_AddRefs(newChannel));
+  rv = gHttpHandler->NewChannel(mURI, mLoadInfo, getter_AddRefs(newChannel));
   NS_ENSURE_SUCCESS(rv, rv);
 
   uint32_t redirectFlags = nsIChannelEventSink::REDIRECT_INTERNAL;
@@ -4904,27 +4905,33 @@ nsresult nsHttpChannel::OpenCacheInputStream(nsICacheEntry *cacheEntry,
   mCachedResponseHead->ContentType(contentType);
 
   bool foundAltData = false;
+  bool deliverAltData = true;
   if (!altDataType.IsEmpty() && !mPreferredCachedAltDataTypes.IsEmpty() &&
       altDataFromChild == mAltDataForChild) {
     for (auto &pref : mPreferredCachedAltDataTypes) {
-      if (mozilla::Get<0>(pref) == altDataType &&
-          (mozilla::Get<1>(pref).IsEmpty() ||
-           mozilla::Get<1>(pref) == contentType)) {
+      if (pref.type() == altDataType &&
+          (pref.contentType().IsEmpty() || pref.contentType() == contentType)) {
         foundAltData = true;
+        deliverAltData = pref.deliverAltData();
         break;
       }
     }
   }
+
+  nsCOMPtr<nsIInputStream> altData;
+  int64_t altDataSize;
   if (foundAltData) {
     rv = cacheEntry->OpenAlternativeInputStream(altDataType,
-                                                getter_AddRefs(stream));
+                                                getter_AddRefs(altData));
     if (NS_SUCCEEDED(rv)) {
       LOG(("Opened alt-data input stream type=%s", altDataType.get()));
       // We have succeeded.
       mAvailableCachedAltDataType = altDataType;
-      // Set the correct data size on the channel.
-      int64_t altDataSize;
-      if (NS_SUCCEEDED(cacheEntry->GetAltDataSize(&altDataSize))) {
+
+      if (deliverAltData) {
+        // Set the correct data size on the channel.
+        Unused << cacheEntry->GetAltDataSize(&altDataSize);
+        stream = altData;
         mAltDataLength = altDataSize;
       }
     }
@@ -6624,6 +6631,8 @@ nsresult nsHttpChannel::BeginConnectActual() {
     return NS_OK;
   }
 
+  ReEvaluateReferrerAfterTrackingStatusIsKnown();
+
   MaybeStartDNSPrefetch();
 
   nsresult rv = ContinueBeginConnectWithResult();
@@ -7131,8 +7140,20 @@ nsresult nsHttpChannel::StartCrossProcessRedirect() {
   rv = CheckRedirectLimit(nsIChannelEventSink::REDIRECT_INTERNAL);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  RefPtr<HttpChannelParentListener> listener = do_QueryObject(mCallbacks);
+  // We can't do QueryObject mCallbacks into HttpChannelParentListener, because
+  // the notification callbacks can be replaced with another object.
+  // Rather we do GetInterface for HttpChannelParent, which should always be
+  // there if the new callbacks properly forward to the original channel's
+  // callbacks, and get the listener from there using QueryObject.
+  nsCOMPtr<nsIParentChannel> parentChannel;
+  NS_QueryNotificationCallbacks(this, parentChannel);
+  RefPtr<HttpChannelParent> httpParent = do_QueryObject(parentChannel);
+  MOZ_ASSERT(httpParent);
+  NS_ENSURE_TRUE(httpParent, NS_ERROR_UNEXPECTED);
+
+  RefPtr<HttpChannelParentListener> listener = httpParent->GetParentListener();
   MOZ_ASSERT(listener);
+  NS_ENSURE_TRUE(listener, NS_ERROR_UNEXPECTED);
 
   nsCOMPtr<nsILoadInfo> redirectLoadInfo =
       CloneLoadInfoForRedirect(mURI, nsIChannelEventSink::REDIRECT_INTERNAL);
@@ -7290,7 +7311,7 @@ nsHttpChannel::HasCrossOriginOpenerPolicyMismatch(bool *aMismatch) {
 }
 
 NS_IMETHODIMP
-nsHttpChannel::OnStartRequest(nsIRequest *request, nsISupports *ctxt) {
+nsHttpChannel::OnStartRequest(nsIRequest *request) {
   nsresult rv;
 
   MOZ_ASSERT(mRequestObserversCalled);
@@ -7514,7 +7535,7 @@ nsresult nsHttpChannel::ContinueOnStartRequest4(nsresult result) {
 }
 
 NS_IMETHODIMP
-nsHttpChannel::OnStopRequest(nsIRequest *request, nsISupports *ctxt,
+nsHttpChannel::OnStopRequest(nsIRequest *request,
                              nsresult status) {
   AUTO_PROFILER_LABEL("nsHttpChannel::OnStopRequest", NETWORK);
 
@@ -7719,7 +7740,7 @@ nsresult nsHttpChannel::ContinueOnStopRequestAfterAuthRetry(
     if (mListener) {
       MOZ_ASSERT(!mOnStartRequestCalled,
                  "We should not call OnStartRequest twice.");
-      mListener->OnStartRequest(this, nullptr);
+      mListener->OnStartRequest(this);
       mOnStartRequestCalled = true;
     } else {
       NS_WARNING("OnStartRequest skipped because of null listener");
@@ -7922,7 +7943,7 @@ nsresult nsHttpChannel::ContinueOnStopRequest(nsresult aStatus, bool aIsFromNet,
     MOZ_ASSERT(mOnStartRequestCalled,
                "OnStartRequest should be called before OnStopRequest");
     MOZ_ASSERT(!mOnStopRequestCalled, "We should not call OnStopRequest twice");
-    mListener->OnStopRequest(this, nullptr, aStatus);
+    mListener->OnStopRequest(this, aStatus);
     mOnStopRequestCalled = true;
   }
 
@@ -7989,7 +8010,7 @@ class OnTransportStatusAsyncEvent : public Runnable {
 };
 
 NS_IMETHODIMP
-nsHttpChannel::OnDataAvailable(nsIRequest *request, nsISupports *ctxt,
+nsHttpChannel::OnDataAvailable(nsIRequest *request,
                                nsIInputStream *input, uint64_t offset,
                                uint32_t count) {
   nsresult rv;
@@ -8078,7 +8099,7 @@ nsHttpChannel::OnDataAvailable(nsIRequest *request, nsISupports *ctxt,
     }
 
     nsresult rv =
-        mListener->OnDataAvailable(this, nullptr, input, mLogicalOffset, count);
+        mListener->OnDataAvailable(this, input, mLogicalOffset, count);
     if (NS_SUCCEEDED(rv)) {
       // by contract mListener must read all of "count" bytes, but
       // nsInputStreamPump is tolerant to seekable streams that violate that
@@ -8329,14 +8350,15 @@ nsHttpChannel::GetAllowStaleCacheContent(bool *aAllowStaleCacheContent) {
 
 NS_IMETHODIMP
 nsHttpChannel::PreferAlternativeDataType(const nsACString &aType,
-                                         const nsACString &aContentType) {
+                                         const nsACString &aContentType,
+                                         bool aDeliverAltData) {
   ENSURE_CALLED_BEFORE_ASYNC_OPEN();
-  mPreferredCachedAltDataTypes.AppendElement(
-      MakePair(nsCString(aType), nsCString(aContentType)));
+  mPreferredCachedAltDataTypes.AppendElement(PreferredAlternativeDataTypeParams(
+      nsCString(aType), nsCString(aContentType), aDeliverAltData));
   return NS_OK;
 }
 
-const nsTArray<mozilla::Tuple<nsCString, nsCString>>
+const nsTArray<PreferredAlternativeDataTypeParams>
     &nsHttpChannel::PreferredAlternativeDataTypes() {
   return mPreferredCachedAltDataTypes;
 }
@@ -8384,6 +8406,26 @@ nsHttpChannel::GetOriginalInputStream(nsIInputStreamReceiver *aReceiver) {
   if (cacheEntry) {
     cacheEntry->OpenInputStream(0, getter_AddRefs(inputStream));
   }
+  aReceiver->OnInputStreamReady(inputStream);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsHttpChannel::GetAltDataInputStream(const nsACString &aType,
+                                     nsIInputStreamReceiver *aReceiver) {
+  if (aReceiver == nullptr) {
+    return NS_ERROR_INVALID_ARG;
+  }
+  nsCOMPtr<nsIInputStream> inputStream;
+
+  nsCOMPtr<nsICacheEntry> cacheEntry =
+      mCacheEntry ? mCacheEntry : mAltDataCacheEntry;
+  if (cacheEntry) {
+    nsresult rv = cacheEntry->OpenAlternativeInputStream(
+        aType, getter_AddRefs(inputStream));
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+
   aReceiver->OnInputStreamReady(inputStream);
   return NS_OK;
 }
@@ -9954,6 +9996,23 @@ nsresult nsHttpChannel::RedirectToInterceptedChannel() {
   }
 
   return rv;
+}
+
+void nsHttpChannel::ReEvaluateReferrerAfterTrackingStatusIsKnown() {
+  if (StaticPrefs::network_cookie_cookieBehavior() ==
+      nsICookieService::BEHAVIOR_REJECT_TRACKER) {
+    // If our referrer has been set before, and our referrer policy is equal to
+    // the default policy if we thought the channel wasn't a third-party
+    // tracking channel, we may need to set our referrer with referrer policy
+    // once again to ensure our defaults properly take effect now.
+    bool isPrivate =
+        mLoadInfo && mLoadInfo->GetOriginAttributes().mPrivateBrowsingId > 0;
+    if (mOriginalReferrer &&
+        mReferrerPolicy ==
+            NS_GetDefaultReferrerPolicy(nullptr, nullptr, isPrivate)) {
+      SetReferrer(mOriginalReferrer);
+    }
+  }
 }
 
 }  // namespace net

@@ -1190,7 +1190,8 @@ void WebGLFramebuffer::FramebufferTexture2D(GLenum attachEnum,
   if (level < 0)
     return mContext->ErrorInvalidValue("`level` must not be negative.");
 
-  if (mContext->IsWebGL2()) {
+  if (mContext->IsWebGL2() ||
+      mContext->IsExtensionEnabled(WebGLExtensionID::OES_fbo_render_mipmap)) {
     /* GLES 3.0.4 p208:
      *   If textarget is one of TEXTURE_CUBE_MAP_POSITIVE_X,
      *   TEXTURE_CUBE_MAP_POSITIVE_Y, TEXTURE_CUBE_MAP_POSITIVE_Z,
@@ -1379,10 +1380,12 @@ static void GetBackbufferFormats(const WebGLContext* webgl,
   }
 }
 
-/*static*/ void WebGLFramebuffer::BlitFramebuffer(
-    WebGLContext* webgl, GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
-    GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask,
-    GLenum filter) {
+/*static*/
+void WebGLFramebuffer::BlitFramebuffer(WebGLContext* webgl, GLint srcX0,
+                                       GLint srcY0, GLint srcX1, GLint srcY1,
+                                       GLint dstX0, GLint dstY0, GLint dstX1,
+                                       GLint dstY1, GLbitfield mask,
+                                       GLenum filter) {
   const GLbitfield depthAndStencilBits =
       LOCAL_GL_DEPTH_BUFFER_BIT | LOCAL_GL_STENCIL_BUFFER_BIT;
   if (bool(mask & depthAndStencilBits) && filter == LOCAL_GL_LINEAR) {

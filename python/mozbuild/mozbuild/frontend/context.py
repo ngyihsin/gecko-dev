@@ -367,8 +367,7 @@ class AsmFlags(BaseCompileFlags):
         if (self._context.config.substs.get('MOZ_DEBUG') or
             self._context.config.substs.get('MOZ_DEBUG_SYMBOLS')):
             if self._context.get('USE_NASM'):
-                if (self._context.config.substs.get('OS_ARCH') == 'WINNT' and
-                    not self._context.config.substs.get('GNU_CC')):
+                if self._context.config.substs.get('OS_ARCH') == 'WINNT':
                     debug_flags += ['-F', 'cv8']
                 elif self._context.config.substs.get('OS_ARCH') != 'Darwin':
                     debug_flags += ['-F', 'dwarf']
@@ -472,6 +471,7 @@ class CompileFlags(BaseCompileFlags):
              ('CFLAGS', 'C_LDFLAGS')),
             ('MOZBUILD_CFLAGS', None, ('CFLAGS',)),
             ('MOZBUILD_CXXFLAGS', None, ('CXXFLAGS',)),
+            ('COVERAGE', context.config.substs.get('COVERAGE_CFLAGS'), ('CXXFLAGS', 'CFLAGS')),
         )
 
         BaseCompileFlags.__init__(self, context)

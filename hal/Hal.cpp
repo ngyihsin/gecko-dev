@@ -151,8 +151,10 @@ void CancelVibrate(const WindowIdentifier& id) {
 
 void SetScreenBrightness(double aBrightness)
 {
+#ifdef MOZ_WIDGET_GONK
   AssertMainThread();
   PROXY_IF_SANDBOXED(SetScreenBrightness(clamped(aBrightness, 0.0, 1.0)));
+#endif
 }
 
 template <class InfoType>

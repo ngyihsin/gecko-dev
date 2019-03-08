@@ -647,10 +647,10 @@ class MOZ_RAII CacheIRWriter : public JS::CustomAutoRooter {
   void guardIsNumber(ValOperandId val) {
     writeOpWithOperandId(CacheOp::GuardIsNumber, val);
   }
-  void guardType(ValOperandId val, JSValueType type) {
+  void guardType(ValOperandId val, ValueType type) {
     writeOpWithOperandId(CacheOp::GuardType, val);
     static_assert(sizeof(type) == sizeof(uint8_t),
-                  "JSValueType should fit in a byte");
+                  "JS::ValueType should fit in a byte");
     buffer_.writeByte(uint32_t(type));
   }
   void guardIsObjectOrNull(ValOperandId val) {
@@ -706,15 +706,13 @@ class MOZ_RAII CacheIRWriter : public JS::CustomAutoRooter {
     addStubField(uintptr_t(group), StubField::Type::ObjectGroup);
   }
 
- private:
+ public:
   // Use (or create) a specialization below to clarify what constaint the
   // group guard is implying.
   void guardGroup(ObjOperandId obj, ObjectGroup* group) {
     writeOpWithOperandId(CacheOp::GuardGroup, obj);
     addStubField(uintptr_t(group), StubField::Type::ObjectGroup);
   }
-
- public:
   void guardGroupForProto(ObjOperandId obj, ObjectGroup* group) {
     MOZ_ASSERT(!group->hasUncacheableProto());
     guardGroup(obj, group);
@@ -1495,7 +1493,8 @@ class MOZ_RAII CacheIRReader {
 
   uint32_t stubOffset() { return buffer_.readByte() * sizeof(uintptr_t); }
   GuardClassKind guardClassKind() { return GuardClassKind(buffer_.readByte()); }
-  JSValueType valueType() { return JSValueType(buffer_.readByte()); }
+  JSValueType jsValueType() { return JSValueType(buffer_.readByte()); }
+  ValueType valueType() { return ValueType(buffer_.readByte()); }
   TypedThingLayout typedThingLayout() {
     return TypedThingLayout(buffer_.readByte());
   }
@@ -1803,6 +1802,7 @@ class MOZ_RAII SetPropIRGenerator : public IRGenerator {
   HandleValue idVal_;
   HandleValue rhsVal_;
   bool* isTemporarilyUnoptimizable_;
+  bool* canAddSlot_;
   PropertyTypeCheckInfo typeCheckInfo_;
 
   enum class PreliminaryObjectAction { None, Unlink, NotePreliminary };
@@ -1872,11 +1872,13 @@ class MOZ_RAII SetPropIRGenerator : public IRGenerator {
   bool tryAttachMegamorphicSetElement(HandleObject obj, ObjOperandId objId,
                                       ValOperandId rhsId);
 
+  bool canAttachAddSlotStub(HandleObject obj, HandleId id);
+
  public:
   SetPropIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
                      CacheKind cacheKind, ICState::Mode mode,
-                     bool* isTemporarilyUnoptimizable, HandleValue lhsVal,
-                     HandleValue idVal, HandleValue rhsVal,
+                     bool* isTemporarilyUnoptimizable, bool* canAddSlot,
+                     HandleValue lhsVal, HandleValue idVal, HandleValue rhsVal,
                      bool needsTypeBarrier = true,
                      bool maybeHasExtraIndexedProps = true);
 

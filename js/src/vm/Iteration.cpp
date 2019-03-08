@@ -30,7 +30,6 @@
 #include "js/PropertySpec.h"
 #include "js/Proxy.h"
 #include "vm/BytecodeUtil.h"
-#include "vm/GeneratorObject.h"
 #include "vm/GlobalObject.h"
 #include "vm/Interpreter.h"
 #include "vm/JSAtom.h"
@@ -794,8 +793,9 @@ NativeIterator::NativeIterator(JSContext* cx,
   MOZ_ASSERT(!*hadError);
 }
 
-/* static */ bool IteratorHashPolicy::match(PropertyIteratorObject* obj,
-                                            const Lookup& lookup) {
+/* static */
+bool IteratorHashPolicy::match(PropertyIteratorObject* obj,
+                               const Lookup& lookup) {
   NativeIterator* ni = obj->getNativeIterator();
   if (ni->guardKey() != lookup.key || ni->guardCount() != lookup.numGuards) {
     return false;
@@ -1502,8 +1502,9 @@ bool js::SuppressDeletedElement(JSContext* cx, HandleObject obj,
 static const JSFunctionSpec iterator_proto_methods[] = {
     JS_SELF_HOSTED_SYM_FN(iterator, "IteratorIdentity", 0, 0), JS_FS_END};
 
-/* static */ bool GlobalObject::initIteratorProto(
-    JSContext* cx, Handle<GlobalObject*> global) {
+/* static */
+bool GlobalObject::initIteratorProto(JSContext* cx,
+                                     Handle<GlobalObject*> global) {
   if (global->getReservedSlot(ITERATOR_PROTO).isObject()) {
     return true;
   }
@@ -1519,8 +1520,9 @@ static const JSFunctionSpec iterator_proto_methods[] = {
   return true;
 }
 
-/* static */ bool GlobalObject::initArrayIteratorProto(
-    JSContext* cx, Handle<GlobalObject*> global) {
+/* static */
+bool GlobalObject::initArrayIteratorProto(JSContext* cx,
+                                          Handle<GlobalObject*> global) {
   if (global->getReservedSlot(ARRAY_ITERATOR_PROTO).isObject()) {
     return true;
   }
@@ -1545,8 +1547,9 @@ static const JSFunctionSpec iterator_proto_methods[] = {
   return true;
 }
 
-/* static */ bool GlobalObject::initStringIteratorProto(
-    JSContext* cx, Handle<GlobalObject*> global) {
+/* static */
+bool GlobalObject::initStringIteratorProto(JSContext* cx,
+                                           Handle<GlobalObject*> global) {
   if (global->getReservedSlot(STRING_ITERATOR_PROTO).isObject()) {
     return true;
   }
@@ -1571,8 +1574,9 @@ static const JSFunctionSpec iterator_proto_methods[] = {
   return true;
 }
 
-/* static */ bool GlobalObject::initRegExpStringIteratorProto(
-    JSContext* cx, Handle<GlobalObject*> global) {
+/* static */
+bool GlobalObject::initRegExpStringIteratorProto(JSContext* cx,
+                                                 Handle<GlobalObject*> global) {
   if (global->getReservedSlot(REGEXP_STRING_ITERATOR_PROTO).isObject()) {
     return true;
   }

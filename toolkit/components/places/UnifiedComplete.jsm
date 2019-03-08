@@ -969,22 +969,26 @@ Search.prototype = {
             "";
           searchSuggestionsCompletePromise =
             this._matchSearchSuggestions(engine, query, alias);
-          // If the user has used a search engine token alias, then the only
-          // results we want to show are suggestions from that engine, so we're
-          // done.  We're also done if we're restricting results to suggestions.
-          if ((this._searchEngineAliasMatch &&
-               this._searchEngineAliasMatch.isTokenAlias) ||
-              this.hasBehavior("restrict")) {
-            // Wait for the suggestions to be added.
-            await searchSuggestionsCompletePromise;
-            this._cleanUpNonCurrentMatches(null);
-            this._autocompleteSearch.finishSearch(true);
-            return;
-          }
         }
       }
     }
-    // In any case, clear previous suggestions.
+
+    // If the user used a search engine token alias, then the only results we
+    // want to show are suggestions from that engine, so we're done.  We're also
+    // done if we're restricting results to suggestions.
+    if ((this._searchEngineAliasMatch &&
+         this._searchEngineAliasMatch.isTokenAlias) ||
+        (this._enableActions &&
+         this.hasBehavior("search") &&
+         this.hasBehavior("restrict"))) {
+      // Wait for the suggestions to be added.
+      await searchSuggestionsCompletePromise;
+      this._cleanUpNonCurrentMatches(null);
+      this._autocompleteSearch.finishSearch(true);
+      return;
+    }
+
+    // Clear previous search suggestions.
     searchSuggestionsCompletePromise.then(() => {
       this._cleanUpNonCurrentMatches(UrlbarUtils.RESULT_GROUP.SUGGESTION);
     });
@@ -1686,7 +1690,12 @@ Search.prototype = {
   },
 
   _matchExtensionSuggestions() {
-    let promise = ExtensionSearchHandler.handleSearch(this._heuristicToken, this._originalSearchString,
+    let data = {
+      keyword: this._heuristicToken,
+      text: this._originalSearchString,
+      inPrivateWindow: this._inPrivateWindow,
+    };
+    let promise = ExtensionSearchHandler.handleSearch(data,
       suggestions => {
         for (let suggestion of suggestions) {
           let content = `${this._heuristicToken} ${suggestion.content}`;
@@ -1703,7 +1712,10 @@ Search.prototype = {
     // Since the extension has no way to signale when it's done pushing
     // results, we add a timeout racing with the addition.
     let timeoutPromise = new Promise(resolve => {
-      setTimeout(resolve, MAXIMUM_ALLOWED_EXTENSION_TIME_MS);
+      let timer = setTimeout(resolve, MAXIMUM_ALLOWED_EXTENSION_TIME_MS);
+      // TODO Bug 1531268: Figure out why this cancel helps makes the tests
+      // stable.
+      promise.then(timer.cancel);
     });
     return Promise.race([timeoutPromise, promise]).catch(Cu.reportError);
   },

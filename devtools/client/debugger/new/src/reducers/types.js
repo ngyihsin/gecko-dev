@@ -24,7 +24,7 @@ import type { UIState } from "./ui";
 import type { QuickOpenState } from "./quick-open";
 
 export type State = {
-  ast: Record<ASTState>,
+  ast: ASTState,
   breakpoints: BreakpointsState,
   expressions: Record<ExpressionState>,
   debuggee: DebuggeeState,
@@ -50,10 +50,4 @@ export type { SourcesMap, SourcesMapByThread } from "./sources";
 export type { ActiveSearchType, OrientationType } from "./ui";
 export type { BreakpointsMap, XHRBreakpointsList } from "./breakpoints";
 export type { Command } from "./pause";
-export type {
-  SourceMetaDataMap,
-  SourceMetaDataType,
-  PausePoints,
-  PausePointsMap,
-  PausePoint
-} from "./ast";
+export type { SourceMetaDataMap, SourceMetaDataType } from "./ast";

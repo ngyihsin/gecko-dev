@@ -28,6 +28,23 @@ using namespace JS;
 XPCWrappedNativeScope* XPCWrappedNativeScope::gScopes = nullptr;
 XPCWrappedNativeScope* XPCWrappedNativeScope::gDyingScopes = nullptr;
 
+static bool RemoteXULForbidsXBLScopeForPrincipal(nsIPrincipal* aPrincipal) {
+  // AllowXULXBLForPrincipal will return true for system principal, but we
+  // don't want that here.
+  MOZ_ASSERT(nsContentUtils::IsInitialized());
+  if (aPrincipal->IsSystemPrincipal()) {
+    return false;
+  }
+
+  // If this domain isn't whitelisted, we're done.
+  if (!nsContentUtils::AllowXULXBLForPrincipal(aPrincipal)) {
+    return false;
+  }
+
+  // Check the pref to determine how we should behave.
+  return !Preferences::GetBool("dom.use_xbl_scopes_for_remote_xul", false);
+}
+
 static bool RemoteXULForbidsXBLScope(HandleObject aFirstGlobal) {
   MOZ_ASSERT(aFirstGlobal);
 
@@ -39,21 +56,8 @@ static bool RemoteXULForbidsXBLScope(HandleObject aFirstGlobal) {
     return false;
   }
 
-  // AllowXULXBLForPrincipal will return true for system principal, but we
-  // don't want that here.
   nsIPrincipal* principal = xpc::GetObjectPrincipal(aFirstGlobal);
-  MOZ_ASSERT(nsContentUtils::IsInitialized());
-  if (nsContentUtils::IsSystemPrincipal(principal)) {
-    return false;
-  }
-
-  // If this domain isn't whitelisted, we're done.
-  if (!nsContentUtils::AllowXULXBLForPrincipal(principal)) {
-    return false;
-  }
-
-  // Check the pref to determine how we should behave.
-  return !Preferences::GetBool("dom.use_xbl_scopes_for_remote_xul", false);
+  return RemoteXULForbidsXBLScopeForPrincipal(principal);
 }
 
 XPCWrappedNativeScope::XPCWrappedNativeScope(JS::Compartment* aCompartment,
@@ -208,6 +212,11 @@ JSObject* XPCWrappedNativeScope::EnsureContentXBLScope(JSContext* cx) {
   return global;
 }
 
+bool XPCWrappedNativeScope::XBLScopeStateMatches(nsIPrincipal* aPrincipal) {
+  return mAllowContentXBLScope ==
+         !RemoteXULForbidsXBLScopeForPrincipal(aPrincipal);
+}
+
 bool XPCWrappedNativeScope::AllowContentXBLScope(Realm* aRealm) {
   // We only disallow XBL scopes in remote XUL situations.
   MOZ_ASSERT_IF(!mAllowContentXBLScope, nsContentUtils::AllowXULXBLForPrincipal(
@@ -351,6 +360,7 @@ void XPCWrappedNativeScope::UpdateWeakPointersAfterGC() {
 
   // Update our pointer to the compartment in case we finalized all globals.
   if (!js::CompartmentHasLiveGlobal(mCompartment)) {
+    CompartmentPrivate::Get(mCompartment)->scope = nullptr;
     mCompartment = nullptr;
     GetWrappedNativeMap()->Clear();
     mWrappedNativeProtoMap->Clear();

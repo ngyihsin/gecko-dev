@@ -19,7 +19,6 @@ include DOMTypes;
 using mozilla::OriginAttributes from "mozilla/ipc/BackgroundUtils.h";
 using struct mozilla::void_t from "ipc/IPCMessageUtils.h";
 using RequestHeaderTuples from "mozilla/net/PHttpChannelParams.h";
-using ArrayOfStringPairs from "mozilla/net/PHttpChannelParams.h";
 using struct nsHttpAtom from "nsHttp.h";
 using class mozilla::net::nsHttpResponseHead from "nsHttpResponseHead.h";
 using class mozilla::TimeStamp from "mozilla/TimeStamp.h";
@@ -27,6 +26,17 @@ using nsILoadInfo::CrossOriginOpenerPolicy from "ipc/IPCMessageUtils.h";
 
 namespace mozilla {
 namespace net {
+
+//-----------------------------------------------------------------------------
+// Preferrer alternative data type
+//-----------------------------------------------------------------------------
+
+struct PreferredAlternativeDataTypeParams
+{
+  nsCString type;
+  nsCString contentType;
+  bool deliverAltData;
+};
 
 //-----------------------------------------------------------------------------
 // LoadInfo IPDL structs
@@ -210,7 +220,7 @@ struct HttpChannelOpenArgs
   // chrome channel would ever need to know.  Get rid of next arg?
   OptionalURIParams           original;
   OptionalURIParams           doc;
-  OptionalURIParams           referrer;
+  OptionalURIParams           originalReferrer;
   uint32_t                    referrerPolicy;
   OptionalURIParams           apiRedirectTo;
   OptionalURIParams           topWindowURI;
@@ -218,7 +228,7 @@ struct HttpChannelOpenArgs
   uint32_t                    loadFlags;
   RequestHeaderTuples         requestHeaders;
   nsCString                   requestMethod;
-  OptionalIPCStream           uploadStream;
+  IPCStream?                  uploadStream;
   bool                        uploadStreamHasHeaders;
   int16_t                     priority;
   uint32_t                    classOfService;
@@ -250,7 +260,7 @@ struct HttpChannelOpenArgs
   uint64_t                    channelId;
   nsString                    integrityMetadata;
   uint64_t                    contentWindowId;
-  ArrayOfStringPairs          preferredAlternativeTypes;
+  PreferredAlternativeDataTypeParams[] preferredAlternativeTypes;
   uint64_t                    topLevelOuterContentWindowId;
   TimeStamp                   launchServiceWorkerStart;
   TimeStamp                   launchServiceWorkerEnd;
@@ -283,7 +293,7 @@ struct FTPChannelOpenArgs
   URIParams                 uri;
   uint64_t                  startPos;
   nsCString                 entityID;
-  OptionalIPCStream         uploadStream;
+  IPCStream?                uploadStream;
   OptionalLoadInfoArgs      loadInfo;
   uint32_t                  loadFlags;
 };

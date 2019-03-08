@@ -85,8 +85,9 @@ namespace detail {
 
 // Do not call this directly! It is exposed for the friend declarations in
 // this file.
-bool CopyScript(JSContext* cx, HandleScript src, HandleScript dst,
-                MutableHandle<GCVector<Scope*>> scopes);
+JSScript* CopyScript(JSContext* cx, HandleScript src,
+                     HandleScriptSourceObject sourceObject,
+                     MutableHandle<GCVector<Scope*>> scopes);
 
 }  // namespace detail
 
@@ -609,6 +610,17 @@ class ScriptSource {
   // our syntax parse vs. full parse heuristics are correct.
   mozilla::TimeStamp parseEnded_;
 
+  // An id for this source that is unique across the process. This can be used
+  // to refer to this source from places that don't want to hold a strong
+  // reference on the source itself.
+  //
+  // This is a 32 bit ID and could overflow, in which case the ID will not be
+  // unique anymore.
+  uint32_t id_;
+
+  // How many ids have been handed out to sources.
+  static mozilla::Atomic<uint32_t> idCount_;
+
   // True if we can call JSRuntime::sourceHook to load the source on
   // demand. If sourceRetrievable_ and hasSourceText() are false, it is not
   // possible to get source at all.
@@ -653,6 +665,7 @@ class ScriptSource {
         introducerFilename_(nullptr),
         introductionType_(nullptr),
         xdrEncoder_(nullptr),
+        id_(++idCount_),
         sourceRetrievable_(false),
         hasIntroductionOffset_(false),
         containsAsmJS_(false) {}
@@ -1033,6 +1046,8 @@ class ScriptSource {
     return introductionType_;
   }
   const char* filename() const { return filename_.get(); }
+
+  uint32_t id() const { return id_; }
 
   // Display URLs
   MOZ_MUST_USE bool setDisplayURL(JSContext* cx, const char16_t* displayURL);
@@ -1426,6 +1441,10 @@ class alignas(JS::Value) PrivateScriptData final {
                                     js::HandleScope scriptEnclosingScope,
                                     js::HandleFunction fun);
 
+  // Clone src script data into dst script.
+  static bool Clone(JSContext* cx, js::HandleScript src, js::HandleScript dst,
+                    js::MutableHandle<JS::GCVector<js::Scope*>> scopes);
+
   void traceChildren(JSTracer* trc);
 };
 
@@ -1498,6 +1517,9 @@ class SharedScriptData {
   template <XDRMode mode>
   static MOZ_MUST_USE XDRResult XDR(js::XDRState<mode>* xdr,
                                     js::HandleScript script);
+
+  // Mark this SharedScriptData for use in a new zone
+  void markForCrossZone(JSContext* cx);
 
  private:
   SharedScriptData() = delete;
@@ -1717,15 +1739,11 @@ class JSScript : public js::gc::TenuredCell {
     // Script came from eval().
     IsForEval = 1 << 22,
 
-    // Whether the record/replay execution progress counter (see RecordReplay.h)
-    // should be updated as this script runs.
-    TrackRecordReplayProgress = 1 << 23,
-
     // Whether this is a top-level module script.
-    IsModule = 1 << 24,
+    IsModule = 1 << 23,
 
     // Whether this function needs a call object or named lambda environment.
-    NeedsFunctionEnvironmentObjects = 1 << 25,
+    NeedsFunctionEnvironmentObjects = 1 << 24,
   };
 
  private:
@@ -1746,7 +1764,11 @@ class JSScript : public js::gc::TenuredCell {
     // Script has been reused for a clone.
     HasBeenCloned = 1 << 2,
 
-    // (1 << 3) and (1 << 4) are unused.
+    // Whether the record/replay execution progress counter (see RecordReplay.h)
+    // should be updated as this script runs.
+    TrackRecordReplayProgress = 1 << 3,
+
+    // (1 << 4) is unused.
 
     // Script has an entry in Realm::scriptCountsMap.
     HasScriptCounts = 1 << 5,
@@ -1836,8 +1858,13 @@ class JSScript : public js::gc::TenuredCell {
       js::HandleScriptSourceObject sourceObject,
       js::HandleScope scriptEnclosingScope, js::HandleFunction fun);
 
-  friend bool js::detail::CopyScript(
+  friend bool js::PrivateScriptData::Clone(
       JSContext* cx, js::HandleScript src, js::HandleScript dst,
+      js::MutableHandle<JS::GCVector<js::Scope*>> scopes);
+
+  friend JSScript* js::detail::CopyScript(
+      JSContext* cx, js::HandleScript src,
+      js::HandleScriptSourceObject sourceObject,
       js::MutableHandle<JS::GCVector<js::Scope*>> scopes);
 
  private:
@@ -1883,6 +1910,7 @@ class JSScript : public js::gc::TenuredCell {
  private:
   // Assert that jump targets are within the code array of the script.
   void assertValidJumpTargets() const;
+ public:
 #endif
 
   // MutableFlags accessors.
@@ -2787,7 +2815,7 @@ class JSScript : public js::gc::TenuredCell {
   };
 
   bool trackRecordReplayProgress() const {
-    return hasFlag(ImmutableFlags::TrackRecordReplayProgress);
+    return hasFlag(MutableFlags::TrackRecordReplayProgress);
   }
 };
 
@@ -2798,10 +2826,37 @@ static_assert(
 
 namespace js {
 
+struct FieldInitializers {
+#ifdef DEBUG
+  bool valid;
+#endif
+  // This struct will eventually have a vector of constant values for optimizing
+  // field initializers.
+  size_t numFieldInitializers;
+
+  explicit FieldInitializers(size_t numFieldInitializers)
+      :
+#ifdef DEBUG
+        valid(true),
+#endif
+        numFieldInitializers(numFieldInitializers) {
+  }
+
+  static FieldInitializers Invalid() { return FieldInitializers(); }
+
+ private:
+  FieldInitializers()
+      :
+#ifdef DEBUG
+        valid(false),
+#endif
+        numFieldInitializers(0) {
+  }
+};
+
 // Information about a script which may be (or has been) lazily compiled to
 // bytecode from its source.
 class LazyScript : public gc::TenuredCell {
- private:
   // If non-nullptr, the script has been compiled and this is a forwarding
   // pointer to the result. This is a weak pointer: after relazification, we
   // can collect the script if there are no other pointers to it.
@@ -2894,7 +2949,6 @@ class LazyScript : public gc::TenuredCell {
   // Heap allocated table with any free variables or inner functions.
   void* table_;
 
- private:
   static const uint32_t NumClosedOverBindingsBits = 20;
   static const uint32_t NumInnerFunctionsBits = 20;
 
@@ -2919,18 +2973,22 @@ class LazyScript : public gc::TenuredCell {
     uint32_t hasDebuggerStatement : 1;
     uint32_t hasDirectEval : 1;
     uint32_t isLikelyConstructorWrapper : 1;
-    uint32_t hasBeenCloned : 1;
     uint32_t treatAsRunOnce : 1;
     uint32_t isDerivedClassConstructor : 1;
     uint32_t needsHomeObject : 1;
     uint32_t hasRest : 1;
     uint32_t parseGoal : 1;
+
+    // Runtime flags
+    uint32_t hasBeenCloned : 1;
   };
 
   union {
     PackedView p_;
     uint64_t packedFields_;
   };
+
+  FieldInitializers fieldInitializers_;
 
   // Source location for the script.
   // See the comment in JSScript for the details
@@ -2987,8 +3045,6 @@ class LazyScript : public gc::TenuredCell {
                                   uint64_t packedData, uint32_t begin,
                                   uint32_t end, uint32_t toStringStart,
                                   uint32_t lineno, uint32_t column);
-
-  void initRuntimeFields(uint64_t packedFields);
 
   static inline JSFunction* functionDelazifying(JSContext* cx,
                                                 Handle<LazyScript*>);
@@ -3121,6 +3177,12 @@ class LazyScript : public gc::TenuredCell {
   bool hasThisBinding() const { return p_.hasThisBinding; }
   void setHasThisBinding() { p_.hasThisBinding = true; }
 
+  void setFieldInitializers(FieldInitializers fieldInitializers) {
+    fieldInitializers_ = fieldInitializers;
+  }
+
+  FieldInitializers getFieldInitializers() const { return fieldInitializers_; }
+
   const char* filename() const { return scriptSource()->filename(); }
   uint32_t sourceStart() const { return sourceStart_; }
   uint32_t sourceEnd() const { return sourceEnd_; }
@@ -3156,7 +3218,7 @@ class LazyScript : public gc::TenuredCell {
     return mallocSizeOf(table_);
   }
 
-  uint64_t packedFields() const { return packedFields_; }
+  uint64_t packedFieldsForXDR() const;
 };
 
 /* If this fails, add/remove padding within LazyScript. */

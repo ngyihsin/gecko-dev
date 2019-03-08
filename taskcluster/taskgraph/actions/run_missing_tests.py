@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 @register_callback_action(
     name='run-missing-tests',
     title='Run Missing Tests',
-    kind='hook',
     generic=True,
     symbol='rmt',
     description=(
@@ -49,7 +48,14 @@ def run_missing_tests(parameters, graph_config, input, task_group_id, task_id):
             continue
         to_run.append(label)
 
-    create_tasks(to_run, full_task_graph, label_to_taskid, parameters, decision_task_id)
+    create_tasks(
+        graph_config,
+        to_run,
+        full_task_graph,
+        label_to_taskid,
+        parameters,
+        decision_task_id,
+    )
 
     logger.info('Out of {} test tasks, {} already existed and the action created {}'.format(
         already_run + len(to_run), already_run, len(to_run)))

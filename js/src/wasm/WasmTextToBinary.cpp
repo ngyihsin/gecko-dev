@@ -58,7 +58,6 @@ class WasmToken {
 
   enum Kind {
     Align,
-    AnyFunc,
     AtomicCmpXchg,
     AtomicLoad,
     AtomicRMW,
@@ -91,6 +90,7 @@ class WasmToken {
     Field,
     Float,
     Func,
+    FuncRef,
 #ifdef ENABLE_WASM_REFTYPES
     GcFeatureOptIn,
 #endif
@@ -145,7 +145,7 @@ class WasmToken {
     ElemDrop,
     TableInit,
 #endif
-#ifdef ENABLE_WASM_GENERALIZED_TABLES
+#ifdef ENABLE_WASM_REFTYPES
     TableGet,
     TableGrow,
     TableSet,
@@ -345,7 +345,7 @@ class WasmToken {
       case TableCopy:
       case TableInit:
 #endif
-#ifdef ENABLE_WASM_GENERALIZED_TABLES
+#ifdef ENABLE_WASM_REFTYPES
       case TableGet:
       case TableGrow:
       case TableSet:
@@ -359,7 +359,6 @@ class WasmToken {
       case Wake:
         return true;
       case Align:
-      case AnyFunc:
       case CloseParen:
       case Data:
 #ifdef ENABLE_WASM_BULKMEM_OPS
@@ -375,6 +374,7 @@ class WasmToken {
       case Field:
       case Float:
       case Func:
+      case FuncRef:
 #ifdef ENABLE_WASM_REFTYPES
       case GcFeatureOptIn:
 #endif
@@ -952,7 +952,7 @@ WasmToken WasmTokenStream::next() {
         return WasmToken(WasmToken::Align, begin, cur_);
       }
       if (consume(u"anyfunc")) {
-        return WasmToken(WasmToken::AnyFunc, begin, cur_);
+        return WasmToken(WasmToken::FuncRef, begin, cur_);
       }
       if (consume(u"anyref")) {
         return WasmToken(WasmToken::ValueType, ValType::AnyRef, begin, cur_);
@@ -1032,6 +1032,10 @@ WasmToken WasmTokenStream::next() {
     case 'f':
       if (consume(u"field")) {
         return WasmToken(WasmToken::Field, begin, cur_);
+      }
+
+      if (consume(u"funcref")) {
+        return WasmToken(WasmToken::FuncRef, begin, cur_);
       }
 
       if (consume(u"func")) {
@@ -1343,6 +1347,12 @@ WasmToken WasmTokenStream::next() {
         return WasmToken(WasmToken::GetLocal, begin, cur_);
       }
       if (consume(u"global")) {
+        if (consume(u".get")) {
+          return WasmToken(WasmToken::GetGlobal, begin, cur_);
+        }
+        if (consume(u".set")) {
+          return WasmToken(WasmToken::SetGlobal, begin, cur_);
+        }
         return WasmToken(WasmToken::Global, begin, cur_);
       }
       if (consume(u"grow_memory")) {
@@ -2109,6 +2119,12 @@ WasmToken WasmTokenStream::next() {
 
     case 'l':
       if (consume(u"local")) {
+        if (consume(u".get")) {
+          return WasmToken(WasmToken::GetLocal, begin, cur_);
+        }
+        if (consume(u".set")) {
+          return WasmToken(WasmToken::SetLocal, begin, cur_);
+        }
         return WasmToken(WasmToken::Local, begin, cur_);
       }
       if (consume(u"loop")) {
@@ -2240,7 +2256,7 @@ WasmToken WasmTokenStream::next() {
           return WasmToken(WasmToken::TableInit, begin, cur_);
         }
 #endif
-#ifdef ENABLE_WASM_GENERALIZED_TABLES
+#ifdef ENABLE_WASM_REFTYPES
         if (consume(u"get")) {
           return WasmToken(WasmToken::TableGet, begin, cur_);
         }
@@ -3766,7 +3782,7 @@ static AstMemOrTableInit* ParseMemOrTableInit(WasmParseContext& c,
 }
 #endif
 
-#ifdef ENABLE_WASM_GENERALIZED_TABLES
+#ifdef ENABLE_WASM_REFTYPES
 static AstTableGet* ParseTableGet(WasmParseContext& c, bool inParens) {
   // (table.get table index)
   // (table.get index)
@@ -4021,7 +4037,7 @@ static AstExpr* ParseExprBody(WasmParseContext& c, WasmToken token,
     case WasmToken::TableInit:
       return ParseMemOrTableInit(c, inParens, /*isMem=*/false);
 #endif
-#ifdef ENABLE_WASM_GENERALIZED_TABLES
+#ifdef ENABLE_WASM_REFTYPES
     case WasmToken::TableGet:
       return ParseTableGet(c, inParens);
     case WasmToken::TableGrow:
@@ -4636,11 +4652,11 @@ static bool ParseGlobalType(WasmParseContext& c, AstValType* type,
 
 static bool ParseElemType(WasmParseContext& c, TableKind* tableKind) {
   WasmToken token;
-  if (c.ts.getIf(WasmToken::AnyFunc, &token)) {
+  if (c.ts.getIf(WasmToken::FuncRef, &token)) {
     *tableKind = TableKind::AnyFunction;
     return true;
   }
-#ifdef ENABLE_WASM_GENERALIZED_TABLES
+#ifdef ENABLE_WASM_REFTYPES
   if (c.ts.getIf(WasmToken::ValueType, &token) &&
       token.valueType() == ValType::AnyRef) {
     *tableKind = TableKind::AnyRef;
@@ -5634,7 +5650,7 @@ static bool ResolveMemOrTableInit(Resolver& r, AstMemOrTableInit& s) {
 }
 #endif
 
-#ifdef ENABLE_WASM_GENERALIZED_TABLES
+#ifdef ENABLE_WASM_REFTYPES
 static bool ResolveTableGet(Resolver& r, AstTableGet& s) {
   return ResolveExpr(r, s.index()) && r.resolveTable(s.targetTable());
 }
@@ -5786,7 +5802,7 @@ static bool ResolveExpr(Resolver& r, AstExpr& expr) {
     case AstExprKind::MemOrTableInit:
       return ResolveMemOrTableInit(r, expr.as<AstMemOrTableInit>());
 #endif
-#ifdef ENABLE_WASM_GENERALIZED_TABLES
+#ifdef ENABLE_WASM_REFTYPES
     case AstExprKind::TableGet:
       return ResolveTableGet(r, expr.as<AstTableGet>());
     case AstExprKind::TableGrow:
@@ -6408,7 +6424,7 @@ static bool EncodeMemOrTableInit(Encoder& e, AstMemOrTableInit& s) {
 }
 #endif
 
-#ifdef ENABLE_WASM_GENERALIZED_TABLES
+#ifdef ENABLE_WASM_REFTYPES
 static bool EncodeTableGet(Encoder& e, AstTableGet& s) {
   return EncodeExpr(e, s.index()) && e.writeOp(Op::TableGet) &&
          e.writeVarU32(s.targetTable().index());
@@ -6588,7 +6604,7 @@ static bool EncodeExpr(Encoder& e, AstExpr& expr) {
     case AstExprKind::MemOrTableInit:
       return EncodeMemOrTableInit(e, expr.as<AstMemOrTableInit>());
 #endif
-#ifdef ENABLE_WASM_GENERALIZED_TABLES
+#ifdef ENABLE_WASM_REFTYPES
     case AstExprKind::TableGet:
       return EncodeTableGet(e, expr.as<AstTableGet>());
     case AstExprKind::TableGrow:

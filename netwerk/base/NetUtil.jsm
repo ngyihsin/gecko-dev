@@ -65,8 +65,8 @@ var NetUtil = {
         var observer;
         if (aCallback) {
             observer = {
-                onStartRequest(aRequest, aContext) {},
-                onStopRequest(aRequest, aContext, aStatusCode) {
+                onStartRequest(aRequest) {},
+                onStopRequest(aRequest, aStatusCode) {
                     aCallback(aStatusCode);
                 },
             };
@@ -117,8 +117,8 @@ var NetUtil = {
         let listener = Cc["@mozilla.org/network/simple-stream-listener;1"].
                        createInstance(Ci.nsISimpleStreamListener);
         listener.init(pipe.outputStream, {
-            onStartRequest(aRequest, aContext) {},
-            onStopRequest(aRequest, aContext, aStatusCode) {
+            onStartRequest(aRequest) {},
+            onStopRequest(aRequest, aStatusCode) {
                 pipe.outputStream.close();
                 aCallback(pipe.inputStream, aStatusCode, aRequest);
             },
@@ -301,12 +301,12 @@ var NetUtil = {
             contentPolicyType = Ci.nsIContentPolicy.TYPE_OTHER;
         }
 
-        return Services.io.newChannelFromURI2(uri,
-                                              loadingNode || null,
-                                              loadingPrincipal || null,
-                                              triggeringPrincipal || null,
-                                              securityFlags,
-                                              contentPolicyType);
+        return Services.io.newChannelFromURI(uri,
+                                             loadingNode || null,
+                                             loadingPrincipal || null,
+                                             triggeringPrincipal || null,
+                                             securityFlags,
+                                             contentPolicyType);
     },
 
     /**

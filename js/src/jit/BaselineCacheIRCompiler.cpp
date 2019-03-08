@@ -38,8 +38,8 @@ class MOZ_RAII BaselineCacheIRCompiler : public CacheIRCompiler {
   bool makesGCCalls_;
   BaselineCacheIRStubKind kind_;
 
-  MOZ_MUST_USE bool callVM(MacroAssembler& masm, const VMFunction& fun);
-  MOZ_MUST_USE bool tailCallVM(MacroAssembler& masm, const VMFunction& fun);
+  void callVM(MacroAssembler& masm, const VMFunction& fun);
+  void tailCallVM(MacroAssembler& masm, const VMFunction& fun);
 
   MOZ_MUST_USE bool callTypeUpdateIC(Register obj, ValueOperand val,
                                      Register scratch,
@@ -141,7 +141,7 @@ class MOZ_RAII AutoStubFrame {
 #endif
 };
 
-bool BaselineCacheIRCompiler::callVM(MacroAssembler& masm,
+void BaselineCacheIRCompiler::callVM(MacroAssembler& masm,
                                      const VMFunction& fun) {
   MOZ_ASSERT(inStubFrame_);
 
@@ -149,10 +149,9 @@ bool BaselineCacheIRCompiler::callVM(MacroAssembler& masm,
   MOZ_ASSERT(fun.expectTailCall == NonTailCall);
 
   EmitBaselineCallVM(code, masm);
-  return true;
 }
 
-bool BaselineCacheIRCompiler::tailCallVM(MacroAssembler& masm,
+void BaselineCacheIRCompiler::tailCallVM(MacroAssembler& masm,
                                          const VMFunction& fun) {
   MOZ_ASSERT(!inStubFrame_);
 
@@ -161,7 +160,6 @@ bool BaselineCacheIRCompiler::tailCallVM(MacroAssembler& masm,
   size_t argSize = fun.explicitStackSlots() * sizeof(void*);
 
   EmitBaselineTailCallVM(code, masm, argSize);
-  return true;
 }
 
 static size_t GetEnteredOffset(BaselineCacheIRStubKind kind) {
@@ -219,8 +217,7 @@ JitCode* BaselineCacheIRCompiler::compile() {
     EmitStubGuardFailure(masm);
   }
 
-  Linker linker(masm);
-  AutoFlushICache afc("getStubCode");
+  Linker linker(masm, "getStubCode");
   Rooted<JitCode*> newStubCode(cx_, linker.newCode(cx_, CodeKind::Baseline));
   if (!newStubCode) {
     cx_->recoverFromOutOfMemory();
@@ -605,9 +602,7 @@ bool BaselineCacheIRCompiler::emitCallNativeGetterResult() {
   masm.Push(obj);
   masm.Push(scratch);
 
-  if (!callVM(masm, CallNativeGetterInfo)) {
-    return false;
-  }
+  callVM(masm, CallNativeGetterInfo);
 
   stubFrame.leave(masm);
   return true;
@@ -631,9 +626,7 @@ bool BaselineCacheIRCompiler::emitCallProxyGetResult() {
   masm.Push(scratch);
   masm.Push(obj);
 
-  if (!callVM(masm, ProxyGetPropertyInfo)) {
-    return false;
-  }
+  callVM(masm, ProxyGetPropertyInfo);
 
   stubFrame.leave(masm);
   return true;
@@ -654,9 +647,7 @@ bool BaselineCacheIRCompiler::emitCallProxyGetByValueResult() {
   masm.Push(idVal);
   masm.Push(obj);
 
-  if (!callVM(masm, ProxyGetPropertyByValueInfo)) {
-    return false;
-  }
+  callVM(masm, ProxyGetPropertyByValueInfo);
 
   stubFrame.leave(masm);
   return true;
@@ -679,13 +670,9 @@ bool BaselineCacheIRCompiler::emitCallProxyHasPropResult() {
   masm.Push(obj);
 
   if (hasOwn) {
-    if (!callVM(masm, ProxyHasOwnInfo)) {
-      return false;
-    }
+    callVM(masm, ProxyHasOwnInfo);
   } else {
-    if (!callVM(masm, ProxyHasInfo)) {
-      return false;
-    }
+    callVM(masm, ProxyHasInfo);
   }
 
   stubFrame.leave(masm);
@@ -708,9 +695,7 @@ bool BaselineCacheIRCompiler::emitCallNativeGetElementResult() {
   masm.Push(TypedOrValueRegister(MIRType::Object, AnyRegister(obj)));
   masm.Push(obj);
 
-  if (!callVM(masm, NativeGetElementInfo)) {
-    return false;
-  }
+  callVM(masm, NativeGetElementInfo);
 
   stubFrame.leave(masm);
   return true;
@@ -722,7 +707,7 @@ bool BaselineCacheIRCompiler::emitLoadUnboxedPropertyResult() {
   Register obj = allocator.useRegister(masm, reader.objOperandId());
   AutoScratchRegisterMaybeOutput scratch(allocator, masm, output);
 
-  JSValueType fieldType = reader.valueType();
+  JSValueType fieldType = reader.jsValueType();
   Address fieldOffset(stubAddress(reader.stubOffset()));
   masm.load32(fieldOffset, scratch);
   masm.loadUnboxedProperty(BaseIndex(obj, scratch, TimesOne), fieldType,
@@ -890,9 +875,7 @@ bool BaselineCacheIRCompiler::emitCallStringSplitResult() {
   masm.Push(sep);
   masm.Push(str);
 
-  if (!callVM(masm, StringSplitHelperInfo)) {
-    return false;
-  }
+  callVM(masm, StringSplitHelperInfo);
 
   stubFrame.leave(masm);
   return true;
@@ -926,11 +909,8 @@ bool BaselineCacheIRCompiler::emitCompareStringResult() {
     masm.Push(right);
     masm.Push(left);
 
-    if (!callVM(masm, (op == JSOP_EQ || op == JSOP_STRICTEQ)
-                          ? StringsEqualInfo
-                          : StringsNotEqualInfo)) {
-      return false;
-    }
+    callVM(masm, (op == JSOP_EQ || op == JSOP_STRICTEQ) ? StringsEqualInfo
+                                                        : StringsNotEqualInfo);
     stubFrame.leave(masm);
     masm.mov(ReturnReg, scratch);
   }
@@ -986,9 +966,7 @@ bool BaselineCacheIRCompiler::callTypeUpdateIC(
   masm.loadPtr(Address(BaselineFrameReg, 0), scratch);
   masm.pushBaselineFramePtr(scratch, scratch);
 
-  if (!callVM(masm, DoTypeUpdateFallbackInfo)) {
-    return false;
-  }
+  callVM(masm, DoTypeUpdateFallbackInfo);
 
   masm.PopRegsInMask(saveRegs);
 
@@ -1167,7 +1145,7 @@ bool BaselineCacheIRCompiler::emitAllocateAndStoreDynamicSlot() {
 bool BaselineCacheIRCompiler::emitStoreUnboxedProperty() {
   JitSpew(JitSpew_Codegen, __FUNCTION__);
   ObjOperandId objId = reader.objOperandId();
-  JSValueType fieldType = reader.valueType();
+  JSValueType fieldType = reader.jsValueType();
   Address offsetAddr = stubAddress(reader.stubOffset());
 
   // Allocate the fixed registers first. These need to be fixed for
@@ -1681,9 +1659,7 @@ bool BaselineCacheIRCompiler::emitCallNativeSetter() {
   masm.Push(obj);
   masm.Push(scratch);
 
-  if (!callVM(masm, CallNativeSetterInfo)) {
-    return false;
-  }
+  callVM(masm, CallNativeSetterInfo);
 
   stubFrame.leave(masm);
   return true;
@@ -1785,9 +1761,7 @@ bool BaselineCacheIRCompiler::emitCallSetArrayLength() {
   masm.Push(val);
   masm.Push(obj);
 
-  if (!callVM(masm, SetArrayLengthInfo)) {
-    return false;
-  }
+  callVM(masm, SetArrayLengthInfo);
 
   stubFrame.leave(masm);
   return true;
@@ -1815,9 +1789,7 @@ bool BaselineCacheIRCompiler::emitCallProxySet() {
   masm.Push(scratch);
   masm.Push(obj);
 
-  if (!callVM(masm, ProxySetPropertyInfo)) {
-    return false;
-  }
+  callVM(masm, ProxySetPropertyInfo);
 
   stubFrame.leave(masm);
   return true;
@@ -1850,9 +1822,7 @@ bool BaselineCacheIRCompiler::emitCallProxySetByValue() {
   masm.Push(idVal);
   masm.Push(obj);
 
-  if (!callVM(masm, ProxySetPropertyByValueInfo)) {
-    return false;
-  }
+  callVM(masm, ProxySetPropertyByValueInfo);
 
   stubFrame.leave(masm);
   return true;
@@ -1876,9 +1846,8 @@ bool BaselineCacheIRCompiler::emitCallAddOrUpdateSparseElementHelper() {
   masm.Push(id);
   masm.Push(obj);
 
-  if (!callVM(masm, AddOrUpdateSparseElementHelperInfo)) {
-    return false;
-  }
+  callVM(masm, AddOrUpdateSparseElementHelperInfo);
+
   stubFrame.leave(masm);
   return true;
 }
@@ -1897,9 +1866,8 @@ bool BaselineCacheIRCompiler::emitCallGetSparseElementResult() {
   masm.Push(id);
   masm.Push(obj);
 
-  if (!callVM(masm, GetSparseElementHelperInfo)) {
-    return false;
-  }
+  callVM(masm, GetSparseElementHelperInfo);
+
   stubFrame.leave(masm);
   return true;
 }
@@ -1932,9 +1900,7 @@ bool BaselineCacheIRCompiler::emitMegamorphicSetElement() {
   masm.Push(idVal);
   masm.Push(obj);
 
-  if (!callVM(masm, SetObjectElementInfo)) {
-    return false;
-  }
+  callVM(masm, SetObjectElementInfo);
 
   stubFrame.leave(masm);
   return true;
@@ -2399,9 +2365,7 @@ bool BaselineCacheIRCompiler::emitCallStringConcatResult() {
   masm.push(rhs);
   masm.push(lhs);
 
-  if (!callVM(masm, ConcatStringsInfo)) {
-    return false;
-  }
+  callVM(masm, ConcatStringsInfo);
 
   masm.tagValue(JSVAL_TYPE_STRING, ReturnReg, output.valueReg());
 
@@ -2424,9 +2388,7 @@ bool BaselineCacheIRCompiler::emitCallStringObjectConcatResult() {
   masm.pushValue(rhs);
   masm.pushValue(lhs);
 
-  if (!tailCallVM(masm, DoConcatStringObjectInfo)) {
-    return false;
-  }
+  tailCallVM(masm, DoConcatStringObjectInfo);
 
   return true;
 }

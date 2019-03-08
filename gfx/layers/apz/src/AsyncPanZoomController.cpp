@@ -762,7 +762,8 @@ class SmoothScrollAnimation : public AsyncPanZoomAnimation {
   AxisPhysicsMSDModel mXAxisModel, mYAxisModel;
 };
 
-/*static*/ void AsyncPanZoomController::InitializeGlobalState() {
+/*static*/
+void AsyncPanZoomController::InitializeGlobalState() {
   static bool sInitialized = false;
   if (sInitialized) return;
   sInitialized = true;
@@ -3719,7 +3720,7 @@ void AsyncPanZoomController::RequestContentRepaint(
   RequestContentRepaint(Metrics(), velocity, aUpdateType);
 }
 
-/*static*/ CSSRect GetDisplayPortRect(const FrameMetrics& aFrameMetrics) {
+static CSSRect GetDisplayPortRect(const FrameMetrics& aFrameMetrics) {
   // This computation is based on what happens in CalculatePendingDisplayPort.
   // If that changes then this might need to change too
   CSSRect baseRect(aFrameMetrics.GetScrollOffset(),

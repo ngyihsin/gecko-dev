@@ -16,7 +16,7 @@ import {
   getDebuggeeUrl,
   getExpandedState,
   getProjectDirectoryRoot,
-  getRelativeSourcesForThread,
+  getDisplayedSourcesForThread,
   getFocusedSourceItem,
   getWorkerByThread,
   getWorkerCount
@@ -164,6 +164,10 @@ class SourcesTree extends Component<Props, State> {
     this.props.focusItem({ thread: this.props.thread, item });
   };
 
+  onActivate = (item: TreeNode) => {
+    this.selectItem(item);
+  };
+
   // NOTE: we get the source from sources because item.contents is cached
   getSource(item: TreeNode): ?Source {
     const source = getSourceFromNode(item);
@@ -192,13 +196,6 @@ class SourcesTree extends Component<Props, State> {
 
   onCollapse = (item: Item, expandedState: Set<string>) => {
     this.props.setExpandedState(this.props.thread, expandedState);
-  };
-
-  onKeyDown = (e: KeyboardEvent) => {
-    const { focused } = this.props;
-    if (e.keyCode === 13 && focused) {
-      this.selectItem(focused);
-    }
   };
 
   isEmpty() {
@@ -280,6 +277,7 @@ class SourcesTree extends Component<Props, State> {
       onCollapse: this.onCollapse,
       onExpand: this.onExpand,
       onFocus: this.onFocus,
+      onActivate: this.onActivate,
       renderItem: this.renderItem,
       preventBlur: true
     };
@@ -288,13 +286,14 @@ class SourcesTree extends Component<Props, State> {
   }
 
   renderPane(...children) {
-    const { projectRoot } = this.props;
+    const { projectRoot, thread } = this.props;
 
     return (
       <div
         key="pane"
         className={classnames("sources-pane", {
-          "sources-list-custom-root": projectRoot
+          "sources-list-custom-root": projectRoot,
+          thread
         })}
       >
         {children}
@@ -335,7 +334,7 @@ class SourcesTree extends Component<Props, State> {
 
     return this.renderPane(
       this.renderThreadHeader(),
-      <div key="tree" className="sources-list" onKeyDown={this.onKeyDown}>
+      <div key="tree" className="sources-list">
         {this.renderTree()}
       </div>
     );
@@ -344,7 +343,7 @@ class SourcesTree extends Component<Props, State> {
 
 function getSourceForTree(
   state: AppState,
-  relativeSources: SourcesMap,
+  displayedSources: SourcesMap,
   source: ?Source,
   thread
 ): ?Source {
@@ -352,7 +351,7 @@ function getSourceForTree(
     return null;
   }
 
-  source = relativeSources[source.id];
+  source = displayedSources[source.id];
   if (!source || !source.isPrettyPrinted) {
     return source;
   }
@@ -365,13 +364,13 @@ const mapStateToProps = (state, props) => {
   const shownSource = getShownSource(state);
   const focused = getFocusedSourceItem(state);
   const thread = props.thread;
-  const relativeSources = getRelativeSourcesForThread(state, thread);
+  const displayedSources = getDisplayedSourcesForThread(state, thread);
 
   return {
-    shownSource: getSourceForTree(state, relativeSources, shownSource, thread),
+    shownSource: getSourceForTree(state, displayedSources, shownSource, thread),
     selectedSource: getSourceForTree(
       state,
-      relativeSources,
+      displayedSources,
       selectedSource,
       thread
     ),
@@ -379,8 +378,8 @@ const mapStateToProps = (state, props) => {
     expanded: getExpandedState(state, props.thread),
     focused: focused && focused.thread == props.thread ? focused.item : null,
     projectRoot: getProjectDirectoryRoot(state),
-    sources: relativeSources,
-    sourceCount: Object.values(relativeSources).length,
+    sources: displayedSources,
+    sourceCount: Object.values(displayedSources).length,
     worker: getWorkerByThread(state, thread),
     workerCount: getWorkerCount(state)
   };

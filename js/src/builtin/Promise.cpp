@@ -21,6 +21,7 @@
 #include "vm/AsyncFunction.h"
 #include "vm/AsyncIteration.h"
 #include "vm/Debugger.h"
+#include "vm/GeneratorObject.h"
 #include "vm/Iteration.h"
 #include "vm/JSContext.h"
 #include "vm/JSObject.h"
@@ -535,8 +536,10 @@ enum ReactionRecordSlots {
 
   // Additional slot to store extra data for specific reaction record types.
   //
-  // - When the REACTION_FLAG_ASYNC_GENERATOR flag is set, this slot store
-  //   the async generator function for this promise reaction.
+  // - When the REACTION_FLAG_ASYNC_FUNCTION flag is set, this slot stores
+  //   the (internal) generator object for this promise reaction.
+  // - When the REACTION_FLAG_ASYNC_GENERATOR flag is set, this slot stores
+  //   the async generator object for this promise reaction.
   // - When the REACTION_FLAG_DEFAULT_RESOLVING_HANDLER flag is set, this
   //   slot stores the promise to resolve when conceptually "calling" the
   //   OnFulfilled or OnRejected handlers.
@@ -619,12 +622,20 @@ class PromiseReactionRecord : public NativeObject {
         getFixedSlot(ReactionRecordSlot_GeneratorOrPromiseToResolve);
     return &promiseToResolve.toObject().as<PromiseObject>();
   }
-  void setIsAsyncFunction() {
+  void setIsAsyncFunction(AsyncFunctionGeneratorObject* genObj) {
     setFlagOnInitialState(REACTION_FLAG_ASYNC_FUNCTION);
+    setFixedSlot(ReactionRecordSlot_GeneratorOrPromiseToResolve,
+                 ObjectValue(*genObj));
   }
   bool isAsyncFunction() {
     int32_t flags = this->flags();
     return flags & REACTION_FLAG_ASYNC_FUNCTION;
+  }
+  AsyncFunctionGeneratorObject* asyncFunctionGenerator() {
+    MOZ_ASSERT(isAsyncFunction());
+    const Value& generator =
+        getFixedSlot(ReactionRecordSlot_GeneratorOrPromiseToResolve);
+    return &generator.toObject().as<AsyncFunctionGeneratorObject>();
   }
   void setIsAsyncGenerator(AsyncGeneratorObject* asyncGenObj) {
     setFlagOnInitialState(REACTION_FLAG_ASYNC_GENERATOR);
@@ -1066,7 +1077,7 @@ MOZ_MUST_USE static bool EnqueuePromiseReactionJob(
   Rooted<GlobalObject*> global(cx);
   if (JSObject* objectFromIncumbentGlobal =
           reaction->getAndClearIncumbentGlobalObject()) {
-    objectFromIncumbentGlobal = CheckedUnwrap(objectFromIncumbentGlobal);
+    objectFromIncumbentGlobal = CheckedUnwrapStatic(objectFromIncumbentGlobal);
     MOZ_ASSERT(objectFromIncumbentGlobal);
     global = &objectFromIncumbentGlobal->nonCCWGlobal();
   }
@@ -1357,7 +1368,7 @@ static MOZ_MUST_USE bool RejectMaybeWrappedPromise(JSContext* cx,
     if (!cx->compartment()->wrap(cx, &reason)) {
       return false;
     }
-    if (reason.isObject() && !CheckedUnwrap(&reason.toObject())) {
+    if (reason.isObject() && !CheckedUnwrapStatic(&reason.toObject())) {
       // Report the existing reason, so we don't just drop it on the
       // floor.
       JSObject* realReason = UncheckedUnwrap(&reason.toObject());
@@ -1469,24 +1480,20 @@ static MOZ_MUST_USE bool AsyncFunctionPromiseReactionJob(
 
   RootedValue handlerVal(cx, reaction->handler());
   RootedValue argument(cx, reaction->handlerArg());
-  Rooted<PromiseObject*> resultPromise(
-      cx, &reaction->promise()->as<PromiseObject>());
-  RootedValue generatorVal(
-      cx, resultPromise->getFixedSlot(PromiseSlot_AwaitGenerator));
+  Rooted<AsyncFunctionGeneratorObject*> generator(
+      cx, reaction->asyncFunctionGenerator());
 
   int32_t handlerNum = handlerVal.toInt32();
 
-  // Await's handlers don't return a value, nor throw exception.
+  // Await's handlers don't return a value, nor throw an exception.
   // They fail only on OOM.
   if (handlerNum == PromiseHandlerAsyncFunctionAwaitedFulfilled) {
-    if (!AsyncFunctionAwaitedFulfilled(cx, resultPromise, generatorVal,
-                                       argument)) {
+    if (!AsyncFunctionAwaitedFulfilled(cx, generator, argument)) {
       return false;
     }
   } else {
     MOZ_ASSERT(handlerNum == PromiseHandlerAsyncFunctionAwaitedRejected);
-    if (!AsyncFunctionAwaitedRejected(cx, resultPromise, generatorVal,
-                                      argument)) {
+    if (!AsyncFunctionAwaitedRejected(cx, generator, argument)) {
       return false;
     }
   }
@@ -1805,7 +1812,7 @@ static MOZ_MUST_USE bool EnqueuePromiseResolveThenableJob(
   // That guarantees that the embedding ends up with the right entry global.
   // This is relevant for some html APIs like fetch that derive information
   // from said global.
-  RootedObject then(cx, CheckedUnwrap(&thenVal.toObject()));
+  RootedObject then(cx, CheckedUnwrapStatic(&thenVal.toObject()));
   AutoRealm ar(cx, then);
 
   // Wrap the `promiseToResolve` and `thenable` arguments.
@@ -2071,7 +2078,7 @@ static bool PromiseConstructor(JSContext* cx, unsigned argc, Value* vp) {
   bool needsWrapping = false;
   RootedObject proto(cx);
   if (IsWrapper(newTarget)) {
-    JSObject* unwrappedNewTarget = CheckedUnwrap(newTarget);
+    JSObject* unwrappedNewTarget = CheckedUnwrapStatic(newTarget);
     MOZ_ASSERT(unwrappedNewTarget);
     MOZ_ASSERT(unwrappedNewTarget != newTarget);
 
@@ -2123,9 +2130,10 @@ static bool PromiseConstructor(JSContext* cx, unsigned argc, Value* vp) {
 }
 
 // ES2016, 25.4.3.1. steps 3-11.
-/* static */ PromiseObject* PromiseObject::create(
-    JSContext* cx, HandleObject executor, HandleObject proto /* = nullptr */,
-    bool needsWrapping /* = false */) {
+/* static */
+PromiseObject* PromiseObject::create(JSContext* cx, HandleObject executor,
+                                     HandleObject proto /* = nullptr */,
+                                     bool needsWrapping /* = false */) {
   MOZ_ASSERT(executor->isCallable());
 
   RootedObject usedProto(cx, proto);
@@ -2135,7 +2143,7 @@ static bool PromiseConstructor(JSContext* cx, unsigned argc, Value* vp) {
   // See the comment in PromiseConstructor for details.
   if (needsWrapping) {
     MOZ_ASSERT(proto);
-    usedProto = CheckedUnwrap(proto);
+    usedProto = CheckedUnwrapStatic(proto);
     if (!usedProto) {
       ReportAccessDenied(cx);
       return nullptr;
@@ -2213,8 +2221,8 @@ static bool PromiseConstructor(JSContext* cx, unsigned argc, Value* vp) {
 
 // ES2016, 25.4.3.1. skipping creation of resolution functions and executor
 // function invocation.
-/* static */ PromiseObject* PromiseObject::createSkippingExecutor(
-    JSContext* cx) {
+/* static */
+PromiseObject* PromiseObject::createSkippingExecutor(JSContext* cx) {
   return CreatePromiseObjectWithoutResolutionFunctions(cx);
 }
 
@@ -2748,7 +2756,7 @@ static MOZ_MUST_USE bool CommonPerformPromiseAllRace(
 
       mozilla::Maybe<AutoRealm> ar;
       if (IsProxy(nextPromiseObj)) {
-        nextPromiseObj = CheckedUnwrap(nextPromiseObj);
+        nextPromiseObj = CheckedUnwrapStatic(nextPromiseObj);
         if (!nextPromiseObj) {
           ReportAccessDenied(cx);
           return false;
@@ -2814,7 +2822,8 @@ static MOZ_MUST_USE bool PerformPromiseAll(
   RootedArrayObject valuesArray(cx);
   RootedValue valuesArrayVal(cx);
   if (IsWrapper(resultCapability.promise())) {
-    JSObject* unwrappedPromiseObj = CheckedUnwrap(resultCapability.promise());
+    JSObject* unwrappedPromiseObj =
+        CheckedUnwrapStatic(resultCapability.promise());
     MOZ_ASSERT(unwrappedPromiseObj);
 
     {
@@ -3109,8 +3118,7 @@ static MOZ_MUST_USE JSObject* CommonStaticResolveRejectImpl(
       // outcome, so instead of unwrapping and then performing the
       // GetProperty, just check here and then operate on the original
       // object again.
-      JSObject* unwrappedObject = CheckedUnwrap(xObj);
-      if (unwrappedObject && unwrappedObject->is<PromiseObject>()) {
+      if (xObj->canUnwrapAs<PromiseObject>()) {
         isPromise = true;
       }
     }
@@ -3168,8 +3176,8 @@ static bool Promise_reject(JSContext* cx, unsigned argc, Value* vp) {
 /**
  * Unforgeable version of ES2016, 25.4.4.4, Promise.reject.
  */
-/* static */ JSObject* PromiseObject::unforgeableReject(JSContext* cx,
-                                                        HandleValue value) {
+/* static */
+JSObject* PromiseObject::unforgeableReject(JSContext* cx, HandleValue value) {
   JSObject* promiseCtor = JS::GetPromiseConstructor(cx);
   if (!promiseCtor) {
     return nullptr;
@@ -3197,8 +3205,8 @@ static bool Promise_static_resolve(JSContext* cx, unsigned argc, Value* vp) {
 /**
  * Unforgeable version of ES2016, 25.4.4.5, Promise.resolve.
  */
-/* static */ JSObject* PromiseObject::unforgeableResolve(JSContext* cx,
-                                                         HandleValue value) {
+/* static */
+JSObject* PromiseObject::unforgeableResolve(JSContext* cx, HandleValue value) {
   JSObject* promiseCtor = JS::GetPromiseConstructor(cx);
   if (!promiseCtor) {
     return nullptr;
@@ -3267,6 +3275,7 @@ static PromiseReactionRecord* NewReactionRecord(
   } else {
     // `resultCapability.promise` is null for the following cases:
     //   * resulting Promise is known to be unused
+    //   * Async Function
     //   * Async Generator
     // In any case, other fields are also not used.
     MOZ_ASSERT(!resultCapability.resolve());
@@ -3490,8 +3499,7 @@ static MOZ_MUST_USE bool PerformPromiseThenWithReaction(
 // js/src/builtin/AsyncFunction.cpp, to call Promise internal functions.
 
 // ES 2018 draft 14.6.11 and 14.7.14 step 1.
-MOZ_MUST_USE PromiseObject* js::CreatePromiseObjectForAsync(
-    JSContext* cx, HandleValue generatorVal) {
+MOZ_MUST_USE PromiseObject* js::CreatePromiseObjectForAsync(JSContext* cx) {
   // Step 1.
   PromiseObject* promise = CreatePromiseObjectWithoutResolutionFunctions(cx);
   if (!promise) {
@@ -3499,7 +3507,6 @@ MOZ_MUST_USE PromiseObject* js::CreatePromiseObjectForAsync(
   }
 
   AddPromiseFlags(*promise, PROMISE_FLAG_ASYNC);
-  promise->setFixedSlot(PromiseSlot_AwaitGenerator, generatorVal);
   return promise;
 }
 
@@ -3508,33 +3515,19 @@ bool js::IsPromiseForAsync(JSObject* promise) {
          PromiseHasAnyFlag(promise->as<PromiseObject>(), PROMISE_FLAG_ASYNC);
 }
 
-// ES 2018 draft 25.5.5.2 steps 3.f, 3.g.
-MOZ_MUST_USE bool js::AsyncFunctionThrown(
-    JSContext* cx, Handle<PromiseObject*> resultPromise) {
-  // Step 3.f.
-  RootedValue exc(cx);
-  if (!MaybeGetAndClearException(cx, &exc)) {
-    return false;
-  }
-
-  if (!RejectPromiseInternal(cx, resultPromise, exc)) {
-    return false;
-  }
-
-  // Step 3.g.
-  return true;
+// ES2019 draft rev 7428c89bef626548084cd4e697a19ece7168f24c
+// 25.7.5.1 AsyncFunctionStart, steps 3.f-g.
+MOZ_MUST_USE bool js::AsyncFunctionThrown(JSContext* cx,
+                                          Handle<PromiseObject*> resultPromise,
+                                          HandleValue reason) {
+  return RejectPromiseInternal(cx, resultPromise, reason);
 }
 
-// ES 2018 draft 25.5.5.2 steps 3.d-e, 3.g.
+// ES2019 draft rev 7428c89bef626548084cd4e697a19ece7168f24c
+// 25.7.5.1 AsyncFunctionStart, steps 3.d-e, 3.g.
 MOZ_MUST_USE bool js::AsyncFunctionReturned(
     JSContext* cx, Handle<PromiseObject*> resultPromise, HandleValue value) {
-  // Steps 3.d-e.
-  if (!ResolvePromiseInternal(cx, resultPromise, value)) {
-    return false;
-  }
-
-  // Step 3.g.
-  return true;
+  return ResolvePromiseInternal(cx, resultPromise, value);
 }
 
 // Helper function that performs the equivalent steps as
@@ -3577,9 +3570,9 @@ static MOZ_MUST_USE bool InternalAwait(JSContext* cx, HandleValue value,
 }
 
 // ES 2018 draft 25.5.5.3 steps 2-10.
-MOZ_MUST_USE bool js::AsyncFunctionAwait(JSContext* cx,
-                                         Handle<PromiseObject*> resultPromise,
-                                         HandleValue value) {
+MOZ_MUST_USE JSObject* js::AsyncFunctionAwait(
+    JSContext* cx, Handle<AsyncFunctionGeneratorObject*> genObj,
+    HandleValue value) {
   // Steps 4-5.
   RootedValue onFulfilled(
       cx, Int32Value(PromiseHandlerAsyncFunctionAwaitedFulfilled));
@@ -3587,11 +3580,13 @@ MOZ_MUST_USE bool js::AsyncFunctionAwait(JSContext* cx,
       cx, Int32Value(PromiseHandlerAsyncFunctionAwaitedRejected));
 
   // Steps 2-3, 6-10.
-  auto extra = [](Handle<PromiseReactionRecord*> reaction) {
-    reaction->setIsAsyncFunction();
+  auto extra = [&](Handle<PromiseReactionRecord*> reaction) {
+    reaction->setIsAsyncFunction(genObj);
   };
-  return InternalAwait(cx, value, resultPromise, onFulfilled, onRejected,
-                       extra);
+  if (!InternalAwait(cx, value, nullptr, onFulfilled, onRejected, extra)) {
+    return nullptr;
+  }
+  return genObj->promise();
 }
 
 // Async Iteration proposal 4.1 Await steps 2-9.
@@ -4141,7 +4136,7 @@ static bool Promise_then_impl(JSContext* cx, HandleValue promiseVal,
   RootedObject promiseObj(cx, &promiseVal.toObject());
 
   if (!promiseObj->is<PromiseObject>()) {
-    JSObject* unwrappedPromiseObj = CheckedUnwrap(promiseObj);
+    JSObject* unwrappedPromiseObj = CheckedUnwrapStatic(promiseObj);
     if (!unwrappedPromiseObj) {
       ReportAccessDenied(cx);
       return false;
@@ -4491,9 +4486,9 @@ bool PromiseObject::dependentPromises(JSContext* cx,
   return true;
 }
 
-/* static */ bool PromiseObject::resolve(JSContext* cx,
-                                         Handle<PromiseObject*> promise,
-                                         HandleValue resolutionValue) {
+/* static */
+bool PromiseObject::resolve(JSContext* cx, Handle<PromiseObject*> promise,
+                            HandleValue resolutionValue) {
   MOZ_ASSERT(!PromiseHasAnyFlag(*promise, PROMISE_FLAG_ASYNC));
   if (promise->state() != JS::PromiseState::Pending) {
     return true;
@@ -4521,9 +4516,9 @@ bool PromiseObject::dependentPromises(JSContext* cx,
   return Call(cx, funVal, UndefinedHandleValue, resolutionValue, &dummy);
 }
 
-/* static */ bool PromiseObject::reject(JSContext* cx,
-                                        Handle<PromiseObject*> promise,
-                                        HandleValue rejectionValue) {
+/* static */
+bool PromiseObject::reject(JSContext* cx, Handle<PromiseObject*> promise,
+                           HandleValue rejectionValue) {
   MOZ_ASSERT(!PromiseHasAnyFlag(*promise, PROMISE_FLAG_ASYNC));
   if (promise->state() != JS::PromiseState::Pending) {
     return true;
@@ -4541,8 +4536,8 @@ bool PromiseObject::dependentPromises(JSContext* cx,
   return Call(cx, funVal, UndefinedHandleValue, rejectionValue, &dummy);
 }
 
-/* static */ void PromiseObject::onSettled(JSContext* cx,
-                                           Handle<PromiseObject*> promise) {
+/* static */
+void PromiseObject::onSettled(JSContext* cx, Handle<PromiseObject*> promise) {
   PromiseDebugInfo::setResolutionInfo(cx, promise);
 
   if (promise->state() == JS::PromiseState::Rejected &&
@@ -4834,11 +4829,24 @@ static MOZ_MUST_USE bool IsTopMostAsyncFunctionCall(JSContext* cx) {
   }
   MOZ_ASSERT(iter.calleeTemplate()->isAsync());
 
+#ifdef DEBUG
+  bool isGenerator = iter.calleeTemplate()->isGenerator();
+#endif
+
   ++iter;
 
   // The parent frame should be the `next` function of the generator that is
-  // internally called in AsyncFunctionResume.
+  // internally called in AsyncFunctionResume resp. AsyncGeneratorResume.
   if (iter.done()) {
+    return false;
+  }
+  // The initial call into an async function can happen from top-level code, so
+  // the parent frame isn't required to be a function frame. Contrary to that,
+  // the parent frame for an async generator function is always a function
+  // frame, because async generators can't directly fall through to an `await`
+  // expression from their initial call.
+  if (!iter.isFunctionFrame()) {
+    MOZ_ASSERT(!isGenerator);
     return false;
   }
   if (!iter.calleeTemplate()) {
@@ -4846,7 +4854,9 @@ static MOZ_MUST_USE bool IsTopMostAsyncFunctionCall(JSContext* cx) {
   }
 
   if (!IsSelfHostedFunctionWithName(iter.calleeTemplate(),
-                                    cx->names().GeneratorNext)) {
+                                    cx->names().AsyncFunctionNext) &&
+      !IsSelfHostedFunctionWithName(iter.calleeTemplate(),
+                                    cx->names().AsyncGeneratorNext)) {
     return false;
   }
 
@@ -5030,7 +5040,8 @@ void OffThreadPromiseRuntimeState::init(
   MOZ_ASSERT(initialized());
 }
 
-/* static */ bool OffThreadPromiseRuntimeState::internalDispatchToEventLoop(
+/* static */
+bool OffThreadPromiseRuntimeState::internalDispatchToEventLoop(
     void* closure, JS::Dispatchable* d) {
   OffThreadPromiseRuntimeState& state =
       *reinterpret_cast<OffThreadPromiseRuntimeState*>(closure);
@@ -5179,7 +5190,7 @@ JS::AutoDebuggerJobQueueInterruption::AutoDebuggerJobQueueInterruption(
 }
 
 JS::AutoDebuggerJobQueueInterruption::~AutoDebuggerJobQueueInterruption() {
-  MOZ_ASSERT_IF(cx, cx->jobQueue->empty());
+  MOZ_ASSERT_IF(initialized(), cx->jobQueue->empty());
 }
 
 bool JS::AutoDebuggerJobQueueInterruption::init(JSContext* cx) {

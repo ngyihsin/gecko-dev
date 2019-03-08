@@ -6,6 +6,8 @@
 
 #include "mozilla/dom/BrowsingContext.h"
 
+#include "ipc/IPCMessageUtils.h"
+
 #include "mozilla/dom/CanonicalBrowsingContext.h"
 #include "mozilla/dom/BrowsingContextGroup.h"
 #include "mozilla/dom/BrowsingContextBinding.h"
@@ -26,6 +28,7 @@
 #include "nsContentUtils.h"
 #include "nsScriptError.h"
 #include "nsThreadUtils.h"
+#include "xpcprivate.h"
 
 namespace mozilla {
 namespace dom {
@@ -77,7 +80,8 @@ BrowsingContext* BrowsingContext::TopLevelBrowsingContext() {
   return bc;
 }
 
-/* static */ void BrowsingContext::Init() {
+/* static */
+void BrowsingContext::Init() {
   if (!sBrowsingContexts) {
     sBrowsingContexts = new BrowsingContextMap<WeakPtr>();
     ClearOnShutdown(&sBrowsingContexts);
@@ -89,12 +93,11 @@ BrowsingContext* BrowsingContext::TopLevelBrowsingContext() {
   }
 }
 
-/* static */ LogModule* BrowsingContext::GetLog() {
-  return gBrowsingContextLog;
-}
+/* static */
+LogModule* BrowsingContext::GetLog() { return gBrowsingContextLog; }
 
-/* static */ already_AddRefed<BrowsingContext> BrowsingContext::Get(
-    uint64_t aId) {
+/* static */
+already_AddRefed<BrowsingContext> BrowsingContext::Get(uint64_t aId) {
   if (BrowsingContextMap<WeakPtr>::Ptr abc = sBrowsingContexts->lookup(aId)) {
     return do_AddRef(abc->value().get());
   }
@@ -106,7 +109,8 @@ CanonicalBrowsingContext* BrowsingContext::Canonical() {
   return CanonicalBrowsingContext::Cast(this);
 }
 
-/* static */ already_AddRefed<BrowsingContext> BrowsingContext::Create(
+/* static */
+already_AddRefed<BrowsingContext> BrowsingContext::Create(
     BrowsingContext* aParent, BrowsingContext* aOpener, const nsAString& aName,
     Type aType) {
   MOZ_DIAGNOSTIC_ASSERT(!aParent || aParent->mType == aType);
@@ -133,7 +137,8 @@ CanonicalBrowsingContext* BrowsingContext::Canonical() {
   return context.forget();
 }
 
-/* static */ already_AddRefed<BrowsingContext> BrowsingContext::CreateFromIPC(
+/* static */
+already_AddRefed<BrowsingContext> BrowsingContext::CreateFromIPC(
     BrowsingContext* aParent, BrowsingContext* aOpener, const nsAString& aName,
     uint64_t aId, ContentParent* aOriginProcess) {
   MOZ_DIAGNOSTIC_ASSERT(aOriginProcess || XRE_IsContentProcess(),
@@ -165,12 +170,12 @@ BrowsingContext::BrowsingContext(BrowsingContext* aParent,
                                  BrowsingContext* aOpener,
                                  const nsAString& aName,
                                  uint64_t aBrowsingContextId, Type aType)
-    : mType(aType),
+    : mName(aName),
+      mClosed(false),
+      mType(aType),
       mBrowsingContextId(aBrowsingContextId),
       mParent(aParent),
       mOpener(aOpener),
-      mName(aName),
-      mClosed(false),
       mIsActivatedByUserGesture(false) {
   // Specify our group in our constructor. We will explicitly join the group
   // when we are registered, as doing so will take a reference.
@@ -543,9 +548,43 @@ NS_IMPL_CYCLE_COLLECTION_TRACE_WRAPPERCACHE(BrowsingContext)
 NS_IMPL_CYCLE_COLLECTION_ROOT_NATIVE(BrowsingContext, AddRef)
 NS_IMPL_CYCLE_COLLECTION_UNROOT_NATIVE(BrowsingContext, Release)
 
+class RemoteLocationProxy
+    : public RemoteObjectProxy<BrowsingContext::LocationProxy,
+                               Location_Binding::sCrossOriginAttributes,
+                               Location_Binding::sCrossOriginMethods> {
+ public:
+  typedef RemoteObjectProxy Base;
+
+  constexpr RemoteLocationProxy()
+      : RemoteObjectProxy(prototypes::id::Location) {}
+
+  void NoteChildren(JSObject* aProxy,
+                    nsCycleCollectionTraversalCallback& aCb) const override {
+    auto location =
+        static_cast<BrowsingContext::LocationProxy*>(GetNative(aProxy));
+    CycleCollectionNoteChild(aCb, location->GetBrowsingContext(),
+                             "js::GetObjectPrivate(obj)->GetBrowsingContext()");
+  }
+};
+
+static const RemoteLocationProxy sSingleton;
+
+// Give RemoteLocationProxy 2 reserved slots, like the other wrappers,
+// so JSObject::swap can swap it with CrossCompartmentWrappers without requiring
+// malloc.
+template <>
+const js::Class RemoteLocationProxy::Base::sClass =
+    PROXY_CLASS_DEF("Proxy", JSCLASS_HAS_RESERVED_SLOTS(2));
+
 void BrowsingContext::Location(JSContext* aCx,
                                JS::MutableHandle<JSObject*> aLocation,
-                               OOMReporter& aError) {}
+                               ErrorResult& aError) {
+  aError.MightThrowJSException();
+  sSingleton.GetProxyObject(aCx, &mLocation, aLocation);
+  if (!aLocation) {
+    aError.StealExceptionFromJSContext(aCx);
+  }
+}
 
 void BrowsingContext::Close(CallerType aCallerType, ErrorResult& aError) {
   // FIXME We need to set mClosed, but only once we're sending the
@@ -652,6 +691,45 @@ void BrowsingContext::PostMessageMoz(JSContext* aCx,
                  aSubjectPrincipal, aError);
 }
 
+void BrowsingContext::Transaction::Commit(BrowsingContext* aBrowsingContext) {
+  if (XRE_IsContentProcess()) {
+    ContentChild* cc = ContentChild::GetSingleton();
+    cc->SendCommitBrowsingContextTransaction(aBrowsingContext, *this);
+  } else {
+    MOZ_DIAGNOSTIC_ASSERT(XRE_IsParentProcess());
+    for (auto iter = aBrowsingContext->Group()->ContentParentsIter();
+         !iter.Done(); iter.Next()) {
+      nsRefPtrHashKey<ContentParent>* entry = iter.Get();
+      Unused << entry->GetKey()->SendCommitBrowsingContextTransaction(
+          aBrowsingContext, *this);
+    }
+  }
+
+  Apply(aBrowsingContext);
+}
+
+void BrowsingContext::LocationProxy::SetHref(const nsAString& aHref,
+                                             nsIPrincipal& aSubjectPrincipal,
+                                             ErrorResult& aError) {
+  nsPIDOMWindowOuter* win = GetBrowsingContext()->GetDOMWindow();
+  if (!win || !win->GetLocation()) {
+    aError.Throw(NS_ERROR_FAILURE);
+    return;
+  }
+  win->GetLocation()->SetHref(aHref, aSubjectPrincipal, aError);
+}
+
+void BrowsingContext::LocationProxy::Replace(const nsAString& aUrl,
+                                             nsIPrincipal& aSubjectPrincipal,
+                                             ErrorResult& aError) {
+  nsPIDOMWindowOuter* win = GetBrowsingContext()->GetDOMWindow();
+  if (!win || !win->GetLocation()) {
+    aError.Throw(NS_ERROR_FAILURE);
+    return;
+  }
+  win->GetLocation()->Replace(aUrl, aSubjectPrincipal, aError);
+}
+
 }  // namespace dom
 
 namespace ipc {
@@ -692,6 +770,27 @@ bool IPDLParamTraits<dom::BrowsingContext>::Read(
   }
 
   return aResult != nullptr;
+}
+
+void IPDLParamTraits<dom::BrowsingContext::Transaction>::Write(
+    IPC::Message* aMessage, IProtocol* aActor,
+    const dom::BrowsingContext::Transaction& aTransaction) {
+  void_t sentinel;
+  const dom::BrowsingContext::Transaction* transaction = &aTransaction;
+  auto tuple = mozilla::Tie(
+      MOZ_FOR_EACH_SYNCED_BC_FIELD(MOZ_SYNCED_BC_FIELD_ARGUMENT, sentinel));
+
+  WriteIPDLParam(aMessage, aActor, tuple);
+}
+
+bool IPDLParamTraits<dom::BrowsingContext::Transaction>::Read(
+    const IPC::Message* aMessage, PickleIterator* aIterator, IProtocol* aActor,
+    dom::BrowsingContext::Transaction* aTransaction) {
+  void_t sentinel;
+  dom::BrowsingContext::Transaction* transaction = aTransaction;
+  auto tuple = mozilla::Tie(
+      MOZ_FOR_EACH_SYNCED_BC_FIELD(MOZ_SYNCED_BC_FIELD_ARGUMENT, sentinel));
+  return ReadIPDLParam(aMessage, aIterator, aActor, &tuple);
 }
 
 }  // namespace ipc

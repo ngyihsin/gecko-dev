@@ -94,9 +94,8 @@ class GeckoViewContentChild extends GeckoViewChildModule {
 
   collectSessionState() {
     let history = SessionHistory.collect(docShell);
-    let [formdata, scrolldata] = this.Utils.mapFrameTree(
-        content, SessionStoreUtils.collectFormData,
-        SessionStoreUtils.collectScrollPosition);
+    let formdata = SessionStoreUtils.collectFormData(content);
+    let scrolldata = SessionStoreUtils.collectScrollPosition(content);
 
     // Save the current document resolution.
     let zoom = 1;
@@ -451,5 +450,5 @@ class GeckoViewContentChild extends GeckoViewChildModule {
   }
 }
 
-let {debug, warn} = GeckoViewContentChild.initLogging("GeckoViewContent");
-let module = GeckoViewContentChild.create(this);
+const {debug, warn} = GeckoViewContentChild.initLogging("GeckoViewContent"); // eslint-disable-line no-unused-vars
+const module = GeckoViewContentChild.create(this);

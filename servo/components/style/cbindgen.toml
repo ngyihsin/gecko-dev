@@ -13,6 +13,7 @@ autogen_warning = """/* DO NOT MODIFY THIS MANUALLY! This file was generated usi
 class nsAtom;
 namespace mozilla {
   class WritingMode;
+  enum HalfCorner : uint8_t;
   enum LogicalSide : uint8_t;
   namespace css {
     struct URLValue;
@@ -70,6 +71,7 @@ include = [
   "UserSelect",
   "Float",
   "OverscrollBehavior",
+  "ScrollSnapAlign",
   "ScrollSnapType",
   "OverflowAnchor",
   "OverflowClipBox",
@@ -86,19 +88,29 @@ include = [
   "FlexBasis",
   "Position",
   "BackgroundSize",
+  "BorderImageSlice",
+  "BorderSpacing",
+  "BorderRadius",
+  "NonNegativeLengthOrNumberRect",
+  "Perspective",
+  "ZIndex",
+  "TransformOrigin",
+  "WordBreak",
 ]
 item_types = ["enums", "structs", "typedefs"]
 
 [export.body]
+"CSSPixelLength" = """
+  inline nscoord ToAppUnits() const;
+"""
+
 "LengthPercentage" = """
   // Defined in nsStyleCoord.h
   static constexpr inline StyleLengthPercentage Zero();
   static inline StyleLengthPercentage FromAppUnits(nscoord);
+  static inline StyleLengthPercentage FromPixels(CSSCoord);
   static inline StyleLengthPercentage FromPercentage(float);
   inline CSSCoord LengthInCSSPixels() const;
- private:
-  inline nscoord LengthComponent() const;
- public:
   inline float Percentage() const;
   inline bool HasPercent() const;
   inline bool ConvertsToLength() const;
@@ -176,4 +188,8 @@ item_types = ["enums", "structs", "typedefs"]
   inline const T& GetBStart(mozilla::WritingMode) const;
   inline const T& GetIEnd(mozilla::WritingMode) const;
   inline const T& GetBEnd(mozilla::WritingMode) const;
+"""
+
+"GenericBorderRadius" = """
+  inline const StyleLengthPercentage& Get(mozilla::HalfCorner) const;
 """

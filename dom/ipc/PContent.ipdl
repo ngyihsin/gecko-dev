@@ -8,7 +8,6 @@ include protocol PBackground;
 include protocol PBrowser;
 include protocol PClientOpenWindowOp;
 include protocol PCompositorManager;
-include protocol PContentBridge;
 include protocol PContentPermissionRequest;
 include protocol PCycleCollectWithLogs;
 include protocol PPSMContentDownloader;
@@ -64,11 +63,6 @@ include HangTypes;
 include PrefsTypes;
 include NeckoChannelParams;
 
-// Workaround to prevent error if PContentChild.cpp & PContentBridgeParent.cpp
-// are put into different UnifiedProtocolsXX.cpp files.
-// XXX Remove this once bug 1069073 is fixed
-include "mozilla/dom/PContentBridgeParent.h";
-
 using refcounted class nsIDOMGeoPosition from "nsGeoPositionIPCSerialiser.h";
 using refcounted class nsIAlertNotification from "mozilla/AlertNotificationIPCSerializer.h";
 
@@ -104,6 +98,7 @@ using mozilla::CrossProcessMutexHandle from "mozilla/ipc/CrossProcessMutex.h";
 using refcounted class nsIInputStream from "mozilla/ipc/IPCStreamUtils.h";
 using refcounted class mozilla::dom::BrowsingContext from "mozilla/dom/BrowsingContext.h";
 using mozilla::dom::BrowsingContextId from "mozilla/dom/ipc/IdType.h";
+using mozilla::dom::BrowsingContextTransaction from "mozilla/dom/BrowsingContext.h";
 
 union ChromeRegistryItem
 {
@@ -229,10 +224,26 @@ struct BlobURLRegistrationData
   bool revoked;
 };
 
+struct JSWindowActorEventDecl
+{
+  nsString name;
+  bool capture;
+  bool systemGroup;
+  bool allowUntrusted;
+
+  // FIXME(gross): Optional<bool> is a bit gross to encode here, so instead it's
+  // encoded as two booleans.
+  bool hasPassive;
+  bool passive;
+};
+
 struct JSWindowActorInfo
 {
   nsString name;
   nsCString url;
+
+  JSWindowActorEventDecl[] events;
+  nsCString[] observers;
 };
 
 struct GMPAPITags
@@ -395,7 +406,6 @@ both:
 child:
     async InitGMPService(Endpoint<PGMPServiceChild> service);
     async InitProcessHangMonitor(Endpoint<PProcessHangMonitorChild> hangMonitor);
-    async InitContentBridgeChild(Endpoint<PContentBridgeChild> endpoint);
     async InitProfiler(Endpoint<PProfilerChild> aEndpoint);
 
     // Give the content process its endpoints to the compositor.
@@ -426,12 +436,12 @@ child:
      * usually only be performed zero or one times.  The child may
      * abnormally exit if this fails; the details are OS-specific.
      */
-    async SetProcessSandbox(MaybeFileDesc aBroker);
+    async SetProcessSandbox(FileDescriptor? aBroker);
 
     async RequestMemoryReport(uint32_t generation,
                               bool anonymize,
                               bool minimizeMemoryUsage,
-                              MaybeFileDesc DMDFile);
+                              FileDescriptor? DMDFile);
     async RequestPerformanceMetrics(nsID aID);
 
     /**
@@ -541,6 +551,11 @@ child:
      * Send JSWindowActorInfos to child process.
      */
     async InitJSWindowActorInfos(JSWindowActorInfo[] aInfos);
+
+    /**
+     * Unregister a previously registered JSWindowActor in the child process.
+     */
+    async UnregisterJSWindowActor(nsString name);
 
     async SetXPCOMProcessAttributes(XPCOMInitData xpcomInit,
                                     StructuredCloneData initialData,
@@ -766,14 +781,6 @@ child:
 parent:
     async InitBackground(Endpoint<PBackgroundParent> aEndpoint);
 
-    sync CreateChildProcess(IPCTabContext context,
-                            ProcessPriority priority,
-                            TabId openerTabId,
-                            TabId tabId)
-        returns (ContentParentId cpId, bool isForBrowser);
-    sync BridgeToChildProcess(ContentParentId cpId)
-        returns (Endpoint<PContentBridgeParent> endpoint);
-
     sync OpenRecordReplayChannel(uint32_t channelId)
         returns (FileDescriptor connection);
     async CreateReplayingProcess(uint32_t channelId);
@@ -894,6 +901,7 @@ parent:
     async PPSMContentDownloader(uint32_t aCertType);
 
     async PExternalHelperApp(OptionalURIParams uri,
+                             OptionalLoadInfoArgs loadInfoArgs,
                              nsCString aMimeContentType,
                              nsCString aContentDisposition,
                              uint32_t aContentDispositionHint,
@@ -1116,6 +1124,7 @@ parent:
                        nsCString aBaseURI,
                        float aFullZoom,
                        Principal aTriggeringPrincipal,
+                       nsIContentSecurityPolicy aCsp,
                        uint32_t aReferrerPolicy)
         returns (CreatedWindowInfo window);
 
@@ -1131,10 +1140,8 @@ parent:
       float aFullZoom,
       nsString aName,
       Principal aTriggeringPrincipal,
+      nsIContentSecurityPolicy aCsp,
       uint32_t aReferrerPolicy);
-
-    sync GetAndroidSystemInfo()
-        returns (AndroidSystemInfo info);
 
     /**
      * Tells the parent to ungrab the pointer on the default display.
@@ -1261,8 +1268,11 @@ parent:
                                    bool aNewValue);
 
 both:
-     async AsyncMessage(nsString aMessage, CpowEntry[] aCpows,
-                        Principal aPrincipal, ClonedMessageData aData);
+    async CommitBrowsingContextTransaction(BrowsingContext aContext,
+                                           BrowsingContextTransaction aTransaction);
+
+    async AsyncMessage(nsString aMessage, CpowEntry[] aCpows,
+                       Principal aPrincipal, ClonedMessageData aData);
 
     /**
      * Notify `push-subscription-modified` observers in the parent and child.

@@ -7,6 +7,7 @@
 use crate::parser::{Parse, ParserContext};
 #[cfg(feature = "gecko")]
 use crate::values::computed::ExtremumLength;
+use crate::Zero;
 use cssparser::Parser;
 use style_traits::ParseError;
 
@@ -63,6 +64,19 @@ impl<LengthPercentage> LengthPercentageOrAuto<LengthPercentage> {
         Ok(LengthPercentageOrAuto::LengthPercentage(parser(
             context, input,
         )?))
+    }
+}
+
+impl<LengthPercentage: Zero> Zero for LengthPercentageOrAuto<LengthPercentage> {
+    fn zero() -> Self {
+        LengthPercentageOrAuto::LengthPercentage(Zero::zero())
+    }
+
+    fn is_zero(&self) -> bool {
+        match *self {
+            LengthPercentageOrAuto::LengthPercentage(ref l) => l.is_zero(),
+            LengthPercentageOrAuto::Auto => false,
+        }
     }
 }
 
@@ -153,5 +167,47 @@ impl<LengthPercentage> MaxSize<LengthPercentage> {
     #[inline]
     pub fn none() -> Self {
         MaxSize::None
+    }
+}
+
+/// A generic `<length>` | `<number>` value for the `-moz-tab-size` property.
+#[derive(
+    Animate,
+    Clone,
+    ComputeSquaredDistance,
+    Copy,
+    Debug,
+    MallocSizeOf,
+    Parse,
+    PartialEq,
+    SpecifiedValueInfo,
+    ToAnimatedValue,
+    ToAnimatedZero,
+    ToComputedValue,
+    ToCss,
+)]
+#[repr(C, u8)]
+pub enum GenericLengthOrNumber<L, N> {
+    /// A number.
+    ///
+    /// NOTE: Numbers need to be before lengths, in order to parse them
+    /// first, since `0` should be a number, not the `0px` length.
+    Number(N),
+    /// A length.
+    Length(L),
+}
+
+pub use self::GenericLengthOrNumber as LengthOrNumber;
+
+impl<L, N: Zero> Zero for LengthOrNumber<L, N> {
+    fn zero() -> Self {
+        LengthOrNumber::Number(Zero::zero())
+    }
+
+    fn is_zero(&self) -> bool {
+        match *self {
+            LengthOrNumber::Number(ref n) => n.is_zero(),
+            LengthOrNumber::Length(..) => false,
+        }
     }
 }

@@ -3339,7 +3339,7 @@ JS_PUBLIC_API bool JS_GetFunctionLength(JSContext* cx, HandleFunction fun,
   return JSFunction::getLength(cx, fun, length);
 }
 
-JS_PUBLIC_API bool JS_ObjectIsFunction(JSContext* cx, JSObject* obj) {
+JS_PUBLIC_API bool JS_ObjectIsFunction(JSObject* obj) {
   return obj->is<JSFunction>();
 }
 
@@ -3770,7 +3770,7 @@ JS_PUBLIC_API bool JS::ModuleInstantiate(JSContext* cx,
                                          JS::HandleObject moduleArg) {
   AssertHeapIsIdle();
   CHECK_THREAD(cx);
-  cx->check(moduleArg);
+  cx->releaseCheck(moduleArg);
   return ModuleObject::Instantiate(cx, moduleArg.as<ModuleObject>());
 }
 
@@ -3778,7 +3778,7 @@ JS_PUBLIC_API bool JS::ModuleEvaluate(JSContext* cx,
                                       JS::HandleObject moduleArg) {
   AssertHeapIsIdle();
   CHECK_THREAD(cx);
-  cx->check(moduleArg);
+  cx->releaseCheck(moduleArg);
   return ModuleObject::Evaluate(cx, moduleArg.as<ModuleObject>());
 }
 
@@ -5162,7 +5162,7 @@ JS_PUBLIC_API bool JS_GetPendingException(JSContext* cx,
 JS_PUBLIC_API void JS_SetPendingException(JSContext* cx, HandleValue value) {
   AssertHeapIsIdle();
   CHECK_THREAD(cx);
-  cx->check(value);
+  cx->releaseCheck(value);
   cx->setPendingException(value);
 }
 
@@ -5300,7 +5300,8 @@ JSErrorNotes::JSErrorNotes() : notes_() {}
 JSErrorNotes::~JSErrorNotes() {}
 
 static UniquePtr<JSErrorNotes::Note> CreateErrorNoteVA(
-    JSContext* cx, const char* filename, unsigned lineno, unsigned column,
+    JSContext* cx, const char* filename, unsigned sourceId,
+    unsigned lineno, unsigned column,
     JSErrorCallback errorCallback, void* userRef, const unsigned errorNumber,
     ErrorArgumentsType argumentsType, va_list ap) {
   auto note = MakeUnique<JSErrorNotes::Note>();
@@ -5311,6 +5312,7 @@ static UniquePtr<JSErrorNotes::Note> CreateErrorNoteVA(
 
   note->errorNumber = errorNumber;
   note->filename = filename;
+  note->sourceId = sourceId;
   note->lineno = lineno;
   note->column = column;
 
@@ -5323,12 +5325,14 @@ static UniquePtr<JSErrorNotes::Note> CreateErrorNoteVA(
 }
 
 bool JSErrorNotes::addNoteASCII(JSContext* cx, const char* filename,
+                                unsigned sourceId,
                                 unsigned lineno, unsigned column,
                                 JSErrorCallback errorCallback, void* userRef,
                                 const unsigned errorNumber, ...) {
   va_list ap;
   va_start(ap, errorNumber);
-  auto note = CreateErrorNoteVA(cx, filename, lineno, column, errorCallback,
+  auto note = CreateErrorNoteVA(cx, filename, sourceId, lineno, column,
+                                errorCallback,
                                 userRef, errorNumber, ArgumentsAreASCII, ap);
   va_end(ap);
 
@@ -5343,12 +5347,14 @@ bool JSErrorNotes::addNoteASCII(JSContext* cx, const char* filename,
 }
 
 bool JSErrorNotes::addNoteLatin1(JSContext* cx, const char* filename,
+                                 unsigned sourceId,
                                  unsigned lineno, unsigned column,
                                  JSErrorCallback errorCallback, void* userRef,
                                  const unsigned errorNumber, ...) {
   va_list ap;
   va_start(ap, errorNumber);
-  auto note = CreateErrorNoteVA(cx, filename, lineno, column, errorCallback,
+  auto note = CreateErrorNoteVA(cx, filename, sourceId, lineno, column,
+                                errorCallback,
                                 userRef, errorNumber, ArgumentsAreLatin1, ap);
   va_end(ap);
 
@@ -5363,12 +5369,14 @@ bool JSErrorNotes::addNoteLatin1(JSContext* cx, const char* filename,
 }
 
 bool JSErrorNotes::addNoteUTF8(JSContext* cx, const char* filename,
+                               unsigned sourceId,
                                unsigned lineno, unsigned column,
                                JSErrorCallback errorCallback, void* userRef,
                                const unsigned errorNumber, ...) {
   va_list ap;
   va_start(ap, errorNumber);
-  auto note = CreateErrorNoteVA(cx, filename, lineno, column, errorCallback,
+  auto note = CreateErrorNoteVA(cx, filename, sourceId, lineno, column,
+                                errorCallback,
                                 userRef, errorNumber, ArgumentsAreUTF8, ap);
   va_end(ap);
 

@@ -28,7 +28,6 @@ class FilterBar extends Component {
       dispatch: PropTypes.func.isRequired,
       filter: PropTypes.object.isRequired,
       attachRefToWebConsoleUI: PropTypes.func.isRequired,
-      filterBarVisible: PropTypes.bool.isRequired,
       persistLogs: PropTypes.bool.isRequired,
       hidePersistLogsCheckbox: PropTypes.bool.isRequired,
       filteredMessagesCount: PropTypes.object.isRequired,
@@ -59,22 +58,21 @@ class FilterBar extends Component {
       "filterBox",
       this.wrapperNode.querySelector(".text-filter")
     );
+    this.props.attachRefToWebConsoleUI(
+      "clearButton",
+      this.wrapperNode.querySelector(".clear-button")
+    );
   }
 
   shouldComponentUpdate(nextProps, nextState) {
     const {
       filter,
-      filterBarVisible,
       persistLogs,
       filteredMessagesCount,
       closeButtonVisible,
     } = this.props;
 
     if (nextProps.filter !== filter) {
-      return true;
-    }
-
-    if (nextProps.filterBarVisible !== filterBarVisible) {
       return true;
     }
 
@@ -251,13 +249,21 @@ class FilterBar extends Component {
         dom.div({
           className: "devtools-separator",
         }),
-        dom.input({
-          className: "devtools-plaininput text-filter",
-          type: "search",
-          value: filter.text,
-          placeholder: l10n.getStr("webconsole.filterInput.placeholder"),
-          onInput: this.onSearchInput,
-        }),
+        dom.div(
+          { className: "devtools-searchbox has-clear-btn" },
+          dom.input({
+            className: "devtools-plaininput text-filter",
+            type: "search",
+            value: filter.text,
+            placeholder: l10n.getStr("webconsole.filterInput.placeholder"),
+            onInput: this.onSearchInput,
+          }),
+          dom.button({
+            className: "devtools-searchinput-clear clear-button",
+            hidden: filter.text == "",
+            onClick: this.onClickRemoveTextFilter,
+          }),
+        ),
         !hidePersistLogsCheckbox && FilterCheckbox({
           label: l10n.getStr("webconsole.enablePersistentLogs.label"),
           title: l10n.getStr("webconsole.enablePersistentLogs.tooltip"),
@@ -306,7 +312,6 @@ function mapStateToProps(state) {
   const uiState = getAllUi(state);
   return {
     filter: getAllFilters(state),
-    filterBarVisible: uiState.filterBarVisible,
     persistLogs: uiState.persistLogs,
     filteredMessagesCount: getFilteredMessagesCount(state),
     closeButtonVisible: uiState.closeButtonVisible,

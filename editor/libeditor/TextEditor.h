@@ -233,8 +233,12 @@ class TextEditor : public EditorBase, public nsIPlaintextEditor {
     if (NS_WARN_IF(!editActionData.CanHandle())) {
       return NS_ERROR_NOT_INITIALIZED;
     }
-    return ComputeValueInternal(NS_LITERAL_STRING("text/plain"),
-                                aDocumentEncoderFlags, aOutputString);
+    nsresult rv = ComputeValueInternal(NS_LITERAL_STRING("text/plain"),
+                                       aDocumentEncoderFlags, aOutputString);
+    if (NS_WARN_IF(NS_FAILED(rv))) {
+      return EditorBase::ToGenericNSResult(rv);
+    }
+    return NS_OK;
   }
 
  protected:  // May be called by friends.
@@ -401,23 +405,6 @@ class TextEditor : public EditorBase, public nsIPlaintextEditor {
   nsresult InsertTextAt(const nsAString& aStringToInsert,
                         const EditorDOMPoint& aPointToInsert,
                         bool aDoDeleteSelection);
-
-  /**
-   * InsertFromDataTransfer() inserts the data in aDataTransfer at aIndex.
-   * This is intended to handle "drop" event.
-   *
-   * @param aDataTransfer       Dropped data transfer.
-   * @param aIndex              Index of the data which should be inserted.
-   * @param aSourceDoc          The document which the source comes from.
-   * @param aDroppedAt          The dropped position.
-   * @param aDoDeleteSelection  true if this should delete selected content.
-   *                            false otherwise.
-   */
-  MOZ_CAN_RUN_SCRIPT
-  virtual nsresult InsertFromDataTransfer(dom::DataTransfer* aDataTransfer,
-                                          int32_t aIndex, Document* aSourceDoc,
-                                          const EditorDOMPoint& aDroppedAt,
-                                          bool aDoDeleteSelection);
 
   /**
    * InsertWithQuotationsAsSubAction() inserts aQuotedText with appending ">"

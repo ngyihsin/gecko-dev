@@ -46,6 +46,7 @@
 #include "nsIPermissionManager.h"
 #include "nsIPermission.h"
 #include "nsIPushService.h"
+#include "nsIScriptError.h"
 #include "nsIScriptSecurityManager.h"
 #include "nsIServiceWorkerManager.h"
 #include "nsISimpleEnumerator.h"
@@ -478,11 +479,23 @@ NotificationPermissionRequest::Run() {
     nsCOMPtr<nsIURI> uri;
     mPrincipal->GetURI(getter_AddRefs(uri));
 
+    bool isFile = false;
     if (uri) {
-      bool isFile;
       uri->SchemeIs("file", &isFile);
       if (isFile) {
         mPermission = NotificationPermission::Granted;
+      }
+    }
+
+    if (!isFile && !StaticPrefs::dom_webnotifications_allowinsecure() &&
+        !mWindow->IsSecureContext()) {
+      mPermission = NotificationPermission::Denied;
+      nsCOMPtr<Document> doc = mWindow->GetExtantDoc();
+      if (doc) {
+        nsContentUtils::ReportToConsole(
+            nsIScriptError::errorFlag, NS_LITERAL_CSTRING("DOM"), doc,
+            nsContentUtils::eDOM_PROPERTIES,
+            "NotificationsInsecureRequestIsForbidden");
       }
     }
   }
@@ -562,7 +575,8 @@ NotificationTelemetryService::NotificationTelemetryService()
 
 NotificationTelemetryService::~NotificationTelemetryService() {}
 
-/* static */ already_AddRefed<NotificationTelemetryService>
+/* static */
+already_AddRefed<NotificationTelemetryService>
 NotificationTelemetryService::GetInstance() {
   nsCOMPtr<nsISupports> telemetrySupports =
       do_GetService(NOTIFICATIONTELEMETRYSERVICE_CONTRACTID);
@@ -622,11 +636,6 @@ void NotificationTelemetryService::RecordPermissions() {
     uint32_t capability;
     if (!GetNotificationPermission(supportsPermission, &capability)) {
       continue;
-    }
-    if (capability == nsIPermissionManager::DENY_ACTION) {
-      Telemetry::Accumulate(Telemetry::WEB_NOTIFICATION_PERMISSIONS, 0);
-    } else if (capability == nsIPermissionManager::ALLOW_ACTION) {
-      Telemetry::Accumulate(Telemetry::WEB_NOTIFICATION_PERMISSIONS, 1);
     }
   }
 }
@@ -1129,7 +1138,6 @@ NotificationObserver::Observe(nsISupports* aSubject, const char* aTopic,
   AssertIsOnMainThread();
 
   if (!strcmp("alertdisablecallback", aTopic)) {
-    Telemetry::Accumulate(Telemetry::WEB_NOTIFICATION_MENU, 1);
     if (XRE_IsParentProcess()) {
       return Notification::RemovePermission(mPrincipal);
     }
@@ -1139,10 +1147,7 @@ NotificationObserver::Observe(nsISupports* aSubject, const char* aTopic,
     ContentChild::GetSingleton()->SendDisableNotifications(
         IPC::Principal(mPrincipal));
     return NS_OK;
-  } else if (!strcmp("alertclickcallback", aTopic)) {
-    Telemetry::Accumulate(Telemetry::WEB_NOTIFICATION_CLICKED, 1);
   } else if (!strcmp("alertsettingscallback", aTopic)) {
-    Telemetry::Accumulate(Telemetry::WEB_NOTIFICATION_MENU, 2);
     if (XRE_IsParentProcess()) {
       return Notification::OpenSettings(mPrincipal);
     }
@@ -1160,11 +1165,6 @@ NotificationObserver::Observe(nsISupports* aSubject, const char* aTopic,
       telemetry->RecordDNDSupported();
     }
     Unused << NS_WARN_IF(NS_FAILED(AdjustPushQuota(aTopic)));
-
-    if (!strcmp("alertshow", aTopic)) {
-      // Record notifications actually shown (e.g. don't count if DND is on).
-      Telemetry::Accumulate(Telemetry::WEB_NOTIFICATION_SHOWN, 1);
-    }
   }
 
   return mObserver->Observe(aSubject, aTopic, aData);
@@ -1517,8 +1517,9 @@ void Notification::ShowInternal() {
   }
 }
 
-/* static */ bool Notification::RequestPermissionEnabledForScope(
-    JSContext* aCx, JSObject* /* unused */) {
+/* static */
+bool Notification::RequestPermissionEnabledForScope(JSContext* aCx,
+                                                    JSObject* /* unused */) {
   // requestPermission() is not allowed on workers. The calling page should ask
   // for permission on the worker's behalf. This is to prevent 'which window
   // should show the browser pop-up'. See discussion:
@@ -1585,8 +1586,9 @@ NotificationPermission Notification::GetPermission(nsIGlobalObject* aGlobal,
   }
 }
 
-/* static */ NotificationPermission Notification::GetPermissionInternal(
-    nsISupports* aGlobal, ErrorResult& aRv) {
+/* static */
+NotificationPermission Notification::GetPermissionInternal(nsISupports* aGlobal,
+                                                           ErrorResult& aRv) {
   // Get principal from global to check permission for notifications.
   nsCOMPtr<nsIScriptObjectPrincipal> sop = do_QueryInterface(aGlobal);
   if (!sop) {
@@ -1598,7 +1600,8 @@ NotificationPermission Notification::GetPermission(nsIGlobalObject* aGlobal,
   return GetPermissionInternal(principal, aRv);
 }
 
-/* static */ NotificationPermission Notification::GetPermissionInternal(
+/* static */
+NotificationPermission Notification::GetPermissionInternal(
     nsIPrincipal* aPrincipal, ErrorResult& aRv) {
   AssertIsOnMainThread();
   MOZ_ASSERT(aPrincipal);
@@ -1630,8 +1633,8 @@ NotificationPermission Notification::GetPermission(nsIGlobalObject* aGlobal,
   return TestPermission(aPrincipal);
 }
 
-/* static */ NotificationPermission Notification::TestPermission(
-    nsIPrincipal* aPrincipal) {
+/* static */
+NotificationPermission Notification::TestPermission(nsIPrincipal* aPrincipal) {
   AssertIsOnMainThread();
 
   uint32_t permission = nsIPermissionManager::UNKNOWN_ACTION;
@@ -1643,7 +1646,7 @@ NotificationPermission Notification::GetPermission(nsIGlobalObject* aGlobal,
   }
 
   permissionManager->TestExactPermissionFromPrincipal(
-      aPrincipal, "desktop-notification", &permission);
+      aPrincipal, NS_LITERAL_CSTRING("desktop-notification"), &permission);
 
   // Convert the result to one of the enum types.
   switch (permission) {
@@ -2297,7 +2300,8 @@ already_AddRefed<Promise> Notification::ShowPersistentNotification(
   return p.forget();
 }
 
-/* static */ already_AddRefed<Notification> Notification::CreateAndShow(
+/* static */
+already_AddRefed<Notification> Notification::CreateAndShow(
     JSContext* aCx, nsIGlobalObject* aGlobal, const nsAString& aTitle,
     const NotificationOptions& aOptions, const nsAString& aScope,
     ErrorResult& aRv) {
@@ -2335,18 +2339,21 @@ already_AddRefed<Promise> Notification::ShowPersistentNotification(
   return notification.forget();
 }
 
-/* static */ nsresult Notification::RemovePermission(nsIPrincipal* aPrincipal) {
+/* static */
+nsresult Notification::RemovePermission(nsIPrincipal* aPrincipal) {
   MOZ_ASSERT(XRE_IsParentProcess());
   nsCOMPtr<nsIPermissionManager> permissionManager =
       mozilla::services::GetPermissionManager();
   if (!permissionManager) {
     return NS_ERROR_FAILURE;
   }
-  permissionManager->RemoveFromPrincipal(aPrincipal, "desktop-notification");
+  permissionManager->RemoveFromPrincipal(
+      aPrincipal, NS_LITERAL_CSTRING("desktop-notification"));
   return NS_OK;
 }
 
-/* static */ nsresult Notification::OpenSettings(nsIPrincipal* aPrincipal) {
+/* static */
+nsresult Notification::OpenSettings(nsIPrincipal* aPrincipal) {
   MOZ_ASSERT(XRE_IsParentProcess());
   nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
   if (!obs) {

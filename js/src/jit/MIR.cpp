@@ -1245,6 +1245,10 @@ bool MWasmFloatConstant::congruentTo(const MDefinition* ins) const {
          u.bits_ == ins->toWasmFloatConstant()->u.bits_;
 }
 
+HashNumber MWasmNullConstant::valueHash() const {
+  return ConstantValueHash(MIRType::Pointer, 0);
+}
+
 #ifdef JS_JITSPEW
 void MControlInstruction::printOpcode(GenericPrinter& out) const {
   MDefinition::printOpcode(out);
@@ -3391,8 +3395,9 @@ static inline bool MustBeUInt32(MDefinition* def, MDefinition** pwrapped) {
   return false;
 }
 
-/* static */ bool MBinaryInstruction::unsignedOperands(MDefinition* left,
-                                                       MDefinition* right) {
+/* static */
+bool MBinaryInstruction::unsignedOperands(MDefinition* left,
+                                          MDefinition* right) {
   MDefinition* replace;
   if (!MustBeUInt32(left, &replace)) {
     return false;

@@ -28,7 +28,7 @@ XPCOMUtils.defineLazyGetter(this, "SocketListener", () => {
   return SocketListener;
 });
 
-GeckoViewUtils.initLogging("RemoteDebugger", this);
+const {debug, warn} = GeckoViewUtils.initLogging("RemoteDebugger"); // eslint-disable-line no-unused-vars
 
 var GeckoViewRemoteDebugger = {
   observe(aSubject, aTopic, aData) {
@@ -80,6 +80,8 @@ var GeckoViewRemoteDebugger = {
     DebuggerServer.setRootActor(createRootActor);
     DebuggerServer.allowChromeProcess = true;
     DebuggerServer.chromeWindowType = "navigator:geckoview";
+    // Force the Server to stay alive even if there are no connections at the moment.
+    DebuggerServer.keepAlive = true;
 
     // Socket address for USB remote debugger expects
     // @ANDROID_PACKAGE_NAME/firefox-debugger-socket.

@@ -117,6 +117,7 @@ class HTMLMediaElement : public nsGenericHTMLElement,
 
   explicit HTMLMediaElement(
       already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo);
+  void Init();
 
   void ReportCanPlayTelemetry();
 
@@ -297,7 +298,7 @@ class HTMLMediaElement : public nsGenericHTMLElement,
 
   // Update the visual size of the media. Called from the decoder on the
   // main thread when/if the size changes.
-  void UpdateMediaSize(const nsIntSize& aSize);
+  virtual void UpdateMediaSize(const nsIntSize& aSize);
   // Like UpdateMediaSize, but only updates the size if no size has yet
   // been set.
   void UpdateInitialMediaSize(const nsIntSize& aSize);
@@ -1669,7 +1670,7 @@ class HTMLMediaElement : public nsGenericHTMLElement,
   MozPromiseHolder<GenericNonExclusivePromise> mAllowedToPlayPromise;
 
  public:
-  // Helper class to measure times for MSE telemetry stats
+  // Helper class to measure times for playback telemetry stats
   class TimeDurationAccumulator {
    public:
     TimeDurationAccumulator() : mCount(0) {}
@@ -1702,6 +1703,11 @@ class HTMLMediaElement : public nsGenericHTMLElement,
       // Count current run in this report, without increasing the stored count.
       return mCount + 1;
     }
+    void Reset() {
+      mStartTime = TimeStamp();
+      mSum = TimeDuration();
+      mCount = 0;
+    }
 
    private:
     TimeStamp mStartTime;
@@ -1713,6 +1719,8 @@ class HTMLMediaElement : public nsGenericHTMLElement,
   already_AddRefed<PlayPromise> CreatePlayPromise(ErrorResult& aRv) const;
 
   void UpdateHadAudibleAutoplayState();
+
+  virtual void MaybeBeginCloningVisually(){};
 
   /**
    * This function is called by AfterSetAttr and OnAttrSetButNotChanged.
@@ -1732,6 +1740,21 @@ class HTMLMediaElement : public nsGenericHTMLElement,
 
   // Total time a video has (or would have) spent in video-decode-suspend mode.
   TimeDurationAccumulator mVideoDecodeSuspendTime;
+
+  // Total time a video has spent playing on the current load, it would be reset
+  // when media aborts the current load; be paused when the docuemt enters the
+  // bf-cache and be resumed when the docuemt leaves the bf-cache.
+  TimeDurationAccumulator mCurrentLoadPlayTime;
+
+  // True if media has ever been blocked by autoplay policy before.
+  bool mHasPlayEverBeenBlocked = false;
+
+  // Report the Telemetry about whether media played over the specific time
+  // threshold.
+  void ReportPlayedTimeAfterBlockedTelemetry();
+
+  // True if Init() has been called after construction
+  bool mInitialized = false;
 
   // True if user has called load(), seek() or element has started playing
   // before. It's *only* use for checking autoplay policy

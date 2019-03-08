@@ -13,7 +13,8 @@
 namespace mozilla {
 namespace net {
 
-/* static */ bool TrackingDummyChannelChild::Create(
+/* static */
+bool TrackingDummyChannelChild::Create(
     nsIHttpChannel* aChannel, nsIURI* aURI,
     const std::function<void(bool)>& aCallback) {
   MOZ_ASSERT(NS_IsMainThread());
@@ -32,11 +33,7 @@ namespace net {
   nsresult topWindowURIResult =
       httpChannelInternal->GetTopWindowURI(getter_AddRefs(topWindowURI));
 
-  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->GetLoadInfo();
-  if (!loadInfo) {
-    return false;
-  }
-
+  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
   OptionalLoadInfoArgs loadInfoArgs;
   mozilla::ipc::LoadInfoToLoadInfoArgs(loadInfo, &loadInfoArgs);
 

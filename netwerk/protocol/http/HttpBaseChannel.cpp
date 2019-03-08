@@ -1149,25 +1149,24 @@ class InterceptFailedOnStop : public nsIStreamListener {
       : mNext(arg), mChannel(chan) {}
   NS_DECL_THREADSAFE_ISUPPORTS
 
-  NS_IMETHOD OnStartRequest(nsIRequest* aRequest,
-                            nsISupports* aContext) override {
-    return mNext->OnStartRequest(aRequest, aContext);
+  NS_IMETHOD OnStartRequest(nsIRequest* aRequest) override {
+    return mNext->OnStartRequest(aRequest);
   }
 
-  NS_IMETHOD OnStopRequest(nsIRequest* aRequest, nsISupports* aContext,
+  NS_IMETHOD OnStopRequest(nsIRequest* aRequest,
                            nsresult aStatusCode) override {
     if (NS_FAILED(aStatusCode) && NS_SUCCEEDED(mChannel->mStatus)) {
       LOG(("HttpBaseChannel::InterceptFailedOnStop %p seting status %" PRIx32,
            mChannel, static_cast<uint32_t>(aStatusCode)));
       mChannel->mStatus = aStatusCode;
     }
-    return mNext->OnStopRequest(aRequest, aContext, aStatusCode);
+    return mNext->OnStopRequest(aRequest, aStatusCode);
   }
 
-  NS_IMETHOD OnDataAvailable(nsIRequest* aRequest, nsISupports* aContext,
+  NS_IMETHOD OnDataAvailable(nsIRequest* aRequest,
                              nsIInputStream* aInputStream, uint64_t aOffset,
                              uint32_t aCount) override {
-    return mNext->OnDataAvailable(aRequest, aContext, aInputStream, aOffset,
+    return mNext->OnDataAvailable(aRequest, aInputStream, aOffset,
                                   aCount);
   }
 };
@@ -1564,8 +1563,8 @@ HttpBaseChannel::GetReferrer(nsIURI** referrer) {
 NS_IMETHODIMP
 HttpBaseChannel::SetReferrer(nsIURI* referrer) {
   bool isPrivate = mLoadInfo->GetOriginAttributes().mPrivateBrowsingId > 0;
-  return SetReferrerWithPolicy(referrer,
-                               NS_GetDefaultReferrerPolicy(isPrivate));
+  return SetReferrerWithPolicy(
+      referrer, NS_GetDefaultReferrerPolicy(this, mURI, isPrivate));
 }
 
 NS_IMETHODIMP
@@ -1611,6 +1610,8 @@ HttpBaseChannel::SetReferrerWithPolicy(nsIURI* referrer,
                                        uint32_t referrerPolicy) {
   ENSURE_CALLED_BEFORE_CONNECT();
 
+  nsIURI* originalReferrer = referrer;
+
   mReferrerPolicy = referrerPolicy;
 
   // clear existing referrer, if any
@@ -1622,7 +1623,7 @@ HttpBaseChannel::SetReferrerWithPolicy(nsIURI* referrer,
 
   if (mReferrerPolicy == REFERRER_POLICY_UNSET) {
     bool isPrivate = mLoadInfo->GetOriginAttributes().mPrivateBrowsingId > 0;
-    mReferrerPolicy = NS_GetDefaultReferrerPolicy(isPrivate);
+    mReferrerPolicy = NS_GetDefaultReferrerPolicy(this, mURI, isPrivate);
   }
 
   if (!referrer) {
@@ -1665,39 +1666,6 @@ HttpBaseChannel::SetReferrerWithPolicy(nsIURI* referrer,
 
   nsCOMPtr<nsIURI> referrerGrip;
   bool match;
-
-  //
-  // Strip off "wyciwyg://123/" from wyciwyg referrers.
-  //
-  // XXX this really belongs elsewhere since wyciwyg URLs aren't part of necko.
-  //   perhaps some sort of generic nsINestedURI could be used.  then, if an URI
-  //   fails the whitelist test, then we could check for an inner URI and try
-  //   that instead.  though, that might be too automatic.
-  //
-  rv = referrer->SchemeIs("wyciwyg", &match);
-  if (NS_FAILED(rv)) return rv;
-  if (match) {
-    nsAutoCString path;
-    rv = referrer->GetPathQueryRef(path);
-    if (NS_FAILED(rv)) return rv;
-
-    uint32_t pathLength = path.Length();
-    if (pathLength <= 2) return NS_ERROR_FAILURE;
-
-    // Path is of the form "//123/http://foo/bar", with a variable number of
-    // digits. To figure out where the "real" URL starts, search path for a
-    // '/', starting at the third character.
-    int32_t slashIndex = path.FindChar('/', 2);
-    if (slashIndex == kNotFound) return NS_ERROR_FAILURE;
-
-    // Replace |referrer| with a URI without wyciwyg://123/.
-    rv =
-        NS_NewURI(getter_AddRefs(referrerGrip),
-                  Substring(path, slashIndex + 1, pathLength - slashIndex - 1));
-    if (NS_FAILED(rv)) return rv;
-
-    referrer = referrerGrip.get();
-  }
 
   // Enforce Referrer whitelist
   if (!IsReferrerSchemeAllowed(referrer)) {
@@ -1925,6 +1893,7 @@ HttpBaseChannel::SetReferrerWithPolicy(nsIURI* referrer,
   rv = SetRequestHeader(NS_LITERAL_CSTRING("Referer"), spec, false);
   if (NS_FAILED(rv)) return rv;
 
+  mOriginalReferrer = originalReferrer;
   mReferrer = clone;
   return NS_OK;
 }
@@ -2581,9 +2550,6 @@ nsresult HttpBaseChannel::AddSecurityMessage(
 
   nsCOMPtr<nsILoadInfo> loadInfo;
   GetLoadInfo(getter_AddRefs(loadInfo));
-  if (!loadInfo) {
-    return NS_ERROR_FAILURE;
-  }
 
   auto innerWindowID = loadInfo->GetInnerWindowID();
 
@@ -3295,12 +3261,9 @@ void HttpBaseChannel::DoNotifyListener() {
     mAfterOnStartRequestBegun = true;
   }
 
-  if (mListener) {
-    MOZ_ASSERT(!mOnStartRequestCalled,
-               "We should not call OnStartRequest twice");
-
+  if (mListener && !mOnStartRequestCalled) {
     nsCOMPtr<nsIStreamListener> listener = mListener;
-    listener->OnStartRequest(this, nullptr);
+    listener->OnStartRequest(this);
 
     mOnStartRequestCalled = true;
   }
@@ -3310,11 +3273,9 @@ void HttpBaseChannel::DoNotifyListener() {
   // as not-pending.
   mIsPending = false;
 
-  if (mListener) {
-    MOZ_ASSERT(!mOnStopRequestCalled, "We should not call OnStopRequest twice");
-
+  if (mListener && !mOnStopRequestCalled) {
     nsCOMPtr<nsIStreamListener> listener = mListener;
-    listener->OnStopRequest(this, nullptr, mStatus);
+    listener->OnStopRequest(this, mStatus);
 
     mOnStopRequestCalled = true;
   }
@@ -3440,16 +3401,13 @@ nsresult HttpBaseChannel::SetupReplacementChannel(nsIURI* newURI,
   // If the protocol handler that created the channel wants to use
   // the originalURI of the channel as the principal URI, this fulfills
   // that request - newURI is the original URI of the channel.
-  nsCOMPtr<nsILoadInfo> newLoadInfo = newChannel->GetLoadInfo();
-  if (newLoadInfo) {
-    nsCOMPtr<nsIURI> resultPrincipalURI;
-    rv = newLoadInfo->GetResultPrincipalURI(getter_AddRefs(resultPrincipalURI));
+  nsCOMPtr<nsILoadInfo> newLoadInfo = newChannel->LoadInfo();
+  nsCOMPtr<nsIURI> resultPrincipalURI;
+  rv = newLoadInfo->GetResultPrincipalURI(getter_AddRefs(resultPrincipalURI));
+  NS_ENSURE_SUCCESS(rv, rv);
+  if (!resultPrincipalURI) {
+    rv = newLoadInfo->SetResultPrincipalURI(newURI);
     NS_ENSURE_SUCCESS(rv, rv);
-
-    if (!resultPrincipalURI) {
-      rv = newLoadInfo->SetResultPrincipalURI(newURI);
-      NS_ENSURE_SUCCESS(rv, rv);
-    }
   }
 
   uint32_t newLoadFlags = mLoadFlags | LOAD_REPLACE;
@@ -3762,9 +3720,9 @@ nsresult HttpBaseChannel::SetupReplacementChannel(nsIURI* newURI,
   // Pass the preferred alt-data type on to the new channel.
   nsCOMPtr<nsICacheInfoChannel> cacheInfoChan(do_QueryInterface(newChannel));
   if (cacheInfoChan) {
-    for (auto& pair : mPreferredCachedAltDataTypes) {
-      cacheInfoChan->PreferAlternativeDataType(mozilla::Get<0>(pair),
-                                               mozilla::Get<1>(pair));
+    for (auto& data : mPreferredCachedAltDataTypes) {
+      cacheInfoChan->PreferAlternativeDataType(data.type(), data.contentType(),
+                                               data.deliverAltData());
     }
   }
 
@@ -4492,9 +4450,9 @@ nsresult HttpBaseChannel::CheckRedirectLimit(uint32_t aRedirectFlags) const {
 
 // NOTE: This function duplicates code from nsBaseChannel. This will go away
 // once HTTP uses nsBaseChannel (part of bug 312760)
-/* static */ void HttpBaseChannel::CallTypeSniffers(void* aClosure,
-                                                    const uint8_t* aData,
-                                                    uint32_t aCount) {
+/* static */
+void HttpBaseChannel::CallTypeSniffers(void* aClosure, const uint8_t* aData,
+                                       uint32_t aCount) {
   nsIChannel* chan = static_cast<nsIChannel*>(aClosure);
 
   nsAutoCString newType;

@@ -317,6 +317,10 @@ async function toggleBookmarksToolbar(visible = true) {
 async function openContextMenuInPopup(extension, selector = "body") {
   let contentAreaContextMenu = document.getElementById("contentAreaContextMenu");
   let browser = await awaitExtensionPanel(extension);
+
+  // Ensure that the document layout has been flushed before triggering the mouse event
+  // (See Bug 1519808 for a rationale).
+  await browser.ownerGlobal.promiseDocumentFlushed(() => {});
   let popupShownPromise = BrowserTestUtils.waitForEvent(contentAreaContextMenu, "popupshown");
   await BrowserTestUtils.synthesizeMouseAtCenter(selector, {type: "mousedown", button: 2}, browser);
   await BrowserTestUtils.synthesizeMouseAtCenter(selector, {type: "contextmenu"}, browser);
@@ -668,7 +672,7 @@ async function startIncognitoMonitorExtension() {
   return extension;
 }
 
-async function getIncognitoWindow(url) {
+async function getIncognitoWindow(url = "about:privatebrowsing") {
   // Since events will be limited based on incognito, we need a
   // spanning extension to get the tab id so we can test access failure.
 

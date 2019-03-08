@@ -254,14 +254,14 @@ class RestyleManager {
     // content node for the real element.
     void Put(nsIContent* aContent, ComputedStyle* aComputedStyle) {
       MOZ_ASSERT(aContent);
-      CSSPseudoElementType pseudoType = aComputedStyle->GetPseudoType();
-      if (pseudoType == CSSPseudoElementType::NotPseudo) {
+      PseudoStyleType pseudoType = aComputedStyle->GetPseudoType();
+      if (pseudoType == PseudoStyleType::NotPseudo) {
         mContents.AppendElement(aContent);
-      } else if (pseudoType == CSSPseudoElementType::before) {
+      } else if (pseudoType == PseudoStyleType::before) {
         MOZ_ASSERT(aContent->NodeInfo()->NameAtom() ==
                    nsGkAtoms::mozgeneratedcontentbefore);
         mBeforeContents.AppendElement(aContent->GetParent());
-      } else if (pseudoType == CSSPseudoElementType::after) {
+      } else if (pseudoType == PseudoStyleType::after) {
         MOZ_ASSERT(aContent->NodeInfo()->NameAtom() ==
                    nsGkAtoms::mozgeneratedcontentafter);
         mAfterContents.AppendElement(aContent->GetParent());
@@ -272,7 +272,7 @@ class RestyleManager {
 
    private:
     void StopAnimationsWithoutFrame(nsTArray<RefPtr<nsIContent>>& aArray,
-                                    CSSPseudoElementType aPseudoType);
+                                    PseudoStyleType aPseudoType);
 
     RestyleManager* mRestyleManager;
     AutoRestore<AnimationsWithDestroyedFrame*> mRestorePointer;
@@ -327,7 +327,7 @@ class RestyleManager {
    * restyling process and this restyle event will be processed in the second
    * traversal of the same restyling process.
    */
-  void PostRestyleEventForAnimations(dom::Element*, CSSPseudoElementType,
+  void PostRestyleEventForAnimations(dom::Element*, PseudoStyleType,
                                      nsRestyleHint);
 
   void NextRestyleIsForCSSRuleChanges() { mRestyleForCSSRuleChanges = true; }
@@ -455,11 +455,6 @@ class RestyleManager {
   void RestyleForEmptyChange(Element* aContainer);
   void MaybeRestyleForEdgeChildChange(Element* aContainer,
                                       nsIContent* aChangedChild);
-
-  // TODO(emilio): there's no good reason this isn't part of ContentStateChanged
-  // now, or the change hint isn't returned instead of via an out-param, really.
-  void ContentStateChangedInternal(const Element&, EventStates aStateMask,
-                                   nsChangeHint* aOutChangeHint);
 
   bool IsDisconnected() const { return !mPresContext; }
 

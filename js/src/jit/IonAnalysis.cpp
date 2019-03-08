@@ -1284,11 +1284,37 @@ bool jit::EliminateDeadResumePointOperands(MIRGenerator* mir, MIRGraph& graph) {
 
 // Test whether |def| would be needed if it had no uses.
 bool js::jit::DeadIfUnused(const MDefinition* def) {
-  return !def->isEffectful() &&
-         (!def->isGuard() ||
-          def->block() == def->block()->graph().osrBlock()) &&
-         !def->isGuardRangeBailouts() && !def->isControlInstruction() &&
-         (!def->isInstruction() || !def->toInstruction()->resumePoint());
+  // Effectful instructions of course cannot be removed.
+  if (def->isEffectful()) {
+    return false;
+  }
+
+  // Guard instructions by definition are live if they have no uses, however,
+  // in the OSR block we are able to eliminate these guards, as some are
+  // artificially created and superceeded by failible unboxes.
+  if (def->isGuard() && (def->block() != def->block()->graph().osrBlock() ||
+                         def->isImplicitlyUsed())) {
+    return false;
+  }
+
+  // Required to be preserved, as the type guard related to this instruction
+  // is part of the semantics of a transformation.
+  if (def->isGuardRangeBailouts()) {
+    return false;
+  }
+
+  // Control instructions have no uses, but also shouldn't be optimized out
+  if (def->isControlInstruction()) {
+    return false;
+  }
+
+  // Used when lowering to generate the corresponding snapshots and aggregate
+  // the list of recover instructions to be repeated.
+  if (def->isInstruction() && def->toInstruction()->resumePoint()) {
+    return false;
+  }
+
+  return true;
 }
 
 // Test whether |def| may be safely discarded, due to being dead or due to being
@@ -2300,7 +2326,8 @@ static bool IsRegExpHoistableCall(CompileRuntime* runtime, MCall* call,
     return IsExclusiveFirstArg(call, def);
   }
 
-  if (name == runtime->names().RegExp_prototype_Exec) {
+  if (name == runtime->names().RegExp_prototype_Exec ||
+      name == runtime->names().CallRegExpMethodIfWrapped) {
     return IsExclusiveThisArg(call, def);
   }
 
@@ -3422,6 +3449,14 @@ static MathSpace ExtractMathSpace(MDefinition* ins) {
   MOZ_MAKE_COMPILER_ASSUME_IS_UNREACHABLE("Unknown TruncateKind");
 }
 
+static bool MonotoneAdd(int32_t lhs, int32_t rhs) {
+  return (lhs >= 0 && rhs >= 0) || (lhs <= 0 && rhs <= 0);
+}
+
+static bool MonotoneSub(int32_t lhs, int32_t rhs) {
+  return (lhs >= 0 && rhs <= 0) || (lhs <= 0 && rhs >= 0);
+}
+
 // Extract a linear sum from ins, if possible (otherwise giving the
 // sum 'ins + 0').
 SimpleLinearSum jit::ExtractLinearSum(MDefinition* ins, MathSpace space) {
@@ -3471,7 +3506,8 @@ SimpleLinearSum jit::ExtractLinearSum(MDefinition* ins, MathSpace space) {
     int32_t constant;
     if (space == MathSpace::Modulo) {
       constant = uint32_t(lsum.constant) + uint32_t(rsum.constant);
-    } else if (!SafeAdd(lsum.constant, rsum.constant, &constant)) {
+    } else if (!SafeAdd(lsum.constant, rsum.constant, &constant) ||
+               !MonotoneAdd(lsum.constant, rsum.constant)) {
       return SimpleLinearSum(ins, 0);
     }
     return SimpleLinearSum(lsum.term ? lsum.term : rsum.term, constant);
@@ -3483,7 +3519,8 @@ SimpleLinearSum jit::ExtractLinearSum(MDefinition* ins, MathSpace space) {
     int32_t constant;
     if (space == MathSpace::Modulo) {
       constant = uint32_t(lsum.constant) - uint32_t(rsum.constant);
-    } else if (!SafeSub(lsum.constant, rsum.constant, &constant)) {
+    } else if (!SafeSub(lsum.constant, rsum.constant, &constant) ||
+               !MonotoneSub(lsum.constant, rsum.constant)) {
       return SimpleLinearSum(ins, 0);
     }
     return SimpleLinearSum(lsum.term, constant);

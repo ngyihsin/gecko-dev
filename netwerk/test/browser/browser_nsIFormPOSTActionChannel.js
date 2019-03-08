@@ -37,11 +37,8 @@ CustomProtocolHandler.prototype = {
              .setSpec(aSpec)
              .finalize()
   },
-  newChannel2: function(aURI, aLoadInfo) {
+  newChannel: function(aURI, aLoadInfo) {
     return new CustomChannel(aURI, aLoadInfo);
-  },
-  newChannel: function(aURI) {
-    throw Cr.NS_ERROR_NOT_IMPLEMENTED;
   },
   allowPort: function(port, scheme) {
     return port != -1;
@@ -179,7 +176,7 @@ document.getElementById('form').submit();
           aListener.onStartRequest(this, null);
         } catch(e) {}
         try {
-          aListener.onDataAvailable(this, null, stream, 0, stream.available());
+          aListener.onDataAvailable(this, stream, 0, stream.available());
         } catch(e) {}
         try {
           aListener.onStopRequest(this, null, Cr.NS_OK);

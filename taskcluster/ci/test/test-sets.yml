@@ -72,7 +72,7 @@ talos:
     - talos-perf-reftest
     - talos-perf-reftest-singletons
     - talos-tp6-stylo-threads
-    - talos-tps
+    - talos-tabswitch
     # - talos-h1 Bug 1487031 - Disabled for not finding actionable regressions
     # - talos-h2 Bug 1487031 - Disabled for not finding actionable regressions
 
@@ -258,7 +258,7 @@ windows-talos:
     - talos-svgr
     - talos-tp5o
     - talos-xperf
-    - talos-tps
+    - talos-tabswitch
     # - talos-h1 Bug 1487031 - Disabled for not finding actionable regressions
 
 marionette-gpu-tests:
@@ -311,7 +311,7 @@ macosx64-talos:
     - talos-perf-reftest
     - talos-perf-reftest-singletons
     - talos-tp6-stylo-threads
-    # - talos-tps # Bug 1453007 times out
+    # - talos-tabswitch # Bug 1453007 times out
     # - talos-h1 # too long to unpack profile- Bug 1442893
 
 macosx64-qr-tests:
@@ -376,11 +376,10 @@ android-x86_64-opt-tests:
     - crashtest
     # geckoview-junit perma-fail on opt and debug; bug 1521195
     # - geckoview-junit
+    - mochitest
 
 android-x86_64-tests:
     - jsreftest
-    # various mochitest (plain) failures; bug 1460411
-    # - mochitest
     - mochitest-clipboard
     - mochitest-gpu
     # various reftest (plain) failures; bug 1501582
@@ -413,10 +412,16 @@ android-hw-aarch64-opt-unittests:
 android-hw-arm7-raptor:
     - raptor-speedometer-geckoview
     - raptor-tp6m-1-geckoview
+    - raptor-tp6m-2-geckoview
+    - raptor-tp6m-5-geckoview
+    - raptor-tp6m-8-geckoview
 
 android-hw-aarch64-raptor:
     - raptor-speedometer-geckoview
     - raptor-tp6m-1-geckoview
+    - raptor-tp6m-2-geckoview
+    - raptor-tp6m-5-geckoview
+    - raptor-tp6m-8-geckoview
 
 android-hw-arm7-raptor-power:
     - raptor-speedometer-geckoview-power

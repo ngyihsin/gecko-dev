@@ -13,6 +13,7 @@ const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 XPCOMUtils.defineLazyModuleGetters(this, {
   AppConstants: "resource://gre/modules/AppConstants.jsm",
   BrowserUsageTelemetry: "resource:///modules/BrowserUsageTelemetry.jsm",
+  ExtensionSearchHandler: "resource://gre/modules/ExtensionSearchHandler.jsm",
   PlacesUtils: "resource://gre/modules/PlacesUtils.jsm",
   UrlbarPrefs: "resource:///modules/UrlbarPrefs.jsm",
   UrlbarProvidersManager: "resource:///modules/UrlbarProvidersManager.jsm",
@@ -92,9 +93,8 @@ class UrlbarController {
    */
   async startQuery(queryContext) {
     // Cancel any running query.
-    if (this._lastQueryContext) {
-      this.cancelQuery(this._lastQueryContext);
-    }
+    this.cancelQuery();
+
     this._lastQueryContext = queryContext;
 
     queryContext.lastResultCount = 0;
@@ -109,9 +109,12 @@ class UrlbarController {
 
   /**
    * Cancels an in-progress query. Note, queries may continue running if they
-   * can't be canceled.
+   * can't be cancelled.
+   *
+   * @param {UrlbarUtils.CANCEL_REASON} [reason]
+   *   The reason the query was cancelled.
    */
-  cancelQuery() {
+  cancelQuery(reason) {
     if (!this._lastQueryContext) {
       return;
     }
@@ -122,6 +125,11 @@ class UrlbarController {
     this.manager.cancelQuery(this._lastQueryContext);
     this._notify("onQueryCancelled", this._lastQueryContext);
     delete this._lastQueryContext;
+
+    if (reason == UrlbarUtils.CANCEL_REASON.BLUR &&
+        ExtensionSearchHandler.hasActiveInputSession()) {
+      ExtensionSearchHandler.handleInputCancelled();
+    }
   }
 
   /**
@@ -174,11 +182,14 @@ class UrlbarController {
   }
 
   /**
-   * When switching tabs, clear some internal caches to handle cases like
-   * backspace, autofill or repeated searches.
+   * When the containing context changes (for example when switching tabs),
+   * clear any caches that connects consecutive searches in the same context.
+   * For example it can be used to clear information used to improve autofill
+   * or save resourced on repeated searches.
    */
-  tabContextChanged() {
-    // TODO: implementation needed (bug 1496685)
+  viewContextChanged() {
+    this.cancelQuery();
+    this._notify("onViewContextChanged");
   }
 
   /**
@@ -195,7 +206,7 @@ class UrlbarController {
         this.view.isOpen &&
         event.ctrlKey &&
         (event.key == "n" || event.key == "p")) {
-      this.view.selectNextItem({ reverse: event.key == "p" });
+      this.view.selectBy(1, { reverse: event.key == "p" });
       event.preventDefault();
       return;
     }
@@ -225,41 +236,38 @@ class UrlbarController {
           // Prevent beep on Mac.
           event.preventDefault();
         }
-        // TODO: We should have an input bufferrer so that we can use search results
-        // if appropriate.
         this.input.handleCommand(event);
         break;
       case KeyEvent.DOM_VK_TAB:
         if (this.view.isOpen) {
-          this.view.selectNextItem({ reverse: event.shiftKey });
+          this.view.selectBy(1, { reverse: event.shiftKey });
           this.userSelectionBehavior = "tab";
           event.preventDefault();
         }
         break;
       case KeyEvent.DOM_VK_DOWN:
       case KeyEvent.DOM_VK_UP:
-        if (!event.ctrlKey && !event.altKey) {
-          if (this.view.isOpen) {
-            this.userSelectionBehavior = "arrow";
-            this.view.selectNextItem({
-              reverse: event.keyCode == KeyEvent.DOM_VK_UP });
-          } else {
-            this.input.startQuery();
-          }
-          event.preventDefault();
-        }
-        break;
-      case KeyEvent.DOM_VK_DELETE:
-        if (isMac && !event.shiftKey) {
+      case KeyEvent.DOM_VK_PAGE_DOWN:
+      case KeyEvent.DOM_VK_PAGE_UP:
+        if (event.ctrlKey || event.altKey) {
           break;
         }
-        if (this._handleDeleteEntry()) {
-          event.preventDefault();
+        if (this.view.isOpen) {
+          this.userSelectionBehavior = "arrow";
+          this.view.selectBy(
+            event.keyCode == KeyEvent.DOM_VK_PAGE_DOWN ||
+            event.keyCode == KeyEvent.DOM_VK_PAGE_UP ?
+              5 : 1,
+            { reverse: event.keyCode == KeyEvent.DOM_VK_UP ||
+                       event.keyCode == KeyEvent.DOM_VK_PAGE_UP });
+        } else {
+          this.input.startQuery();
         }
+        event.preventDefault();
         break;
+      case KeyEvent.DOM_VK_DELETE:
       case KeyEvent.DOM_VK_BACK_SPACE:
-        if (isMac && event.shiftKey &&
-            this._handleDeleteEntry()) {
+        if (event.shiftKey && this.view.isOpen && this._handleDeleteEntry()) {
           event.preventDefault();
         }
         break;
@@ -449,10 +457,13 @@ class UrlbarController {
    */
   _notify(name, ...params) {
     for (let listener of this._listeners) {
-      try {
-        listener[name](...params);
-      } catch (ex) {
-        Cu.reportError(ex);
+      // Can't use "in" because some tests proxify these.
+      if (typeof listener[name] != "undefined") {
+        try {
+          listener[name](...params);
+        } catch (ex) {
+          Cu.reportError(ex);
+        }
       }
     }
   }

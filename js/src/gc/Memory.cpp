@@ -158,12 +158,11 @@ static void* MapAlignedPagesLastDitch(size_t length, size_t alignment);
 
 #ifdef JS_64BIT
 static void* MapAlignedPagesRandom(size_t length, size_t alignment);
-void* TestMapAlignedPagesLastDitch(size_t, size_t) { return nullptr; }
-#else
+#endif
+
 void* TestMapAlignedPagesLastDitch(size_t length, size_t alignment) {
   return MapAlignedPagesLastDitch(length, alignment);
 }
-#endif
 
 /*
  * We can only decommit unused pages if the hardcoded Arena
@@ -273,6 +272,8 @@ static inline uint64_t GetNumberInRange(uint64_t minNum, uint64_t maxNum) {
 }
 
 #  ifndef XP_WIN
+static inline uint64_t FindAddressLimitInner(size_t highBit, size_t tries);
+
 /*
  * The address range available to applications depends on both hardware and
  * kernel configuration. For example, AArch64 on Linux uses addresses with
@@ -288,70 +289,59 @@ static inline uint64_t GetNumberInRange(uint64_t minNum, uint64_t maxNum) {
  * We return the number of bits of an address that may be set.
  */
 static size_t FindAddressLimit() {
+  // Use 32 bits as a lower bound in case we keep getting nullptr.
+  uint64_t low = 31;
+  uint64_t highestSeen = (UINT64_C(1) << 32) - allocGranularity - 1;
+
+  // Exclude 48-bit and 47-bit addresses first.
+  uint64_t high = 47;
+  for (; high >= std::max(low, UINT64_C(46)); --high) {
+    highestSeen = std::max(FindAddressLimitInner(high, 4), highestSeen);
+    low = mozilla::FloorLog2(highestSeen);
+  }
+  // If those didn't work, perform a modified binary search.
+  while (high - 1 > low) {
+    uint64_t middle = low + (high - low) / 2;
+    highestSeen = std::max(FindAddressLimitInner(middle, 4), highestSeen);
+    low = mozilla::FloorLog2(highestSeen);
+    if (highestSeen < (UINT64_C(1) << middle)) {
+      high = middle;
+    }
+  }
+  // We can be sure of the lower bound, but check the upper bound again.
+  do {
+    high = low + 1;
+    highestSeen = std::max(FindAddressLimitInner(high, 8), highestSeen);
+    low = mozilla::FloorLog2(highestSeen);
+  } while (low >= high);
+
+  // `low` is the highest set bit, so `low + 1` is the number of bits.
+  return low + 1;
+}
+
+static inline uint64_t FindAddressLimitInner(size_t highBit, size_t tries) {
   const size_t length = allocGranularity;  // Used as both length and alignment.
 
-  void* address;
-  uint64_t startRaw, endRaw, start, end, desired, actual;
-
-  // Use 32 bits as a lower bound in case we keep getting nullptr.
-  size_t low = 31;
-  uint64_t highestSeen = (UINT64_C(1) << 32) - length - 1;
-
-  // Start with addresses that have bit 47 set.
-  size_t high = 47;
-  startRaw = UINT64_C(1) << high;
-  endRaw = 2 * startRaw - length - 1;
-  start = (startRaw + length - 1) / length;
-  end = (endRaw - (length - 1)) / length;
-
-  for (size_t tries = 0; tries < 4; ++tries) {
-    desired = length * GetNumberInRange(start, end);
-    address = MapMemoryAtFuzzy(reinterpret_cast<void*>(desired), length);
-    actual = uint64_t(address);
+  uint64_t highestSeen = 0;
+  uint64_t startRaw = UINT64_C(1) << highBit;
+  uint64_t endRaw = 2 * startRaw - length - 1;
+  uint64_t start = (startRaw + length - 1) / length;
+  uint64_t end = (endRaw - (length - 1)) / length;
+  for (size_t i = 0; i < tries; ++i) {
+    uint64_t desired = length * GetNumberInRange(start, end);
+    void* address = MapMemoryAtFuzzy(reinterpret_cast<void*>(desired), length);
+    uint64_t actual = uint64_t(address);
     if (address) {
       UnmapInternal(address, length);
     }
-    if (actual >= startRaw) {
-      return high + 1;  // Return early and skip the binary search.
-    }
     if (actual > highestSeen) {
       highestSeen = actual;
-      low = mozilla::FloorLog2(highestSeen);
-    }
-  }
-
-  // Those didn't work, so perform a binary search.
-  while (high - 1 > low) {
-    size_t middle = low + (high - low) / 2;
-    startRaw = UINT64_C(1) << middle;
-    endRaw = 2 * startRaw - length - 1;
-    start = (startRaw + length - 1) / length;
-    end = (endRaw - (length - 1)) / length;
-
-    for (size_t tries = 0; tries < 4; ++tries) {
-      desired = length * GetNumberInRange(start, end);
-      address = MapMemoryAtFuzzy(reinterpret_cast<void*>(desired), length);
-      actual = uint64_t(address);
-      if (address) {
-        UnmapInternal(address, length);
-      }
-      if (actual > highestSeen) {
-        highestSeen = actual;
-        low = mozilla::FloorLog2(highestSeen);
-      }
       if (actual >= startRaw) {
         break;
       }
     }
-
-    // Low was already updated above, so just check if we need to update high.
-    if (actual < startRaw) {
-      high = middle;
-    }
   }
-
-  // High was excluded, so use low (but sanity check it).
-  return std::min(low + 1, size_t(47));
+  return highestSeen;
 }
 #  endif  // !defined(XP_WIN)
 
@@ -425,28 +415,45 @@ void* MapAlignedPages(size_t length, size_t alignment) {
   }
 #endif
 
+  // Try to allocate the region. If the returned address is aligned,
+  // either we OOMed (region is nullptr) or we're done.
   void* region = MapMemory(length);
   if (OffsetFromAligned(region, alignment) == 0) {
     return region;
   }
 
+  // Try to align the region. On success, TryToAlignChunk() returns
+  // true and we can return the aligned region immediately.
   void* retainedRegion;
-  TryToAlignChunk(&region, &retainedRegion, length, alignment);
+  if (TryToAlignChunk(&region, &retainedRegion, length, alignment)) {
+    MOZ_ASSERT(region && OffsetFromAligned(region, alignment) == 0);
+    MOZ_ASSERT(!retainedRegion);
+    return region;
+  }
+
+  // On failure, the unaligned region is retained unless we OOMed. We don't
+  // use the retained region on this path (see the last ditch allocator).
   if (retainedRegion) {
     UnmapInternal(retainedRegion, length);
   }
+
+  // If it fails to align the given region, TryToAlignChunk() returns the
+  // next valid region that we might be able to align (unless we OOMed).
   if (region) {
-    if (OffsetFromAligned(region, alignment) == 0) {
-      return region;
-    }
+    MOZ_ASSERT(OffsetFromAligned(region, alignment) != 0);
     UnmapInternal(region, length);
   }
 
+  // Since we couldn't align the first region, fall back to allocating a
+  // region large enough that we can definitely align it.
   region = MapAlignedPagesSlow(length, alignment);
   if (!region) {
+    // If there wasn't enough contiguous address space left for that,
+    // try to find an alignable region using the last ditch allocator.
     region = MapAlignedPagesLastDitch(length, alignment);
   }
 
+  // At this point we should either have an aligned region or nullptr.
   MOZ_ASSERT(OffsetFromAligned(region, alignment) == 0);
   return region;
 }
@@ -510,6 +517,7 @@ static void* MapAlignedPagesRandom(size_t length, size_t alignment) {
     }
     void* retainedRegion = nullptr;
     if (TryToAlignChunk<false>(&region, &retainedRegion, length, alignment)) {
+      MOZ_ASSERT(region && OffsetFromAligned(region, alignment) == 0);
       MOZ_ASSERT(!retainedRegion);
       return region;
     }
@@ -590,6 +598,7 @@ static void* MapAlignedPagesLastDitch(size_t length, size_t alignment) {
   }
   for (; attempt < MaxLastDitchAttempts; ++attempt) {
     if (TryToAlignChunk(&region, tempMaps + attempt, length, alignment)) {
+      MOZ_ASSERT(region && OffsetFromAligned(region, alignment) == 0);
       MOZ_ASSERT(!tempMaps[attempt]);
       break;  // Success!
     }
@@ -705,6 +714,12 @@ static bool TryToAlignChunk(void** aRegion, void** aRetainedRegion,
     // If our current chunk cannot be aligned, just get a new one.
     retainedRegion = regionStart;
     regionStart = MapMemory(length);
+    // Our new region might happen to already be aligned.
+    result = OffsetFromAligned(regionStart, alignment) == 0;
+    if (result) {
+      UnmapInternal(retainedRegion, length);
+      retainedRegion = nullptr;
+    }
   }
 
   *aRegion = regionStart;

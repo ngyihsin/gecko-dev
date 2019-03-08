@@ -117,16 +117,13 @@ nscolor AnimationValue::GetColor(nscolor aForegroundColor) const {
 already_AddRefed<const nsCSSValueSharedList> AnimationValue::GetTransformList()
     const {
   MOZ_ASSERT(mServo);
-
   RefPtr<nsCSSValueSharedList> transform;
   Servo_AnimationValue_GetTransform(mServo, &transform);
   return transform.forget();
 }
 
 Size AnimationValue::GetScaleValue(const nsIFrame* aFrame) const {
-  MOZ_ASSERT(mServo);
-  RefPtr<nsCSSValueSharedList> list;
-  Servo_AnimationValue_GetTransform(mServo, &list);
+  RefPtr<const nsCSSValueSharedList> list = GetTransformList();
   return nsStyleTransformMatrix::GetScaleValue(list, aFrame);
 }
 
@@ -162,8 +159,10 @@ double AnimationValue::ComputeDistance(nsCSSPropertyID aProperty,
   return distance < 0.0 ? 0.0 : distance;
 }
 
-/* static */ AnimationValue AnimationValue::FromString(
-    nsCSSPropertyID aProperty, const nsAString& aValue, Element* aElement) {
+/* static */
+AnimationValue AnimationValue::FromString(nsCSSPropertyID aProperty,
+                                          const nsAString& aValue,
+                                          Element* aElement) {
   MOZ_ASSERT(aElement);
 
   AnimationValue result;
@@ -196,14 +195,15 @@ double AnimationValue::ComputeDistance(nsCSSPropertyID aProperty,
   return result;
 }
 
-/* static */ AnimationValue AnimationValue::Opacity(float aOpacity) {
+/* static */
+AnimationValue AnimationValue::Opacity(float aOpacity) {
   AnimationValue result;
   result.mServo = Servo_AnimationValue_Opacity(aOpacity).Consume();
   return result;
 }
 
-/* static */ AnimationValue AnimationValue::Transform(
-    nsCSSValueSharedList& aList) {
+/* static */
+AnimationValue AnimationValue::Transform(nsCSSValueSharedList& aList) {
   AnimationValue result;
   result.mServo = Servo_AnimationValue_Transform(aList).Consume();
   return result;

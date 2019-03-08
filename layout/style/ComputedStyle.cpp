@@ -9,6 +9,7 @@
 #include "mozilla/ComputedStyle.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/Maybe.h"
+#include "mozilla/ToString.h"
 
 #include "nsCSSAnonBoxes.h"
 #include "nsCSSPseudoElements.h"
@@ -42,11 +43,9 @@ namespace mozilla {
 
 //----------------------------------------------------------------------
 
-ComputedStyle::ComputedStyle(nsAtom* aPseudoTag,
-                             CSSPseudoElementType aPseudoType,
+ComputedStyle::ComputedStyle(PseudoStyleType aPseudoType,
                              ServoComputedDataForgotten aComputedValues)
     : mSource(aComputedValues),
-      mPseudoTag(aPseudoTag),
       mBits(static_cast<Bit>(Servo_ComputedValues_GetStyleBits(this))),
       mPseudoType(aPseudoType) {}
 
@@ -260,11 +259,8 @@ void ComputedStyle::List(FILE* out, int32_t aIndent) {
     str.AppendLiteral("  ");
   }
   str.Append(nsPrintfCString("%p(%d) parent=%p ", (void*)this, 0, nullptr));
-  if (mPseudoTag) {
-    nsAutoString buffer;
-    mPseudoTag->ToString(buffer);
-    AppendUTF16toUTF8(buffer, str);
-    str.Append(' ');
+  if (mPseudoType != PseudoStyleType::NotPseudo) {
+    str.Append(nsPrintfCString("%s ", ToString(mPseudoType).c_str()));
   }
 
   fprintf_stderr(out, "%s{ServoComputedData}\n", str.get());
@@ -323,8 +319,9 @@ struct ColorIndexSet {
 
 static const ColorIndexSet gVisitedIndices[2] = {{0, 0}, {1, 0}};
 
-/* static */ nscolor ComputedStyle::CombineVisitedColors(nscolor* aColors,
-                                                         bool aLinkIsVisited) {
+/* static */
+nscolor ComputedStyle::CombineVisitedColors(nscolor* aColors,
+                                            bool aLinkIsVisited) {
   if (NS_GET_A(aColors[1]) == 0) {
     // If the style-if-visited is transparent, then just use the
     // unvisited style rather than using the (meaningless) color
@@ -356,8 +353,8 @@ static const ColorIndexSet gVisitedIndices[2] = {{0, 0}, {1, 0}};
   }
 }
 
-/* static */ Maybe<StyleStructID> ComputedStyle::LookupStruct(
-    const nsACString& aName) {
+/* static */
+Maybe<StyleStructID> ComputedStyle::LookupStruct(const nsACString& aName) {
 #  define STYLE_STRUCT(name_) \
     if (aName.EqualsLiteral(#name_)) return Some(StyleStructID::name_);
 #  include "nsStyleStructList.h"
@@ -367,10 +364,8 @@ static const ColorIndexSet gVisitedIndices[2] = {{0, 0}, {1, 0}};
 #endif  // DEBUG
 
 ComputedStyle* ComputedStyle::GetCachedLazyPseudoStyle(
-    CSSPseudoElementType aPseudo) const {
-  MOZ_ASSERT(aPseudo != CSSPseudoElementType::NotPseudo &&
-             aPseudo != CSSPseudoElementType::InheritingAnonBox &&
-             aPseudo != CSSPseudoElementType::NonInheritingAnonBox);
+    PseudoStyleType aPseudo) const {
+  MOZ_ASSERT(PseudoStyle::IsPseudoElement(aPseudo));
   MOZ_ASSERT(!IsLazilyCascadedPseudoElement(),
              "Lazy pseudos can't inherit lazy pseudos");
 
@@ -378,8 +373,7 @@ ComputedStyle* ComputedStyle::GetCachedLazyPseudoStyle(
     return nullptr;
   }
 
-  return mCachedInheritingStyles.Lookup(
-      nsCSSPseudoElements::GetPseudoAtom(aPseudo));
+  return mCachedInheritingStyles.Lookup(aPseudo);
 }
 
 MOZ_DEFINE_MALLOC_ENCLOSING_SIZE_OF(ServoComputedValuesMallocEnclosingSizeOf)

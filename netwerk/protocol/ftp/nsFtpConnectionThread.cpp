@@ -1796,13 +1796,13 @@ nsFtpState::OnTransportStatus(nsITransport *transport, nsresult status,
 //-----------------------------------------------------------------------------
 
 NS_IMETHODIMP
-nsFtpState::OnStartRequest(nsIRequest *request, nsISupports *context) {
+nsFtpState::OnStartRequest(nsIRequest *request) {
   mStorReplyReceived = false;
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsFtpState::OnStopRequest(nsIRequest *request, nsISupports *context,
+nsFtpState::OnStopRequest(nsIRequest *request,
                           nsresult status) {
   mUploadRequest = nullptr;
 
@@ -1889,7 +1889,7 @@ static nsresult CreateHTTPProxiedChannel(nsIChannel *channel, nsIProxyInfo *pi,
   nsCOMPtr<nsILoadInfo> loadInfo;
   channel->GetLoadInfo(getter_AddRefs(loadInfo));
 
-  return pph->NewProxiedChannel2(uri, pi, 0, nullptr, loadInfo, newChannel);
+  return pph->NewProxiedChannel(uri, pi, 0, nullptr, loadInfo, newChannel);
 }
 
 NS_IMETHODIMP

@@ -75,6 +75,7 @@ EXPORTS += [
     'nsEscape.h',
     'nsLinebreakConverter.h',
     'nsLocalFile.h',
+    'nsLocalFileCommon.h',
     'nsMultiplexInputStream.h',
     'nsNativeCharsetUtils.h',
     'nsScriptableInputStream.h',
@@ -158,6 +159,3 @@ if CONFIG['CC_TYPE'] == 'clang-cl':
     # '_snwprintf' : format string '%s' requires an argument of type 'wchar_t *',
     # but variadic argument 3 has type 'char16ptr_t'
     CXXFLAGS += ['-wd4477']
-
-if CONFIG['CC_TYPE'] == 'clang-cl':
-    AllowCompilerWarnings()  # workaround for bug 1090497

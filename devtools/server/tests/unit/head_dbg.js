@@ -197,11 +197,6 @@ function findTab(tabs, title) {
   return null;
 }
 
-function attachTarget(client, tab) {
-  dump("Attaching to tab with title '" + tab.title + "'.\n");
-  return client.attachTarget(tab);
-}
-
 function waitForNewSource(threadClient, url) {
   dump("Waiting for new source with url '" + url + "'.\n");
   return waitForEvent(threadClient, "newSource", function(packet) {
@@ -930,7 +925,7 @@ function threadClientTest(test, options = {}) {
       await attachTestTabAndResume(client, scriptName);
 
     // Run the test function
-    await test({ threadClient, debuggee, client, targetFront });
+    await test({ threadClient, debuggee, client, server, targetFront });
 
     // Cleanup the client after the test ran
     await client.close();

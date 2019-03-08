@@ -129,6 +129,8 @@ class HttpChannelParent final : public nsIInterfaceRequestor,
   // child channel.
   void CancelChildCrossProcessRedirect();
 
+  already_AddRefed<HttpChannelParentListener> GetParentListener();
+
  protected:
   // used to connect redirected-to channel in parent with just created
   // ChildChannel.  Used during redirects.
@@ -137,12 +139,13 @@ class HttpChannelParent final : public nsIInterfaceRequestor,
 
   MOZ_MUST_USE bool DoAsyncOpen(
       const URIParams& uri, const OptionalURIParams& originalUri,
-      const OptionalURIParams& docUri, const OptionalURIParams& referrerUri,
+      const OptionalURIParams& docUri,
+      const OptionalURIParams& originalReferrerUri,
       const uint32_t& referrerPolicy,
       const OptionalURIParams& internalRedirectUri,
       const OptionalURIParams& topWindowUri, nsIPrincipal* aTopWindowPrincipal,
       const uint32_t& loadFlags, const RequestHeaderTuples& requestHeaders,
-      const nsCString& requestMethod, const OptionalIPCStream& uploadStream,
+      const nsCString& requestMethod, const Maybe<IPCStream>& uploadStream,
       const bool& uploadStreamHasHeaders, const int16_t& priority,
       const uint32_t& classOfService, const uint8_t& redirectionLimit,
       const bool& allowSTS, const uint32_t& thirdPartyFlags,
@@ -161,7 +164,8 @@ class HttpChannelParent final : public nsIInterfaceRequestor,
       const uint32_t& aCorsMode, const uint32_t& aRedirectMode,
       const uint64_t& aChannelId, const nsString& aIntegrityMetadata,
       const uint64_t& aContentWindowId,
-      const ArrayOfStringPairs& aPreferredAlternativeTypes,
+      const nsTArray<PreferredAlternativeDataTypeParams>&
+          aPreferredAlternativeTypes,
       const uint64_t& aTopLevelOuterContentWindowId,
       const TimeStamp& aLaunchServiceWorkerStart,
       const TimeStamp& aLaunchServiceWorkerEnd,
@@ -205,6 +209,8 @@ class HttpChannelParent final : public nsIInterfaceRequestor,
       const mozilla::ipc::PrincipalInfo& requestingPrincipal) override;
   virtual mozilla::ipc::IPCResult RecvBytesRead(const int32_t& aCount) override;
   virtual mozilla::ipc::IPCResult RecvOpenOriginalCacheInputStream() override;
+  virtual mozilla::ipc::IPCResult RecvOpenAltDataCacheInputStream(
+      const nsCString& aType) override;
   virtual void ActorDestroy(ActorDestroyReason why) override;
 
   // Supporting function for ADivertableParentChannel.

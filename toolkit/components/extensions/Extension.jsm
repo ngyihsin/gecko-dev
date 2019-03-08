@@ -53,6 +53,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   NetUtil: "resource://gre/modules/NetUtil.jsm",
   OS: "resource://gre/modules/osfile.jsm",
   PluralForm: "resource://gre/modules/PluralForm.jsm",
+  PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.jsm",
   Schemas: "resource://gre/modules/Schemas.jsm",
   XPIProvider: "resource://gre/modules/addons/XPIProvider.jsm",
 });
@@ -108,6 +109,8 @@ XPCOMUtils.defineLazyGetter(this, "console", ExtensionCommon.getConsole);
 XPCOMUtils.defineLazyGetter(this, "LocaleData", () => ExtensionCommon.LocaleData);
 
 const {sharedData} = Services.ppmm;
+
+const PRIVATE_ALLOWED_PERMISSION = "internal:privateBrowsingAllowed";
 
 // The userContextID reserved for the extension storage (its purpose is ensuring that the IndexedDB
 // storage used by the browser.storage.local API is not directly accessible from the extension code,
@@ -711,13 +714,6 @@ class ExtensionData {
         permissions.add(perm);
       }
 
-      // We only want to set permissions if the feature is preffed on
-      // (allowPrivateBrowsingByDefault is false)
-      if (!allowPrivateBrowsingByDefault &&
-          manifest.incognito !== "not_allowed" &&
-          this.isPrivileged && !this.addonData.temporarilyInstalled) {
-        permissions.add("internal:privateBrowsingAllowed");
-      }
 
       if (this.id) {
         // An extension always gets permission to its own url.
@@ -1366,6 +1362,8 @@ class LangpackBootstrapScope {
 
 let activeExtensionIDs = new Set();
 
+let pendingExtensions = new Map();
+
 /**
  * This class is the main representation of an active WebExtension
  * in the main process.
@@ -1760,6 +1758,9 @@ class Extension extends ExtensionData {
     activeExtensionIDs.add(this.id);
     sharedData.set("extensions/activeIDs", activeExtensionIDs);
 
+    pendingExtensions.delete(this.id);
+    sharedData.set("extensions/pending", pendingExtensions);
+
     Services.ppmm.sharedData.flush();
     this.broadcast("Extension:Startup", this.id);
 
@@ -1848,27 +1849,42 @@ class Extension extends ExtensionData {
     }
   }
 
+  static async migratePrivateBrowsing(addonData) {
+    if (addonData.incognito !== "not_allowed") {
+      ExtensionPermissions.add(addonData.id, {permissions: [PRIVATE_ALLOWED_PERMISSION], origins: []});
+      await StartupCache.clearAddonData(addonData.id);
+    }
+  }
+
   async startup() {
     this.state = "Startup";
+
+    let resolveReadyPromise;
+    let readyPromise = new Promise(resolve => {
+      resolveReadyPromise = resolve;
+    });
 
     // Create a temporary policy object for the devtools and add-on
     // manager callers that depend on it being available early.
     this.policy = new WebExtensionPolicy({
       id: this.id,
       mozExtensionHostname: this.uuid,
-      baseURL: this.baseURI.spec,
+      baseURL: this.resourceURL,
       allowedOrigins: new MatchPatternSet([]),
       localizeCallback() {},
+      readyPromise,
     });
+
+    this.policy.extension = this;
     if (!WebExtensionPolicy.getByID(this.id)) {
-      // The add-on manager doesn't handle async startup and shutdown,
-      // so during upgrades and add-on restarts, startup() gets called
-      // before the last shutdown has completed, and this fails when
-      // there's another active add-on with the same ID.
       this.policy.active = true;
     }
 
-    this.policy.extension = this;
+    pendingExtensions.set(this.id, {
+      mozExtensionHostname: this.uuid,
+      baseURL: this.resourceURL,
+    });
+    sharedData.set("extensions/pending", pendingExtensions);
 
     ExtensionTelemetry.extensionStartup.stopwatchStart(this);
     try {
@@ -1888,6 +1904,22 @@ class Extension extends ExtensionData {
 
       if (this.hasShutdown) {
         return;
+      }
+
+      // We automatically add permissions to some extensions:
+      // 1. system/built-in extensions
+      // 2. all extensions when in permanent private browsing
+      //
+      // Extensions expliticy stating not_allowed will never get permission.
+      if (!allowPrivateBrowsingByDefault && this.manifest.incognito !== "not_allowed" &&
+          !this.permissions.has(PRIVATE_ALLOWED_PERMISSION)) {
+        if ((this.isPrivileged && !this.addonData.temporarilyInstalled) ||
+            (PrivateBrowsingUtils.permanentPrivateBrowsing && this.startupReason == "ADDON_INSTALL")) {
+          // Add to EP so it is preserved after ADDON_INSTALL.  We don't wait on the add here
+          // since we are pushing the value into this.permissions.  EP will eventually save.
+          ExtensionPermissions.add(this.id, {permissions: [PRIVATE_ALLOWED_PERMISSION], origins: []});
+          this.permissions.add(PRIVATE_ALLOWED_PERMISSION);
+        }
       }
 
       GlobalManager.init(this);
@@ -1910,6 +1942,8 @@ class Extension extends ExtensionData {
           this.setSharedData("storageIDBPrincipal", ExtensionStorageIDB.getStoragePrincipal(this));
         }
       }
+
+      resolveReadyPromise(this.policy);
 
       // The "startup" Management event sent on the extension instance itself
       // is emitted just before the Management "startup" event,

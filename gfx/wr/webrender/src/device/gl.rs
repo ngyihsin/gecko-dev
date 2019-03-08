@@ -3,11 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use super::super::shader_source::SHADERS;
-use api::{ColorF, ImageFormat, MemoryReport};
-use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use api::TextureTarget;
-use api::VoidPtrToSizeFn;
-use api::ImageDescriptor;
+use api::{ColorF, ImageDescriptor, ImageFormat, MemoryReport};
+use api::{TextureTarget, VoidPtrToSizeFn};
+use api::units::*;
 use euclid::Transform3D;
 use gleam::gl;
 use internal_types::{FastHashMap, LayerIndex, RenderTargetInfo};
@@ -20,6 +18,7 @@ use std::cmp;
 use std::collections::hash_map::Entry;
 use std::marker::PhantomData;
 use std::mem;
+use std::num::NonZeroUsize;
 use std::os::raw::c_void;
 use std::ops::Add;
 use std::path::PathBuf;
@@ -924,7 +923,6 @@ pub struct Device {
     /// so this defaults to true.
     depth_available: bool,
 
-    device_pixel_ratio: f32,
     upload_method: UploadMethod,
 
     // HW or API capabilities
@@ -964,6 +962,8 @@ pub struct Device {
     /// Whether the function glCopyImageSubData is available.
     supports_copy_image_sub_data: bool,
 
+    optimal_pbo_stride: NonZeroUsize,
+
     // GL extensions
     extensions: Vec<String>,
 }
@@ -973,7 +973,12 @@ pub struct Device {
 pub enum DrawTarget<'a> {
     /// Use the device's default draw target, with the provided dimensions,
     /// which are used to set the viewport.
-    Default(DeviceIntSize),
+    Default {
+        /// Target rectangle to draw.
+        rect: FramebufferIntRect,
+        /// Total size of the target.
+        total_size: FramebufferIntSize,
+    },
     /// Use the provided texture.
     Texture {
         /// The target texture.
@@ -986,10 +991,17 @@ pub enum DrawTarget<'a> {
 }
 
 impl<'a> DrawTarget<'a> {
+    pub fn new_default(size: FramebufferIntSize) -> Self {
+        DrawTarget::Default {
+            rect: size.into(),
+            total_size: size,
+        }
+    }
+
     /// Returns true if this draw target corresponds to the default framebuffer.
     pub fn is_default(&self) -> bool {
         match *self {
-            DrawTarget::Default(..) => true,
+            DrawTarget::Default {..} => true,
             _ => false,
         }
     }
@@ -997,9 +1009,22 @@ impl<'a> DrawTarget<'a> {
     /// Returns the dimensions of this draw-target.
     pub fn dimensions(&self) -> DeviceIntSize {
         match *self {
-            DrawTarget::Default(d) => d,
+            DrawTarget::Default { total_size, .. } => DeviceIntSize::from_untyped(&total_size.to_untyped()),
             DrawTarget::Texture { texture, .. } => texture.get_dimensions(),
         }
+    }
+
+    pub fn to_framebuffer_rect(&self, device_rect: DeviceIntRect) -> FramebufferIntRect {
+        let mut fb_rect = FramebufferIntRect::from_untyped(&device_rect.to_untyped());
+        match *self {
+            DrawTarget::Default { ref rect, .. } => {
+                // perform a Y-flip here
+                fb_rect.origin.y = rect.origin.y + rect.size.height - fb_rect.origin.y - fb_rect.size.height;
+                fb_rect.origin.x += rect.origin.x;
+            }
+            DrawTarget::Texture { .. } => (),
+        }
+        fb_rect
     }
 
     /// Given a scissor rect, convert it to the right coordinate space
@@ -1008,27 +1033,25 @@ impl<'a> DrawTarget<'a> {
     pub fn build_scissor_rect(
         &self,
         scissor_rect: Option<DeviceIntRect>,
-        framebuffer_target_rect: DeviceIntRect,
-    ) -> DeviceIntRect {
+        content_origin: DeviceIntPoint,
+    ) -> FramebufferIntRect {
         let dimensions = self.dimensions();
 
         match scissor_rect {
-            Some(scissor_rect) => {
-                // Note: `framebuffer_target_rect` needs a Y-flip before going to GL
-                if self.is_default() {
-                    let mut rect = scissor_rect
-                        .intersection(&framebuffer_target_rect.to_i32())
-                        .unwrap_or(DeviceIntRect::zero());
-                    rect.origin.y = dimensions.height as i32 - rect.origin.y - rect.size.height;
-                    rect
-                } else {
-                    scissor_rect
+            Some(scissor_rect) => match *self {
+                DrawTarget::Default { ref rect, .. } => {
+                    self.to_framebuffer_rect(scissor_rect.translate(&-content_origin.to_vector()))
+                        .intersection(rect)
+                        .unwrap_or_else(FramebufferIntRect::zero)
+                }
+                DrawTarget::Texture { .. } => {
+                    FramebufferIntRect::from_untyped(&scissor_rect.to_untyped())
                 }
             }
             None => {
-                DeviceIntRect::new(
-                    DeviceIntPoint::zero(),
-                    dimensions,
+                FramebufferIntRect::new(
+                    FramebufferIntPoint::zero(),
+                    FramebufferIntSize::from_untyped(&dimensions.to_untyped()),
                 )
             }
         }
@@ -1052,7 +1075,7 @@ pub enum ReadTarget<'a> {
 impl<'a> From<DrawTarget<'a>> for ReadTarget<'a> {
     fn from(t: DrawTarget<'a>) -> Self {
         match t {
-            DrawTarget::Default(..) => ReadTarget::Default,
+            DrawTarget::Default { .. } => ReadTarget::Default,
             DrawTarget::Texture { texture, layer, .. } =>
                 ReadTarget::Texture { texture, layer },
         }
@@ -1070,7 +1093,10 @@ impl Device {
         // this on release builds because the synchronous call can stall the
         // pipeline.
         if cfg!(debug_assertions) {
-            gl = gl::ErrorCheckingGl::wrap(gl);
+            gl = gl::ErrorReactingGl::wrap(gl, |gl, name, code| {
+                Self::echo_driver_messages(gl);
+                panic!("Caught GL error {:x} at {}", code, name);
+            });
         }
 
         let mut max_texture_size = [0];
@@ -1173,12 +1199,20 @@ impl Device {
         let supports_copy_image_sub_data = supports_extension(&extensions, "GL_EXT_copy_image") ||
             supports_extension(&extensions, "GL_ARB_copy_image");
 
+        // On Adreno GPUs PBO texture upload is only performed asynchronously
+        // if the stride of the data in the PBO is a multiple of 256 bytes.
+        // Other platforms may have similar requirements and should be added
+        // here.
+        // The default value should be 4.
+        let optimal_pbo_stride = if renderer_name.contains("Adreno") {
+            NonZeroUsize::new(256).unwrap()
+        } else {
+            NonZeroUsize::new(4).unwrap()
+        };
+
         Device {
             gl,
             resource_override_path,
-            // This is initialized to 1 by default, but it is reset
-            // at the beginning of each frame in `Renderer::bind_frame_data`.
-            device_pixel_ratio: 1.0,
             upload_method,
             inside_frame: false,
 
@@ -1209,7 +1243,8 @@ impl Device {
             frame_id: GpuFrameId(0),
             extensions,
             texture_storage_usage,
-            supports_copy_image_sub_data
+            supports_copy_image_sub_data,
+            optimal_pbo_stride,
         }
     }
 
@@ -1219,10 +1254,6 @@ impl Device {
 
     pub fn rc_gl(&self) -> &Rc<gl::Gl> {
         &self.gl
-    }
-
-    pub fn set_device_pixel_ratio(&mut self, ratio: f32) {
-        self.device_pixel_ratio = ratio;
     }
 
     pub fn update_program_cache(&mut self, cached_programs: Rc<ProgramCache>) {
@@ -1418,14 +1449,17 @@ impl Device {
         &mut self,
         target: DrawTarget,
     ) {
-        let (fbo_id, dimensions, depth_available) = match target {
-            DrawTarget::Default(d) => (self.default_draw_fbo, d, true),
+        let (fbo_id, rect, depth_available) = match target {
+            DrawTarget::Default { rect, .. } => (self.default_draw_fbo, rect, true),
             DrawTarget::Texture { texture, layer, with_depth } => {
-                let dim = texture.get_dimensions();
+                let rect = FramebufferIntRect::new(
+                    FramebufferIntPoint::zero(),
+                    FramebufferIntSize::from_untyped(&texture.get_dimensions().to_untyped()),
+                );
                 if with_depth {
-                    (texture.fbos_with_depth[layer], dim, true)
+                    (texture.fbos_with_depth[layer], rect, true)
                 } else {
-                    (texture.fbos[layer], dim, false)
+                    (texture.fbos[layer], rect, false)
                 }
             }
         };
@@ -1433,10 +1467,10 @@ impl Device {
         self.depth_available = depth_available;
         self.bind_draw_target_impl(fbo_id);
         self.gl.viewport(
-            0,
-            0,
-            dimensions.width as _,
-            dimensions.height as _,
+            rect.origin.x,
+            rect.origin.y,
+            rect.size.width,
+            rect.size.height,
         );
     }
 
@@ -1787,7 +1821,10 @@ impl Device {
             }
         } else {
             // Note that zip() truncates to the shorter of the two iterators.
-            let rect = DeviceIntRect::new(DeviceIntPoint::zero(), src.get_dimensions().to_i32());
+            let rect = FramebufferIntRect::new(
+                FramebufferIntPoint::zero(),
+                FramebufferIntSize::from_untyped(&src.get_dimensions().to_untyped()),
+            );
             for (read_fbo, draw_fbo) in src.fbos.iter().zip(&dst.fbos) {
                 self.bind_read_target_impl(*read_fbo);
                 self.bind_draw_target_impl(*draw_fbo);
@@ -1944,8 +1981,8 @@ impl Device {
 
     pub fn blit_render_target(
         &mut self,
-        src_rect: DeviceIntRect,
-        dest_rect: DeviceIntRect,
+        src_rect: FramebufferIntRect,
+        dest_rect: FramebufferIntRect,
         filter: TextureFilter,
     ) {
         debug_assert!(self.inside_frame);
@@ -1974,8 +2011,8 @@ impl Device {
     /// origin-top-left).
     pub fn blit_render_target_invert_y(
         &mut self,
-        src_rect: DeviceIntRect,
-        dest_rect: DeviceIntRect,
+        src_rect: FramebufferIntRect,
+        dest_rect: FramebufferIntRect,
     ) {
         debug_assert!(self.inside_frame);
         self.gl.blit_framebuffer(
@@ -2166,6 +2203,7 @@ impl Device {
             target: UploadTarget {
                 gl: &*self.gl,
                 bgra_format: self.bgra_format_external,
+                optimal_pbo_stride: self.optimal_pbo_stride,
                 texture,
             },
             buffer,
@@ -2226,7 +2264,7 @@ impl Device {
     /// Read rectangle of pixels into the specified output slice.
     pub fn read_pixels_into(
         &mut self,
-        rect: DeviceIntRect,
+        rect: FramebufferIntRect,
         format: ReadPixelsFormat,
         output: &mut [u8],
     ) {
@@ -2337,17 +2375,13 @@ impl Device {
         ibo_id: IBOId,
         owns_vertices_and_indices: bool,
     ) -> VAO {
-        debug_assert!(self.inside_frame);
-
         let instance_stride = descriptor.instance_stride() as usize;
         let vao_id = self.gl.gen_vertex_arrays(1)[0];
 
-        self.gl.bind_vertex_array(vao_id);
+        self.bind_vao_impl(vao_id);
 
         descriptor.bind(self.gl(), main_vbo_id, instance_vbo_id);
         ibo_id.bind(self.gl()); // force it to be a part of VAO
-
-        self.gl.bind_vertex_array(0);
 
         VAO {
             id: vao_id,
@@ -2366,7 +2400,7 @@ impl Device {
         debug_assert!(self.inside_frame);
 
         let vao_id = self.gl.gen_vertex_arrays(1)[0];
-        self.gl.bind_vertex_array(vao_id);
+        self.bind_vao_impl(vao_id);
 
         let mut attrib_index = 0;
         for stream in streams {
@@ -2379,8 +2413,6 @@ impl Device {
             );
             attrib_index += stream.attributes.len();
         }
-
-        self.gl.bind_vertex_array(0);
 
         CustomVAO {
             id: vao_id,
@@ -2607,7 +2639,7 @@ impl Device {
         &self,
         color: Option<[f32; 4]>,
         depth: Option<f32>,
-        rect: Option<DeviceIntRect>,
+        rect: Option<FramebufferIntRect>,
     ) {
         let mut clear_bits = 0;
 
@@ -2674,7 +2706,7 @@ impl Device {
         self.gl.disable(gl::STENCIL_TEST);
     }
 
-    pub fn set_scissor_rect(&self, rect: DeviceIntRect) {
+    pub fn set_scissor_rect(&self, rect: FramebufferIntRect) {
         self.gl.scissor(
             rect.origin.x,
             rect.origin.y,
@@ -2770,8 +2802,8 @@ impl Device {
         supports_extension(&self.extensions, extension)
     }
 
-    pub fn echo_driver_messages(&self) {
-        for msg in self.gl.get_debug_messages() {
+    pub fn echo_driver_messages(gl: &gl::Gl) {
+        for msg in gl.get_debug_messages() {
             let level = match msg.severity {
                 gl::DEBUG_SEVERITY_HIGH => Level::Error,
                 gl::DEBUG_SEVERITY_MEDIUM => Level::Warn,
@@ -2887,6 +2919,7 @@ impl PixelBuffer {
 struct UploadTarget<'a> {
     gl: &'a gl::Gl,
     bgra_format: gl::GLuint,
+    optimal_pbo_stride: NonZeroUsize,
     texture: &'a Texture,
 }
 
@@ -2904,6 +2937,13 @@ impl<'a, T> Drop for TextureUploader<'a, T> {
             }
             self.target.gl.bind_buffer(gl::PIXEL_UNPACK_BUFFER, 0);
         }
+    }
+}
+
+fn round_up_to_multiple(val: usize, mul: NonZeroUsize) -> usize {
+    match val % mul.get() {
+        rem if rem > 0 => val - rem + mul.get(),
+        _ => val,
     }
 }
 
@@ -2928,20 +2968,24 @@ impl<'a, T> TextureUploader<'a, T> {
             Some(r) => r,
         };
 
-        let bytes_pp = self.target.texture.format.bytes_per_pixel();
-        let upload_size = match stride {
-            Some(stride) => ((rect.size.height - 1) * stride + rect.size.width * bytes_pp) as usize,
-            None => (rect.size.area() * bytes_pp) as usize,
-        };
-        assert!(upload_size <= data.len() * mem::size_of::<T>());
+        let bytes_pp = self.target.texture.format.bytes_per_pixel() as usize;
+        let width_bytes = rect.size.width as usize * bytes_pp;
+
+        let src_stride = stride.map_or(width_bytes, |stride| {
+            assert!(stride >= 0);
+            stride as usize
+        });
+        let src_size = (rect.size.height as usize - 1) * src_stride + width_bytes;
+        assert!(src_size <= data.len() * mem::size_of::<T>());
+
+        // for optimal PBO texture uploads the stride of the data in
+        // the buffer may have to be a multiple of a certain value.
+        let dst_stride = round_up_to_multiple(src_stride, self.target.optimal_pbo_stride);
+        let dst_size = (rect.size.height as usize - 1) * dst_stride + width_bytes;
 
         match self.buffer {
             Some(ref mut buffer) => {
-                let elem_count = upload_size / mem::size_of::<T>();
-                assert_eq!(elem_count * mem::size_of::<T>(), upload_size);
-                let slice = &data[.. elem_count];
-
-                if buffer.size_used + upload_size > buffer.size_allocated {
+                if buffer.size_used + dst_size > buffer.size_allocated {
                     // flush
                     for chunk in buffer.chunks.drain() {
                         self.target.update_impl(chunk);
@@ -2949,28 +2993,61 @@ impl<'a, T> TextureUploader<'a, T> {
                     buffer.size_used = 0;
                 }
 
-                if upload_size > buffer.size_allocated {
-                    gl::buffer_data(
-                        self.target.gl,
+                if dst_size > buffer.size_allocated {
+                    // allocate a buffer large enough
+                    self.target.gl.buffer_data_untyped(
                         gl::PIXEL_UNPACK_BUFFER,
-                        slice,
+                        dst_size as _,
+                        ptr::null(),
                         buffer.usage,
                     );
-                    buffer.size_allocated = upload_size;
-                } else {
+                    buffer.size_allocated = dst_size;
+                }
+
+                if src_stride == dst_stride {
+                    // the stride is already optimal, so simply copy
+                    // the data as-is in to the buffer
+                    let elem_count = src_size / mem::size_of::<T>();
+                    assert_eq!(elem_count * mem::size_of::<T>(), src_size);
+                    let slice = &data[.. elem_count];
+
                     gl::buffer_sub_data(
                         self.target.gl,
                         gl::PIXEL_UNPACK_BUFFER,
                         buffer.size_used as _,
                         slice,
                     );
+                } else {
+                    // copy the data line-by-line in to the buffer so
+                    // that it has an optimal stride
+                    let ptr = self.target.gl.map_buffer_range(
+                        gl::PIXEL_UNPACK_BUFFER,
+                        buffer.size_used as _,
+                        dst_size as _,
+                        gl::MAP_WRITE_BIT | gl::MAP_INVALIDATE_RANGE_BIT);
+
+                    unsafe {
+                        let src: &[u8] = slice::from_raw_parts(data.as_ptr() as *const u8, src_size);
+                        let dst: &mut [u8] = slice::from_raw_parts_mut(ptr as *mut u8, dst_size);
+
+                        for y in 0..rect.size.height as usize {
+                            let src_start = y * src_stride;
+                            let src_end = src_start + width_bytes;
+                            let dst_start = y * dst_stride;
+                            let dst_end = dst_start + width_bytes;
+
+                            dst[dst_start..dst_end].copy_from_slice(&src[src_start..src_end])
+                        }
+                    }
+
+                    self.target.gl.unmap_buffer(gl::PIXEL_UNPACK_BUFFER);
                 }
 
                 buffer.chunks.push(UploadChunk {
-                    rect, layer_index, stride,
+                    rect, layer_index, stride: Some(dst_stride as i32),
                     offset: buffer.size_used,
                 });
-                buffer.size_used += upload_size;
+                buffer.size_used += dst_size;
             }
             None => {
                 self.target.update_impl(UploadChunk {
@@ -2980,7 +3057,7 @@ impl<'a, T> TextureUploader<'a, T> {
             }
         }
 
-        upload_size
+        dst_size
     }
 }
 

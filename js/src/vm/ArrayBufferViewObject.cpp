@@ -22,8 +22,8 @@ using namespace js;
  * a custom tracer to move the object's data pointer if its owner was moved and
  * stores its data inline.
  */
-/* static */ void ArrayBufferViewObject::trace(JSTracer* trc,
-                                               JSObject* objArg) {
+/* static */
+void ArrayBufferViewObject::trace(JSTracer* trc, JSObject* objArg) {
   NativeObject* obj = &objArg->as<NativeObject>();
   HeapSlot& bufSlot = obj->getFixedSlotRef(BUFFER_SLOT);
   TraceEdge(trc, &bufSlot, "ArrayBufferViewObject.buffer");
@@ -35,12 +35,6 @@ using namespace js;
           AsArrayBuffer(MaybeForwarded(&bufSlot.toObject()));
       uint32_t offset = uint32_t(obj->getFixedSlot(BYTEOFFSET_SLOT).toInt32());
       MOZ_ASSERT(offset <= INT32_MAX);
-
-      // We don't expose the underlying ArrayBuffer for typed objects,
-      // and we don't allow constructing a TypedObject from an arbitrary
-      // ArrayBuffer, so we should never have a TypedArray/DataView with
-      // a buffer that has TypedObject views.
-      MOZ_RELEASE_ASSERT(!buf.forInlineTypedObject());
 
       MOZ_ASSERT_IF(buf.dataPointer() == nullptr, offset == 0);
 
@@ -58,14 +52,14 @@ bool JSObject::is<js::ArrayBufferViewObject>() const {
   return is<DataViewObject>() || is<TypedArrayObject>();
 }
 
-void ArrayBufferViewObject::notifyBufferDetached(void* newData) {
+void ArrayBufferViewObject::notifyBufferDetached() {
   MOZ_ASSERT(!isSharedMemory());
   MOZ_ASSERT(hasBuffer());
 
   setFixedSlot(LENGTH_SLOT, Int32Value(0));
   setFixedSlot(BYTEOFFSET_SLOT, Int32Value(0));
 
-  setPrivate(newData);
+  setPrivate(nullptr);
 }
 
 uint8_t* ArrayBufferViewObject::dataPointerUnshared(
@@ -78,7 +72,8 @@ void ArrayBufferViewObject::setDataPointerUnshared(uint8_t* data) {
   setPrivate(data);
 }
 
-/* static */ ArrayBufferObjectMaybeShared* ArrayBufferViewObject::bufferObject(
+/* static */
+ArrayBufferObjectMaybeShared* ArrayBufferViewObject::bufferObject(
     JSContext* cx, Handle<ArrayBufferViewObject*> thisObject) {
   if (thisObject->is<TypedArrayObject>()) {
     Rooted<TypedArrayObject*> typedArray(cx,
@@ -193,17 +188,16 @@ JS_FRIEND_API JSObject* JS_GetArrayBufferViewBuffer(JSContext* cx,
   CHECK_THREAD(cx);
   cx->check(obj);
 
-  JSObject* unwrappedObj = CheckedUnwrap(obj);
-  if (!unwrappedObj) {
+  Rooted<ArrayBufferViewObject*> unwrappedView(
+      cx, obj->maybeUnwrapAs<ArrayBufferViewObject>());
+  if (!unwrappedView) {
     ReportAccessDenied(cx);
     return nullptr;
   }
 
-  Rooted<ArrayBufferViewObject*> unwrappedView(
-      cx, &unwrappedObj->as<ArrayBufferViewObject>());
   ArrayBufferObjectMaybeShared* unwrappedBuffer;
   {
-    AutoRealm ar(cx, unwrappedObj);
+    AutoRealm ar(cx, unwrappedView);
     unwrappedBuffer = ArrayBufferViewObject::bufferObject(cx, unwrappedView);
     if (!unwrappedBuffer) {
       return nullptr;

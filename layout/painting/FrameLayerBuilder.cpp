@@ -41,6 +41,7 @@
 #include "mozilla/LayerTimelineMarker.h"
 
 #include "mozilla/EffectCompositor.h"
+#include "mozilla/LayerAnimationInfo.h"
 #include "mozilla/Move.h"
 #include "mozilla/ReverseIterator.h"
 #include "mozilla/gfx/2D.h"
@@ -352,19 +353,15 @@ DisplayItemData::~DisplayItemData() {
 }
 
 void DisplayItemData::ClearAnimationCompositorState() {
-  if (mDisplayItemKey !=
-          static_cast<uint32_t>(DisplayItemType::TYPE_TRANSFORM) &&
-      mDisplayItemKey != static_cast<uint32_t>(DisplayItemType::TYPE_OPACITY)) {
+  DisplayItemType type = static_cast<DisplayItemType>(mDisplayItemKey);
+  // FIXME: Bug 1530857: Add background_color.
+  if (type != DisplayItemType::TYPE_TRANSFORM &&
+      type != DisplayItemType::TYPE_OPACITY) {
     return;
   }
 
   for (nsIFrame* frame : mFrameList) {
-    nsCSSPropertyID prop =
-        mDisplayItemKey ==
-                static_cast<uint32_t>(DisplayItemType::TYPE_TRANSFORM)
-            ? eCSSProperty_transform
-            : eCSSProperty_opacity;
-    EffectCompositor::ClearIsRunningOnCompositor(frame, prop);
+    EffectCompositor::ClearIsRunningOnCompositor(frame, type);
   }
 }
 
@@ -470,11 +467,26 @@ class LayerManagerData : public LayerUserData {
   bool mInvalidateAllLayers;
 };
 
-/* static */ void FrameLayerBuilder::DestroyDisplayItemDataFor(
-    nsIFrame* aFrame) {
+/* static */
+void FrameLayerBuilder::DestroyDisplayItemDataFor(nsIFrame* aFrame) {
   RemoveFrameFromLayerManager(aFrame, aFrame->DisplayItemData());
   aFrame->DisplayItemData().Clear();
-  aFrame->DeleteProperty(WebRenderUserDataProperty::Key());
+
+  // Destroying a WebRenderUserDataTable can cause destruction of other objects
+  // which can remove frame properties in their destructor. If we delete a frame
+  // property it runs the destructor of the stored object in the middle of
+  // updating the frame property table, so if the destruction of that object
+  // causes another update to the frame property table it would leave the frame
+  // property table in an inconsistent state. So we remove it from the table and
+  // then destroy it. (bug 1530657)
+  WebRenderUserDataTable* userDataTable =
+      aFrame->RemoveProperty(WebRenderUserDataProperty::Key());
+  if (userDataTable) {
+    for (auto iter = userDataTable->Iter(); !iter.Done(); iter.Next()) {
+      iter.UserData()->RemoveFromTable();
+    }
+    delete userDataTable;
+  }
 }
 
 /**
@@ -2047,7 +2059,8 @@ static PaintedDisplayItemLayerUserData* GetPaintedDisplayItemLayerUserData(
       aLayer->GetUserData(&gPaintedDisplayItemLayerUserData));
 }
 
-/* static */ void FrameLayerBuilder::Shutdown() {
+/* static */
+void FrameLayerBuilder::Shutdown() {
   if (gMaskLayerImageCache) {
     delete gMaskLayerImageCache;
     gMaskLayerImageCache = nullptr;
@@ -2182,7 +2195,8 @@ static nsIntPoint GetTranslationForPaintedLayer(PaintedLayer* aLayer) {
  * Cache the destroyed frame pointer here so we can avoid crashing in this case.
  */
 
-/* static */ void FrameLayerBuilder::RemoveFrameFromLayerManager(
+/* static */
+void FrameLayerBuilder::RemoveFrameFromLayerManager(
     const nsIFrame* aFrame, SmallPointerArray<DisplayItemData>& aArray) {
   MOZ_RELEASE_ASSERT(!sDestroyedFrame);
   sDestroyedFrame = aFrame;
@@ -2314,7 +2328,8 @@ void FrameLayerBuilder::WillEndTransaction() {
   data->mInvalidateAllLayers = false;
 }
 
-/* static */ DisplayItemData* FrameLayerBuilder::GetDisplayItemDataForManager(
+/* static */
+DisplayItemData* FrameLayerBuilder::GetDisplayItemDataForManager(
     nsDisplayItem* aItem, LayerManager* aManager) {
   const SmallPointerArray<DisplayItemData>& array =
       aItem->Frame()->DisplayItemData();
@@ -2388,8 +2403,8 @@ Layer* FrameLayerBuilder::GetOldLayerFor(nsDisplayItem* aItem,
   return nullptr;
 }
 
-/* static */ DisplayItemData* FrameLayerBuilder::GetOldDataFor(
-    nsDisplayItem* aItem) {
+/* static */
+DisplayItemData* FrameLayerBuilder::GetOldDataFor(nsDisplayItem* aItem) {
   const SmallPointerArray<DisplayItemData>& array =
       aItem->Frame()->DisplayItemData();
 
@@ -6015,12 +6030,12 @@ static nsSize ComputeDesiredDisplaySizeForAnimation(nsIFrame* aContainerFrame) {
   return presContext->GetVisibleArea().Size();
 }
 
-/* static */ Size FrameLayerBuilder::ChooseScale(nsIFrame* aContainerFrame,
-                                                 nsDisplayItem* aContainerItem,
-                                                 const nsRect& aVisibleRect,
-                                                 float aXScale, float aYScale,
-                                                 const Matrix& aTransform2d,
-                                                 bool aCanDraw2D) {
+/* static */
+Size FrameLayerBuilder::ChooseScale(nsIFrame* aContainerFrame,
+                                    nsDisplayItem* aContainerItem,
+                                    const nsRect& aVisibleRect, float aXScale,
+                                    float aYScale, const Matrix& aTransform2d,
+                                    bool aCanDraw2D) {
   Size scale;
   // XXX Should we do something for 3D transforms?
   if (aCanDraw2D && !aContainerFrame->Combines3DTransformWithAncestors() &&
@@ -6029,8 +6044,11 @@ static nsSize ComputeDesiredDisplaySizeForAnimation(nsIFrame* aContainerFrame) {
     // scale size for animation
     if (aContainerItem &&
         aContainerItem->GetType() == DisplayItemType::TYPE_TRANSFORM &&
-        EffectCompositor::HasAnimationsForCompositor(aContainerFrame,
-                                                     eCSSProperty_transform)) {
+        // FIXME: What we need is only transform, rotate, and scale, not
+        // translate, so it's be better to use a property set, instead of
+        // display item type here.
+        EffectCompositor::HasAnimationsForCompositor(
+            aContainerFrame, DisplayItemType::TYPE_TRANSFORM)) {
       nsSize displaySize =
           ComputeDesiredDisplaySizeForAnimation(aContainerFrame);
       // compute scale using the animation on the container, taking ancestors in
@@ -6162,8 +6180,8 @@ static bool ChooseScaleAndSetTransform(
                                             aIncomingScale);
   if (aTransform) {
     aOutgoingScale.mInTransformedSubtree = true;
-    if (ActiveLayerTracker::IsStyleAnimated(
-            aDisplayListBuilder, aContainerFrame, eCSSProperty_transform)) {
+    if (ActiveLayerTracker::IsTransformAnimated(aDisplayListBuilder,
+                                                aContainerFrame)) {
       aOutgoingScale.mInActiveTransformedSubtree = true;
     }
   }
@@ -6351,8 +6369,8 @@ Layer* FrameLayerBuilder::GetLeafLayerFor(nsDisplayListBuilder* aBuilder,
   return layer;
 }
 
-/* static */ void FrameLayerBuilder::InvalidateAllLayers(
-    LayerManager* aManager) {
+/* static */
+void FrameLayerBuilder::InvalidateAllLayers(LayerManager* aManager) {
   LayerManagerData* data = static_cast<LayerManagerData*>(
       aManager->GetUserData(&gLayerManagerUserData));
   if (data) {
@@ -6360,8 +6378,8 @@ Layer* FrameLayerBuilder::GetLeafLayerFor(nsDisplayListBuilder* aBuilder,
   }
 }
 
-/* static */ void FrameLayerBuilder::InvalidateAllLayersForFrame(
-    nsIFrame* aFrame) {
+/* static */
+void FrameLayerBuilder::InvalidateAllLayersForFrame(nsIFrame* aFrame) {
   const SmallPointerArray<DisplayItemData>& array = aFrame->DisplayItemData();
 
   for (uint32_t i = 0; i < array.Length(); i++) {
@@ -6403,7 +6421,8 @@ Layer* FrameLayerBuilder::GetDedicatedLayer(nsIFrame* aFrame,
   return nullptr;
 }
 
-/* static */ void FrameLayerBuilder::EnumerateGenerationForDedicatedLayers(
+/* static */
+void FrameLayerBuilder::EnumerateGenerationForDedicatedLayers(
     const nsIFrame* aFrame,
     const CompositorAnimatableDisplayItemTypes& aDisplayItemTypes,
     const AnimationGenerationCallback& aCallback) {
@@ -6523,7 +6542,8 @@ static void DebugPaintItem(DrawTarget& aDrawTarget, nsPresContext* aPresContext,
 }
 #endif
 
-/* static */ void FrameLayerBuilder::RecomputeVisibilityForItems(
+/* static */
+void FrameLayerBuilder::RecomputeVisibilityForItems(
     std::vector<AssignedDisplayItem>& aItems, nsDisplayListBuilder* aBuilder,
     const nsIntRegion& aRegionToDraw, nsRect& aPreviousRectToDraw,
     const nsIntPoint& aOffset, int32_t aAppUnitsPerDevPixel, float aXScale,
@@ -7112,11 +7132,14 @@ static void DrawForcedBackgroundColor(DrawTarget& aDrawTarget,
  * always falls within the visible region we computed.
  */
 
-/* static */ void FrameLayerBuilder::DrawPaintedLayer(
-    PaintedLayer* aLayer, gfxContext* aContext,
-    const nsIntRegion& aRegionToDraw, const nsIntRegion& aDirtyRegion,
-    DrawRegionClip aClip, const nsIntRegion& aRegionToInvalidate,
-    void* aCallbackData) {
+/* static */
+void FrameLayerBuilder::DrawPaintedLayer(PaintedLayer* aLayer,
+                                         gfxContext* aContext,
+                                         const nsIntRegion& aRegionToDraw,
+                                         const nsIntRegion& aDirtyRegion,
+                                         DrawRegionClip aClip,
+                                         const nsIntRegion& aRegionToInvalidate,
+                                         void* aCallbackData) {
   DrawTarget& aDrawTarget = *aContext->GetDrawTarget();
 
   AUTO_PROFILER_LABEL("FrameLayerBuilder::DrawPaintedLayer",
@@ -7241,8 +7264,10 @@ static void DrawForcedBackgroundColor(DrawTarget& aDrawTarget,
   }
 }
 
-/* static */ void FrameLayerBuilder::DumpRetainedLayerTree(
-    LayerManager* aManager, std::stringstream& aStream, bool aDumpHtml) {
+/* static */
+void FrameLayerBuilder::DumpRetainedLayerTree(LayerManager* aManager,
+                                              std::stringstream& aStream,
+                                              bool aDumpHtml) {
   aManager->Dump(aStream, "", aDumpHtml);
 }
 

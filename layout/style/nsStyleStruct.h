@@ -552,8 +552,8 @@ struct nsStyleImageLayers {
 
     // mask-only property. This property is used for mask layer only. For a
     // background layer, it should always be the initial value, which is
-    // NS_STYLE_MASK_MODE_MATCH_SOURCE.
-    uint8_t mMaskMode;  // NS_STYLE_MASK_MODE_*
+    // StyleMaskMode::MatchSource.
+    mozilla::StyleMaskMode mMaskMode;
 
     Repeat mRepeat;
 
@@ -943,13 +943,11 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleBorder {
   }
 
  public:
-  nsStyleCorners mBorderRadius;  // coord, percent
+  mozilla::StyleBorderRadius mBorderRadius;  // coord, percent
   nsStyleImage mBorderImageSource;
-  nsStyleSides mBorderImageSlice;   // factor, percent
-  nsStyleSides mBorderImageWidth;   // length, factor, percent, auto
-  nsStyleSides mBorderImageOutset;  // length, factor
-
-  uint8_t mBorderImageFill;
+  nsStyleSides mBorderImageWidth;  // length, factor, percent, auto
+  mozilla::StyleNonNegativeLengthOrNumberRect mBorderImageOutset;
+  mozilla::StyleBorderImageSlice mBorderImageSlice;  // factor, percent
   mozilla::StyleBorderImageRepeat mBorderImageRepeatH;
   mozilla::StyleBorderImageRepeat mBorderImageRepeatV;
   mozilla::StyleFloatEdge mFloatEdge;
@@ -1049,7 +1047,7 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleOutline {
 
   nsChangeHint CalcDifference(const nsStyleOutline& aNewData) const;
 
-  nsStyleCorners mOutlineRadius;  // coord, percent, calc
+  mozilla::StyleBorderRadius mOutlineRadius;
 
   // This is the specified value of outline-width, but with length values
   // computed to absolute.  mActualOutlineWidth stores the outline-width
@@ -1293,13 +1291,13 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStylePosition {
   uint8_t mSpecifiedJustifyItems;
   uint8_t mJustifyItems;
   uint8_t mJustifySelf;
-  uint8_t mFlexDirection;  // NS_STYLE_FLEX_DIRECTION_*
-  uint8_t mFlexWrap;       // NS_STYLE_FLEX_WRAP_*
-  uint8_t mObjectFit;      // NS_STYLE_OBJECT_FIT_*
+  mozilla::StyleFlexDirection mFlexDirection;
+  uint8_t mFlexWrap;   // NS_STYLE_FLEX_WRAP_*
+  uint8_t mObjectFit;  // NS_STYLE_OBJECT_FIT_*
   int32_t mOrder;
   float mFlexGrow;
   float mFlexShrink;
-  nsStyleCoord mZIndex;  // integer, auto
+  mozilla::StyleZIndex mZIndex;
   mozilla::UniquePtr<nsStyleGridTemplate> mGridTemplateColumns;
   mozilla::UniquePtr<nsStyleGridTemplate> mGridTemplateRows;
 
@@ -1457,8 +1455,12 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleText {
   mozilla::StyleTextJustify mTextJustify;
   uint8_t mTextTransform;  // NS_STYLE_TEXT_TRANSFORM_*
   mozilla::StyleWhiteSpace mWhiteSpace;
-  uint8_t mWordBreak;  // NS_STYLE_WORDBREAK_*
-  mozilla::StyleOverflowWrap mOverflowWrap;
+
+ private:
+  mozilla::StyleWordBreak mWordBreak = mozilla::StyleWordBreak::Normal;
+  mozilla::StyleOverflowWrap mOverflowWrap = mozilla::StyleOverflowWrap::Normal;
+
+ public:
   mozilla::StyleHyphens mHyphens;
   uint8_t mRubyAlign;           // NS_STYLE_RUBY_ALIGN_*
   uint8_t mRubyPosition;        // NS_STYLE_RUBY_POSITION_*
@@ -1473,7 +1475,7 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleText {
   mozilla::StyleComplexColor mWebkitTextFillColor;
   mozilla::StyleComplexColor mWebkitTextStrokeColor;
 
-  nsStyleCoord mTabSize;        // coord, factor, calc
+  mozilla::StyleNonNegativeLengthOrNumber mMozTabSize;
   nsStyleCoord mWordSpacing;    // coord, percent, calc
   nsStyleCoord mLetterSpacing;  // coord, normal
   nsStyleCoord mLineHeight;     // coord, factor, normal
@@ -1483,6 +1485,20 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleText {
   RefPtr<nsCSSShadowArray> mTextShadow;  // nullptr in case of a zero-length
 
   nsString mTextEmphasisStyleString;
+
+  mozilla::StyleWordBreak EffectiveWordBreak() const {
+    if (mWordBreak == mozilla::StyleWordBreak::BreakWord) {
+      return mozilla::StyleWordBreak::Normal;
+    }
+    return mWordBreak;
+  }
+
+  mozilla::StyleOverflowWrap EffectiveOverflowWrap() const {
+    if (mWordBreak == mozilla::StyleWordBreak::BreakWord) {
+      return mozilla::StyleOverflowWrap::Anywhere;
+    }
+    return mOverflowWrap;
+  }
 
   bool WhiteSpaceIsSignificant() const {
     return mWhiteSpace == mozilla::StyleWhiteSpace::Pre ||
@@ -1518,8 +1534,9 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleText {
     if (!WhiteSpaceCanWrapStyle()) {
       return false;
     }
-    return mOverflowWrap == mozilla::StyleOverflowWrap::BreakWord ||
-           mOverflowWrap == mozilla::StyleOverflowWrap::Anywhere;
+    auto owrap = EffectiveOverflowWrap();
+    return owrap == mozilla::StyleOverflowWrap::BreakWord ||
+           owrap == mozilla::StyleOverflowWrap::Anywhere;
   }
 
   bool HasTextEmphasis() const { return !mTextEmphasisStyleString.IsEmpty(); }
@@ -1637,10 +1654,7 @@ struct StyleAnimation {
 
 class StyleBasicShape final {
  public:
-  explicit StyleBasicShape(StyleBasicShapeType type)
-      : mType(type),
-        mFillRule(StyleFillRule::Nonzero),
-        mPosition(Position::FromPercentage(0.5f)) {}
+  explicit StyleBasicShape(StyleBasicShapeType);
 
   StyleBasicShapeType GetShapeType() const { return mType; }
   nsCSSKeyword GetShapeTypeName() const;
@@ -1656,17 +1670,16 @@ class StyleBasicShape final {
 
   bool HasRadius() const {
     MOZ_ASSERT(mType == StyleBasicShapeType::Inset, "expected inset");
-    nsStyleCoord zero;
-    zero.SetCoordValue(0);
     NS_FOR_CSS_HALF_CORNERS(corner) {
-      if (mRadius.Get(corner) != zero) {
+      auto& radius = mRadius.Get(corner);
+      if (radius.HasPercent() || radius.LengthInCSSPixels() != 0.0f) {
         return true;
       }
     }
     return false;
   }
 
-  const nsStyleCorners& GetRadius() const {
+  const mozilla::StyleBorderRadius& GetRadius() const {
     MOZ_ASSERT(mType == StyleBasicShapeType::Inset, "expected inset");
     return mRadius;
   }
@@ -1695,7 +1708,7 @@ class StyleBasicShape final {
   // position of center for ellipse or circle
   mozilla::Position mPosition;
   // corner radii for inset (0 if not set)
-  nsStyleCorners mRadius;
+  mozilla::StyleBorderRadius mRadius;
 };
 
 struct StyleSVGPath final {
@@ -1879,6 +1892,7 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleDisplay {
   mozilla::StyleOverscrollBehavior mOverscrollBehaviorX;
   mozilla::StyleOverscrollBehavior mOverscrollBehaviorY;
   mozilla::StyleOverflowAnchor mOverflowAnchor;
+  mozilla::StyleScrollSnapAlign mScrollSnapAlign;
   mozilla::StyleScrollSnapType mScrollSnapTypeX;
   mozilla::StyleScrollSnapType mScrollSnapTypeY;
   nsStyleCoord mScrollSnapPointsX;
@@ -1902,10 +1916,9 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleDisplay {
   RefPtr<nsCSSValueSharedList> mIndividualTransform;
   mozilla::UniquePtr<mozilla::StyleMotion> mMotion;
 
-  nsStyleCoord mTransformOrigin[3];    // percent, coord, calc, 3rd param is
-                                       // coord, calc only
-  nsStyleCoord mChildPerspective;      // none, coord
-  nsStyleCoord mPerspectiveOrigin[2];  // percent, coord, calc
+  mozilla::StyleTransformOrigin mTransformOrigin;
+  mozilla::StylePerspective mChildPerspective;
+  mozilla::Position mPerspectiveOrigin;
 
   nsStyleCoord mVerticalAlign;  // coord, percent, calc, enum
                                 // (NS_STYLE_VERTICAL_ALIGN_*)
@@ -2145,9 +2158,7 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleDisplay {
     return mSpecifiedRotate || mSpecifiedTranslate || mSpecifiedScale;
   }
 
-  bool HasPerspectiveStyle() const {
-    return mChildPerspective.GetUnit() == eStyleUnit_Coord;
-  }
+  bool HasPerspectiveStyle() const { return !mChildPerspective.IsNone(); }
 
   bool BackfaceIsHidden() const {
     return mBackfaceVisibility == NS_STYLE_BACKFACE_VISIBILITY_HIDDEN;
@@ -2487,7 +2498,7 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleUIReset {
   uint8_t mWindowShadow;
   float mWindowOpacity;
   RefPtr<nsCSSValueSharedList> mSpecifiedWindowTransform;
-  nsStyleCoord mWindowTransformOrigin[2];  // percent, coord, calc
+  mozilla::StyleTransformOrigin mWindowTransformOrigin;
 };
 
 struct nsCursorImage {
@@ -2697,11 +2708,11 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleSVG {
   RefPtr<mozilla::css::URLValue> mMarkerEnd;
   RefPtr<mozilla::css::URLValue> mMarkerMid;
   RefPtr<mozilla::css::URLValue> mMarkerStart;
-  nsTArray<nsStyleCoord> mStrokeDasharray;  // coord, percent, factor
+  nsTArray<mozilla::NonNegativeLengthPercentage> mStrokeDasharray;
   nsTArray<RefPtr<nsAtom>> mContextProps;
 
-  nsStyleCoord mStrokeDashoffset;  // coord, percent, factor
-  nsStyleCoord mStrokeWidth;       // coord, percent, factor
+  mozilla::LengthPercentage mStrokeDashoffset;
+  mozilla::NonNegativeLengthPercentage mStrokeWidth;
 
   float mFillOpacity;
   float mStrokeMiterlimit;

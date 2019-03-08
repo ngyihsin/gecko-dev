@@ -489,6 +489,30 @@ void nsNSSComponent::UnloadEnterpriseRoots() {
 static const char* kEnterpriseRootModePref =
     "security.enterprise_roots.enabled";
 
+class BackgroundImportEnterpriseCertsTask final : public CryptoTask {
+ public:
+  explicit BackgroundImportEnterpriseCertsTask(nsNSSComponent* nssComponent)
+      : mNSSComponent(nssComponent) {}
+
+ private:
+  virtual nsresult CalculateResult() override {
+    mNSSComponent->ImportEnterpriseRoots();
+    mNSSComponent->UpdateCertVerifierWithEnterpriseRoots();
+    return NS_OK;
+  }
+
+  virtual void CallCallback(nsresult rv) override {
+    nsCOMPtr<nsIObserverService> observerService =
+        mozilla::services::GetObserverService();
+    if (observerService) {
+      observerService->NotifyObservers(nullptr, "psm:enterprise-certs-imported",
+                                       nullptr);
+    }
+  }
+
+  RefPtr<nsNSSComponent> mNSSComponent;
+};
+
 void nsNSSComponent::MaybeImportEnterpriseRoots() {
   MOZ_ASSERT(NS_IsMainThread());
   if (!NS_IsMainThread()) {
@@ -504,26 +528,36 @@ void nsNSSComponent::MaybeImportEnterpriseRoots() {
     importEnterpriseRoots = true;
   }
   if (importEnterpriseRoots) {
-    ImportEnterpriseRoots();
+    RefPtr<BackgroundImportEnterpriseCertsTask> task =
+        new BackgroundImportEnterpriseCertsTask(this);
+    Unused << task->Dispatch("EnterpriseCrts");
   }
 }
 
 void nsNSSComponent::ImportEnterpriseRoots() {
-  MutexAutoLock lock(mMutex);
-  nsresult rv = GatherEnterpriseCerts(mEnterpriseCerts);
-  if (NS_FAILED(rv)) {
+  MOZ_ASSERT(!NS_IsMainThread());
+  if (NS_IsMainThread()) {
+    return;
+  }
+
+  Vector<EnterpriseCert> enterpriseCerts;
+  nsresult rv = GatherEnterpriseCerts(enterpriseCerts);
+  if (NS_SUCCEEDED(rv)) {
+    MutexAutoLock lock(mMutex);
+    mEnterpriseCerts = std::move(enterpriseCerts);
+  } else {
     MOZ_LOG(gPIPNSSLog, LogLevel::Debug, ("failed gathering enterprise roots"));
   }
 }
 
 nsresult nsNSSComponent::CommonGetEnterpriseCerts(
     nsTArray<nsTArray<uint8_t>>& enterpriseCerts, bool getRoots) {
-  MutexAutoLock nsNSSComponentLock(mMutex);
-  MOZ_ASSERT(NS_IsMainThread());
-  if (!NS_IsMainThread()) {
-    return NS_ERROR_NOT_SAME_THREAD;
+  nsresult rv = BlockUntilLoadableRootsLoaded();
+  if (NS_FAILED(rv)) {
+    return rv;
   }
 
+  MutexAutoLock nsNSSComponentLock(mMutex);
   enterpriseCerts.Clear();
   for (const auto& cert : mEnterpriseCerts) {
     nsTArray<uint8_t> certCopy;
@@ -639,8 +673,8 @@ LoadLoadableRootsTask::Run() {
   }
   if (mImportEnterpriseRoots) {
     mNSSComponent->ImportEnterpriseRoots();
+    mNSSComponent->UpdateCertVerifierWithEnterpriseRoots();
   }
-  mNSSComponent->UpdateCertVerifierWithEnterpriseRoots();
   {
     MonitorAutoLock rootsLoadedLock(mNSSComponent->mLoadableRootsLoadedMonitor);
     mNSSComponent->mLoadableRootsLoaded = true;
@@ -955,10 +989,11 @@ static const CipherPref sCipherPrefs[] = {
 // This function will convert from pref values like 1, 2, ...
 // to the internal values of SSL_LIBRARY_VERSION_TLS_1_0,
 // SSL_LIBRARY_VERSION_TLS_1_1, ...
-/*static*/ void nsNSSComponent::FillTLSVersionRange(SSLVersionRange& rangeOut,
-                                                    uint32_t minFromPrefs,
-                                                    uint32_t maxFromPrefs,
-                                                    SSLVersionRange defaults) {
+/*static*/
+void nsNSSComponent::FillTLSVersionRange(SSLVersionRange& rangeOut,
+                                         uint32_t minFromPrefs,
+                                         uint32_t maxFromPrefs,
+                                         SSLVersionRange defaults) {
   rangeOut = defaults;
   // determine what versions are supported
   SSLVersionRange supported;
@@ -1943,12 +1978,8 @@ nsNSSComponent::Observe(nsISupports* aSubject, const char* aTopic,
                              mContentSigningRootHash);
     } else if (prefName.Equals(kEnterpriseRootModePref) ||
                prefName.Equals(kFamilySafetyModePref)) {
-      // When the pref changes, it is safe to change the trust of 3rd party
-      // roots in the same event tick that they're loaded.
       UnloadEnterpriseRoots();
       MaybeImportEnterpriseRoots();
-      MutexAutoLock lock(mMutex);
-      setValidationOptions(false, lock);
     } else if (prefName.EqualsLiteral("security.pki.mitm_canary_issuer")) {
       MutexAutoLock lock(mMutex);
       mMitmCanaryIssuer.Truncate();
@@ -1968,7 +1999,8 @@ nsNSSComponent::Observe(nsISupports* aSubject, const char* aTopic,
   return NS_OK;
 }
 
-/*static*/ nsresult nsNSSComponent::GetNewPrompter(nsIPrompt** result) {
+/*static*/
+nsresult nsNSSComponent::GetNewPrompter(nsIPrompt** result) {
   NS_ENSURE_ARG_POINTER(result);
   *result = nullptr;
 

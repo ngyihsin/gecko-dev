@@ -1939,8 +1939,7 @@ bool ASTSerializer::variableDeclarator(ParseNode* pn, MutableHandleValue dst) {
 
   if (pn->isKind(ParseNodeKind::Name)) {
     patternNode = pn;
-    initNode = pn->as<NameNode>().initializer();
-    MOZ_ASSERT_IF(initNode, pn->pn_pos.encloses(initNode->pn_pos));
+    initNode = nullptr;
   } else if (pn->isKind(ParseNodeKind::AssignExpr)) {
     AssignmentNode* assignNode = &pn->as<AssignmentNode>();
     patternNode = assignNode->left();
@@ -2824,7 +2823,7 @@ bool ASTSerializer::expression(ParseNode* pn, MutableHandleValue dst) {
              builder.memberExpression(true, expr, key, &elem->pn_pos, dst);
     }
 
-    case ParseNodeKind::CallSiteObjExpr: {
+    case ParseNodeKind::CallSiteObj: {
       CallSiteNode* callSiteObj = &pn->as<CallSiteNode>();
       ListNode* rawNodes = callSiteObj->rawNodes();
       NodeVector raw(cx);

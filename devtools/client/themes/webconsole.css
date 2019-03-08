@@ -103,6 +103,11 @@ a {
   color: var(--object-color);
 }
 
+/* Removes the top border for message in console (See Bug 1512621). */
+.webconsole-output:first-child.message.navigationMarker {
+  border-top: none;
+}
+
 .message.warn {
   color: var(--warning-color);
   background-color: var(--warning-background-color);
@@ -982,6 +987,7 @@ body {
 .split-box.vert.sidebar {
   /* Set to prevent the sidebar from extending past the right edge of the page */
   width: unset;
+  height: 100vh;
 }
 
 .sidebar-wrapper {
@@ -1002,7 +1008,6 @@ body {
 .sidebar-contents {
   grid-row: 2 / 3;
   overflow: auto;
-  max-height: 100%;
 }
 
 .webconsole-sidebar-toolbar .sidebar-close-button {
@@ -1024,4 +1029,12 @@ body {
   left: -9999px;
   width: 0;
   height: 0;
+}
+
+/* set to prevent the filter height from devtools-searchbox */
+.webconsole-filterbar-primary .devtools-searchbox {
+  align-self: stretch;
+  height: unset;
+  flex: 1 1 100%;
+  margin-inline-start: 1px;
 }

@@ -841,18 +841,6 @@ static MOZ_MUST_USE bool RunFile(JSContext* cx, const char* filename,
                                  bool compileOnly) {
   SkipUTF8BOM(file);
 
-  // To support the UNIX #! shell hack, gobble the first line if it starts
-  // with '#'.
-  int ch = fgetc(file);
-  if (ch == '#') {
-    while ((ch = fgetc(file)) != EOF) {
-      if (ch == '\n' || ch == '\r') {
-        break;
-      }
-    }
-  }
-  ungetc(ch, file);
-
   int64_t t1 = PRMJ_Now();
   RootedScript script(cx);
 
@@ -1916,11 +1904,11 @@ static bool CacheEntry_setBytecode(JSContext* cx, HandleObject cache,
                                    uint8_t* buffer, uint32_t length) {
   MOZ_ASSERT(CacheEntry_isCacheEntry(cache));
 
-  ArrayBufferObject::BufferContents contents =
-      ArrayBufferObject::BufferContents::create<ArrayBufferObject::PLAIN>(
-          buffer);
+  using BufferContents = ArrayBufferObject::BufferContents;
+
+  BufferContents contents = BufferContents::createMalloced(buffer);
   Rooted<ArrayBufferObject*> arrayBuffer(
-      cx, ArrayBufferObject::create(cx, length, contents));
+      cx, ArrayBufferObject::createForContents(cx, length, contents));
   if (!arrayBuffer) {
     return false;
   }
@@ -6181,6 +6169,13 @@ static bool NewGlobal(JSContext* cx, unsigned argc, Value* vp) {
       behaviors.setDisableLazyParsing(v.toBoolean());
     }
 
+    if (!JS_GetProperty(cx, opts, "enableBigInt", &v)) {
+      return false;
+    }
+    if (v.isBoolean()) {
+      creationOptions.setBigIntEnabled(v.toBoolean());
+    }
+
     if (!JS_GetProperty(cx, opts, "systemPrincipal", &v)) {
       return false;
     }
@@ -6981,7 +6976,7 @@ class StreamCacheEntryObject : public NativeObject {
     auto& bytes =
         args.thisv().toObject().as<StreamCacheEntryObject>().cache().bytes();
     RootedArrayBufferObject buffer(
-        cx, ArrayBufferObject::create(cx, bytes.length()));
+        cx, ArrayBufferObject::createZeroed(cx, bytes.length()));
     if (!buffer) {
       return false;
     }
@@ -8460,16 +8455,17 @@ JS_FN_HELP("parseBin", BinParse, 1, 0,
 
     JS_FN_HELP("newGlobal", NewGlobal, 1, 0,
 "newGlobal([options])",
-"  Return a new global object in a new realm. If options\n"
-"  is given, it may have any of the following properties:\n"
-"\n"
-"      sameZoneAs: The compartment will be in the same zone as the given\n"
-"         object (defaults to a new zone).\n"
-"      sameCompartmentAs: The global will be in the same compartment and\n"
-"         zone as the given object (defaults to the current compartment,\n"
-"         unless the --more-compartments option is used).\n"
+"  Return a new global object/realm. The new global is created in the\n"
+"  'newGlobal' function object's compartment and zone, unless the\n"
+"  '--more-compartments' command-line flag was given, in which case new\n"
+"  globals get a fresh compartment and zone. If options is given, it may\n"
+"  have any of the following properties:\n"
+"      sameCompartmentAs: If an object, the global will be in the same\n"
+"         compartment and zone as the given object.\n"
+"      sameZoneAs: The global will be in a new compartment in the same zone\n"
+"         as the given object.\n"
 "      newCompartment: If true, the global will always be created in a new\n"
-"         compartment, even without --more-compartments.\n"
+"         compartment and zone.\n"
 "      cloneSingletons: If true, always clone the objects baked into\n"
 "         scripts, even if it's a top-level script that will only run once\n"
 "         (defaults to using them directly in scripts that will only run\n"

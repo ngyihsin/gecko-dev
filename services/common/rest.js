@@ -93,7 +93,6 @@ RESTRequest.prototype = {
   _logName: "Services.Common.RESTRequest",
 
   QueryInterface: ChromeUtils.generateQI([
-    Ci.nsIBadCertListener2,
     Ci.nsIInterfaceRequestor,
     Ci.nsIChannelEventSink,
   ]),
@@ -386,7 +385,7 @@ RESTRequest.prototype = {
     this.delayTimeout();
   },
 
-  onStopRequest(channel, context, statusCode) {
+  onStopRequest(channel, statusCode) {
     if (this.timeoutTimer) {
       // Clear the abort timer now that the channel is done.
       this.timeoutTimer.clear();
@@ -451,7 +450,7 @@ RESTRequest.prototype = {
     this._deferred.resolve(this.response);
   },
 
-  onDataAvailable(channel, cb, stream, off, count) {
+  onDataAvailable(channel, stream, off, count) {
     // We get an nsIRequest, which doesn't have contentCharset.
     try {
       channel.QueryInterface(Ci.nsIHttpChannel);
@@ -482,15 +481,6 @@ RESTRequest.prototype = {
 
   getInterface(aIID) {
     return this.QueryInterface(aIID);
-  },
-
-  /** nsIBadCertListener2 **/
-
-  notifyCertProblem(socketInfo, secInfo, targetHost) {
-    this._log.warn("Invalid HTTPS certificate encountered!");
-    // Suppress invalid HTTPS certificate warnings in the UI.
-    // (The request will still fail.)
-    return true;
   },
 
   /**

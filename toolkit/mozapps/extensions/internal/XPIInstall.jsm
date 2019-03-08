@@ -205,10 +205,6 @@ class Package {
 
   close() {}
 
-  getURI(...path) {
-    return Services.io.newURI(path.join("/"), null, this.rootURI);
-  }
-
   async readString(...path) {
     let buffer = await this.readBinary(...path);
     return new TextDecoder().decode(buffer);
@@ -372,20 +368,14 @@ function waitForAllPromises(promises) {
 /**
  * Reads an AddonInternal object from a webextension manifest.json
  *
- * @param {nsIURI} aUri
- *        A |file:| or |jar:| URL for the manifest
  * @param {Package} aPackage
  *        The install package for the add-on
  * @returns {AddonInternal}
  * @throws if the install manifest in the stream is corrupt or could not
  *         be read
  */
-async function loadManifestFromWebManifest(aUri, aPackage) {
-  // We're passed the URI for the manifest file. Get the URI for its
-  // parent directory.
-  let uri = Services.io.newURI("./", null, aUri);
-
-  let extension = new ExtensionData(uri);
+async function loadManifestFromWebManifest(aPackage) {
+  let extension = new ExtensionData(aPackage.rootURI);
 
   let manifest = await extension.loadManifest();
 
@@ -395,7 +385,11 @@ async function loadManifestFromWebManifest(aUri, aPackage) {
                 await extension.initAllLocales() : null;
 
   if (extension.errors.length > 0) {
-    throw new Error("Extension is invalid");
+    let error = new Error("Extension is invalid");
+    // Add detailed errors on the error object so that the front end can display them
+    // if needed (eg in about:debugging).
+    error.additionalErrors = extension.errors;
+    throw error;
   }
 
   let bss = (manifest.browser_specific_settings && manifest.browser_specific_settings.gecko)
@@ -533,7 +527,7 @@ function generateTemporaryInstallID(aFile) {
 var loadManifest = async function(aPackage, aLocation, aOldAddon) {
   let addon;
   if (await aPackage.hasResource("manifest.json")) {
-    addon = await loadManifestFromWebManifest(aPackage.rootURI, aPackage);
+    addon = await loadManifestFromWebManifest(aPackage);
   } else {
     for (let loader of AddonManagerPrivate.externalExtensionLoaders.values()) {
       if (await aPackage.hasResource(loader.manifestFile)) {
@@ -549,6 +543,7 @@ var loadManifest = async function(aPackage, aLocation, aOldAddon) {
   }
 
   addon._sourceBundle = aPackage.file;
+  addon.rootURI = aPackage.rootURI.spec;
   addon.location = aLocation;
 
   let {signedState, cert} = await aPackage.verifySignedState(addon);
@@ -1953,7 +1948,7 @@ var DownloadAddonInstall = class extends AddonInstall {
    *
    * @see nsIStreamListener
    */
-  onDataAvailable(aRequest, aContext, aInputstream, aOffset, aCount) {
+  onDataAvailable(aRequest, aInputstream, aOffset, aCount) {
     this.crypto.updateFromStream(aInputstream, aCount);
     this.progress += aCount;
     if (!this._callInstallListeners("onDownloadProgress")) {
@@ -1996,7 +1991,7 @@ var DownloadAddonInstall = class extends AddonInstall {
    *
    * @see nsIStreamListener
    */
-  onStartRequest(aRequest, aContext) {
+  onStartRequest(aRequest) {
     if (this.hash) {
       try {
         this.crypto = CryptoHash(this.hash.algorithm);
@@ -2031,7 +2026,7 @@ var DownloadAddonInstall = class extends AddonInstall {
    *
    * @see nsIStreamListener
    */
-  onStopRequest(aRequest, aContext, aStatus) {
+  onStopRequest(aRequest, aStatus) {
     this.stream.close();
     this.channel = null;
     this.badCerthandler = null;
@@ -2126,9 +2121,10 @@ var DownloadAddonInstall = class extends AddonInstall {
     if (this.state == AddonManager.STATE_DOWNLOAD_FAILED) {
       logger.debug("downloadFailed: removing temp file for " + this.sourceURI.spec);
       this.removeTemporaryFile();
-    } else
+    } else {
       logger.debug("downloadFailed: listener changed AddonInstall state for " +
           this.sourceURI.spec + " to " + this.state);
+    }
   }
 
   /**
@@ -2478,8 +2474,9 @@ UpdateChecker.prototype = {
         if (currentInstall.state == AddonManager.STATE_AVAILABLE) {
           logger.debug("Found an existing AddonInstall for " + this.addon.id);
           sendUpdateAvailableMessages(this, currentInstall);
-        } else
+        } else {
           sendUpdateAvailableMessages(this, null);
+        }
         return;
       }
 
@@ -3002,8 +2999,9 @@ class SystemAddonInstaller extends DirectoryInstaller {
     let addonSet = SystemAddonInstaller._loadAddonSet();
 
     // Remove any add-ons that are no longer part of the set.
+    const ids = aAddons.map(a => a.id);
     for (let addonID of Object.keys(addonSet.addons)) {
-      if (!aAddons.includes(addonID)) {
+      if (!ids.includes(addonID)) {
         AddonManager.getAddonByID(addonID).then(a => a.uninstall());
       }
     }
@@ -3309,7 +3307,8 @@ var XPIInstall = {
           let newVersion = existingAddon.version;
           let reason = newVersionReason(existingAddon.version, newVersion);
 
-          XPIInternal.get(existingAddon).uninstall(reason, {newVersion});
+          XPIInternal.BootstrapScope.get(existingAddon)
+                     .uninstall(reason, {newVersion});
         }
       } catch (e) {
         Cu.reportError(e);
@@ -3664,7 +3663,7 @@ var XPIInstall = {
 
     // Enough of the Package interface to allow loadManifest() to work.
     let pkg = {
-      rootURI: Services.io.newURI("manifest.json", null, rootURI),
+      rootURI,
       filePath: baseURL,
       file: null,
       verifySignedState() {

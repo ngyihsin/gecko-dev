@@ -69,7 +69,7 @@ namespace dom {
 
 class CanonicalBrowsingContext;
 class ClonedMessageData;
-class nsIContentParent;
+class ContentParent;
 class Element;
 class DataTransfer;
 
@@ -100,7 +100,7 @@ class TabParent final : public PBrowserParent,
   // nsIDOMEventListener interfaces
   NS_DECL_NSIDOMEVENTLISTENER
 
-  TabParent(nsIContentParent* aManager, const TabId& aTabId,
+  TabParent(ContentParent* aManager, const TabId& aTabId,
             const TabContext& aContext, uint32_t aChromeFlags);
 
   Element* GetOwnerElement() const { return mFrameElement; }
@@ -477,7 +477,7 @@ class TabParent final : public PBrowserParent,
 
   static TabId GetTabIdFrom(nsIDocShell* docshell);
 
-  nsIContentParent* Manager() const { return mManager; }
+  ContentParent* Manager() const { return mManager; }
 
   /**
    * Let managees query if Destroy() is already called so they don't send out
@@ -503,8 +503,6 @@ class TabParent final : public PBrowserParent,
   // nearest widget. This offset is used to translate coordinates from the
   // PuppetWidget's origin to absolute screen coordinates in the child.
   LayoutDeviceIntPoint GetClientOffset();
-
-  LayoutDevicePoint AdjustTapToChildWidget(const LayoutDevicePoint& aPoint);
 
   /**
    * Native widget remoting protocol for use with windowed plugins with e10s.
@@ -629,7 +627,7 @@ class TabParent final : public PBrowserParent,
   already_AddRefed<nsFrameLoader> GetFrameLoader(
       bool aUseCachedFrameLoaderAfterDestroy = false) const;
 
-  RefPtr<nsIContentParent> mManager;
+  RefPtr<ContentParent> mManager;
   void TryCacheDPIAndScale();
 
   bool AsyncPanZoomEnabled() const;

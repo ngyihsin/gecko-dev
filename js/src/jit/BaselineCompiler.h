@@ -191,8 +191,6 @@ namespace jit {
   _(JSOP_DEBUGGER)              \
   _(JSOP_ARGUMENTS)             \
   _(JSOP_REST)                  \
-  _(JSOP_TOASYNC)               \
-  _(JSOP_TOASYNCGEN)            \
   _(JSOP_TOASYNCITER)           \
   _(JSOP_TOID)                  \
   _(JSOP_TOSTRING)              \
@@ -210,6 +208,8 @@ namespace jit {
   _(JSOP_DEBUGAFTERYIELD)       \
   _(JSOP_FINALYIELDRVAL)        \
   _(JSOP_RESUME)                \
+  _(JSOP_ASYNCAWAIT)            \
+  _(JSOP_ASYNCRESOLVE)          \
   _(JSOP_CALLEE)                \
   _(JSOP_ENVCALLEE)             \
   _(JSOP_SUPERBASE)             \
@@ -346,7 +346,12 @@ class BaselineCodeGen {
                                        Register scratch1, Register scratch2);
 
   enum CallVMPhase { POST_INITIALIZE, CHECK_OVER_RECURSED };
+  bool callVM(const VMFunctionData& fun, TrampolinePtr code,
+              CallVMPhase phase = POST_INITIALIZE);
   bool callVM(const VMFunction& fun, CallVMPhase phase = POST_INITIALIZE);
+
+  template <typename Fn, Fn fn>
+  bool callVM(CallVMPhase phase = POST_INITIALIZE);
 
   bool callVMNonOp(const VMFunction& fun, CallVMPhase phase = POST_INITIALIZE) {
     if (!callVM(fun, phase)) {
@@ -377,6 +382,10 @@ class BaselineCodeGen {
   // If |script->hasFlag(flag) == value|, execute the code emitted by |emit|.
   template <typename F>
   MOZ_MUST_USE bool emitTestScriptFlag(JSScript::ImmutableFlags flag,
+                                       bool value, const F& emit,
+                                       Register scratch);
+  template <typename F>
+  MOZ_MUST_USE bool emitTestScriptFlag(JSScript::MutableFlags flag,
                                        bool value, const F& emit,
                                        Register scratch);
 
@@ -658,7 +667,6 @@ class BaselineInterpreterGenerator final : private BaselineInterpreterCodeGen {
   explicit BaselineInterpreterGenerator(JSContext* cx);
 };
 
-extern const VMFunction NewArrayCopyOnWriteInfo;
 extern const VMFunction ImplicitThisInfo;
 
 }  // namespace jit

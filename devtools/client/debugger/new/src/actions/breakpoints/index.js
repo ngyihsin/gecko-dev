@@ -47,6 +47,8 @@ import type {
 
 import { recordEvent } from "../../utils/telemetry";
 
+export * from "./breakpointPositions";
+
 async function removeBreakpointsPromise(client, state, breakpoint) {
   const breakpointLocation = makeBreakpointLocation(
     state,
@@ -299,7 +301,6 @@ export function setBreakpointOptions(
       getState(),
       bp.generatedLocation
     );
-
     await client.setBreakpoint(breakpointLocation, options);
 
     const newBreakpoint = { ...bp, disabled: false, options };

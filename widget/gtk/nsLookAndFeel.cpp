@@ -19,6 +19,7 @@
 #include <fontconfig/fontconfig.h>
 #include "gfxPlatformGtk.h"
 #include "mozilla/FontPropertyTypes.h"
+#include "mozilla/RelativeLuminanceUtils.h"
 #include "ScreenHelperGTK.h"
 
 #include "gtkdrawing.h"
@@ -689,9 +690,15 @@ nsresult nsLookAndFeel::GetIntImpl(IntID aID, int32_t& aResult) {
       EnsureInit();
       aResult = mCSDCloseButton;
       break;
-    case eIntID_GTKCSDTransparentBackground:
-      aResult = nsWindow::TopLevelWindowUseARGBVisual();
+    case eIntID_GTKCSDTransparentBackground: {
+      // Enable transparent titlebar corners for titlebar mode.
+      GdkScreen* screen = gdk_screen_get_default();
+      aResult = gdk_screen_is_composited(screen)
+                    ? (nsWindow::GetSystemCSDSupportLevel() !=
+                       nsWindow::CSD_SUPPORT_NONE)
+                    : false;
       break;
+    }
     case eIntID_GTKCSDReversedPlacement:
       EnsureInit();
       aResult = mCSDReversedPlacement;
@@ -705,6 +712,21 @@ nsresult nsLookAndFeel::GetIntImpl(IntID aID, int32_t& aResult) {
                    nullptr);
       aResult = enableAnimations ? 0 : 1;
       break;
+    }
+    case eIntID_SystemUsesDarkTheme: {
+      // It seems GTK doesn't have an API to query if the current theme is
+      // "light" or "dark", so we synthesize it from the CSS2 Window/WindowText
+      // colors instead, by comparing their luminosity.
+      nscolor fg, bg;
+      if (NS_SUCCEEDED(NativeGetColor(eColorID_windowtext, fg)) &&
+          NS_SUCCEEDED(NativeGetColor(eColorID_window, bg))) {
+        aResult = (RelativeLuminanceUtils::Compute(bg) <
+                   RelativeLuminanceUtils::Compute(fg))
+                      ? 1
+                      : 0;
+        break;
+      }
+      MOZ_FALLTHROUGH;
     }
     default:
       aResult = 0;

@@ -199,18 +199,14 @@ bool TransactionBuilder::IsResourceUpdatesEmpty() const {
   return wr_transaction_resource_updates_is_empty(mTxn);
 }
 
-void TransactionBuilder::SetWindowParameters(
-    const LayoutDeviceIntSize& aWindowSize,
+void TransactionBuilder::SetDocumentView(
     const LayoutDeviceIntRect& aDocumentRect) {
-  wr::DeviceIntSize wrWindowSize;
-  wrWindowSize.width = aWindowSize.width;
-  wrWindowSize.height = aWindowSize.height;
-  wr::DeviceIntRect wrDocRect;
+  wr::FramebufferIntRect wrDocRect;
   wrDocRect.origin.x = aDocumentRect.x;
   wrDocRect.origin.y = aDocumentRect.y;
   wrDocRect.size.width = aDocumentRect.width;
   wrDocRect.size.height = aDocumentRect.height;
-  wr_transaction_set_window_parameters(mTxn, &wrWindowSize, &wrDocRect);
+  wr_transaction_set_document_view(mTxn, &wrDocRect);
 }
 
 void TransactionBuilder::UpdateScrollPosition(
@@ -240,7 +236,8 @@ void TransactionWrapper::UpdatePinchZoom(float aZoom) {
   wr_transaction_pinch_zoom(mTxn, aZoom);
 }
 
-/*static*/ already_AddRefed<WebRenderAPI> WebRenderAPI::Create(
+/*static*/
+already_AddRefed<WebRenderAPI> WebRenderAPI::Create(
     layers::CompositorBridgeParent* aBridge,
     RefPtr<widget::CompositorWidget>&& aWidget, const wr::WrWindowId& aWindowId,
     LayoutDeviceIntSize aSize) {
@@ -292,7 +289,7 @@ already_AddRefed<WebRenderAPI> WebRenderAPI::Clone() {
 
 already_AddRefed<WebRenderAPI> WebRenderAPI::CreateDocument(
     LayoutDeviceIntSize aSize, int8_t aLayerIndex) {
-  wr::DeviceIntSize wrSize;
+  wr::FramebufferIntSize wrSize;
   wrSize.width = aSize.width;
   wrSize.height = aSize.height;
   wr::DocumentHandle* newDoc;
@@ -690,7 +687,7 @@ Maybe<wr::WrSpatialId> DisplayListBuilder::PushStackingContext(
   auto spatialId = wr_dp_push_stacking_context(
       mWrState, aBounds, mCurrentSpaceAndClipChain.space, &aParams,
       maybeTransform, aParams.mFilters.Elements(), aParams.mFilters.Length(),
-      aRasterSpace);
+      aParams.mFilterDatas.Elements(), aParams.mFilterDatas.Length(), aRasterSpace);
 
   return spatialId.id != 0 ? Some(spatialId) : Nothing();
 }
@@ -712,7 +709,7 @@ wr::WrClipChainId DisplayListBuilder::DefineClipChain(
 wr::WrClipId DisplayListBuilder::DefineClip(
     const Maybe<wr::WrSpaceAndClip>& aParent, const wr::LayoutRect& aClipRect,
     const nsTArray<wr::ComplexClipRegion>* aComplex,
-    const wr::WrImageMask* aMask) {
+    const wr::ImageMask* aMask) {
   WrClipId clipId;
   if (aParent) {
     clipId = wr_dp_define_clip_with_parent_clip(
@@ -776,7 +773,8 @@ Maybe<wr::WrSpaceAndClip> DisplayListBuilder::GetScrollIdForDefinedScrollLayer(
 wr::WrSpaceAndClip DisplayListBuilder::DefineScrollLayer(
     const layers::ScrollableLayerGuid::ViewID& aViewId,
     const Maybe<wr::WrSpaceAndClip>& aParent,
-    const wr::LayoutRect& aContentRect, const wr::LayoutRect& aClipRect) {
+    const wr::LayoutRect& aContentRect, const wr::LayoutRect& aClipRect,
+    const wr::LayoutPoint& aScrollOffset) {
   auto it = mScrollIds.find(aViewId);
   if (it != mScrollIds.end()) {
     return it->second;
@@ -789,7 +787,7 @@ wr::WrSpaceAndClip DisplayListBuilder::DefineScrollLayer(
 
   auto spaceAndClip = wr_dp_define_scroll_layer(
       mWrState, aViewId, aParent ? aParent.ptr() : &defaultParent, aContentRect,
-      aClipRect);
+      aClipRect, aScrollOffset);
 
   WRDL_LOG("DefineScrollLayer id=%" PRIu64 "/%zu p=%s co=%s cl=%s\n", mWrState,
            aViewId, spaceAndClip.space.id,

@@ -328,6 +328,7 @@ var Policies = {
     onBeforeAddons(manager, param) {
       if (param) {
         manager.disallowFeature("Shield");
+        setAndLockPref("browser.newtabpage.activity-stream.asrouter.userprefs.cfr", false);
       }
     },
   },
@@ -484,7 +485,7 @@ var Policies = {
 
   "DontCheckDefaultBrowser": {
     onBeforeUIStartup(manager, param) {
-      setAndLockPref("browser.shell.checkDefaultBrowser", false);
+      setAndLockPref("browser.shell.checkDefaultBrowser", !param);
     },
   },
 
@@ -682,6 +683,7 @@ var Policies = {
         setAndLockPref("xpinstall.enabled", param.Default);
         if (!param.Default) {
           blockAboutPage(manager, "about:debugging");
+          setAndLockPref("browser.newtabpage.activity-stream.asrouter.userprefs.cfr", false);
           manager.disallowFeature("xpinstall");
         }
       }
@@ -854,6 +856,7 @@ var Policies = {
                 alias:       newEngine.Alias,
                 description: newEngine.Description,
                 method:      newEngine.Method,
+                postData:    newEngine.PostData,
                 suggestURL:  newEngine.SuggestURLTemplate,
                 extensionID: "set-via-policy",
                 queryCharset: "UTF-8",

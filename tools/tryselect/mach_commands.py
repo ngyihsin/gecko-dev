@@ -15,7 +15,7 @@ from mach.decorators import (
     SettingsProvider,
     SubCommand,
 )
-
+from mozboot.util import get_state_dir
 from mozbuild.base import BuildEnvironmentNotFoundException, MachCommandBase
 
 CONFIG_ENVIRONMENT_NOT_FOUND = '''
@@ -67,12 +67,91 @@ class TrySelect(MachCommandBase):
         super(TrySelect, self).__init__(context)
         from tryselect import push
         push.MAX_HISTORY = self._mach_context.settings['try']['maxhistory']
+        self.subcommand = self._mach_context.handler.subcommand
+        self.parser = self._mach_context.handler.parser
+
+    def handle_presets(self, preset_action, save, preset, **kwargs):
+        """Handle preset related arguments.
+
+        This logic lives here so that the underlying selectors don't need
+        special preset handling. They can all save and load presets the same
+        way.
+        """
+        from tryselect.preset import MergedHandler, migrate_old_presets
+        from tryselect.util.dicttools import merge
+
+        # Create our handler using both local and in-tree presets. The first
+        # path in this list will be treated as the 'user' file for the purposes
+        # of saving and editing. All subsequent paths are 'read-only'. We check
+        # an environment variable first for testing purposes.
+        if os.environ.get('MACH_TRY_PRESET_PATHS'):
+            preset_paths = os.environ['MACH_TRY_PRESET_PATHS'].split(os.pathsep)
+        else:
+            preset_paths = [
+                os.path.join(get_state_dir(), 'try_presets.yml'),
+                os.path.join(self.topsrcdir, 'tools', 'tryselect', 'try_presets.yml'),
+            ]
+
+        presets = MergedHandler(*preset_paths)
+        user_presets = presets.handlers[0]
+
+        # TODO: Remove after Jan 1, 2020.
+        migrate_old_presets(user_presets)
+
+        if preset_action == 'list':
+            presets.list()
+            sys.exit()
+
+        if preset_action == 'edit':
+            user_presets.edit()
+            sys.exit()
+
+        default = self.parser.get_default
+        if save:
+            selector = self.subcommand or self._mach_context.settings['try']['default']
+
+            # Only save non-default values for simplicity.
+            kwargs = {k: v for k, v in kwargs.items() if v != default(k)}
+            user_presets.save(save, selector=selector, **kwargs)
+            print('preset saved, run with: --preset={}'.format(save))
+            sys.exit()
+
+        if preset:
+            if preset not in presets:
+                self.parser.error("preset '{}' does not exist".format(preset))
+
+            name = preset
+            preset = presets[name]
+            selector = preset['selector']
+            preset.pop('description', None)  # description isn't used by any selectors
+
+            if not self.subcommand:
+                self.subcommand = selector
+            elif self.subcommand != selector:
+                print("error: preset '{}' exists for a different selector "
+                      "(did you mean to run 'mach try {}' instead?)".format(
+                        name, selector))
+                sys.exit(1)
+
+            # Order of precedence is defaults -> presets -> cli. Configuration
+            # from the right overwrites configuration from the left.
+            defaults = {}
+            nondefaults = {}
+            for k, v in kwargs.items():
+                if v == default(k):
+                    defaults[k] = v
+                else:
+                    nondefaults[k] = v
+
+            kwargs = merge(defaults, preset, nondefaults)
+
+        return kwargs
 
     @Command('try',
              category='ci',
              description='Push selected tasks to the try server',
              parser=generic_parser)
-    def try_default(self, argv, **kwargs):
+    def try_default(self, argv=None, **kwargs):
         """Push selected tests to the try server.
 
         The |mach try| command is a frontend for scheduling tasks to
@@ -84,18 +163,12 @@ class TrySelect(MachCommandBase):
         default. Run |mach try syntax --help| for more information on
         scheduling with the `syntax` selector.
         """
-        from tryselect import preset
-        if kwargs['mod_presets']:
-            getattr(preset, kwargs['mod_presets'])()
-            return
-
         # We do special handling of presets here so that `./mach try --preset foo`
         # works no matter what subcommand 'foo' was saved with.
-        sub = self._mach_context.settings['try']['default']
         if kwargs['preset']:
-            _, section = preset.load(kwargs['preset'])
-            sub = 'syntax' if section == 'try' else section
+            kwargs = self.handle_presets(**kwargs)
 
+        sub = self.subcommand or self._mach_context.settings['try']['default']
         return self._mach_context.commands.dispatch(
             'try', subcommand=sub, context=self._mach_context, argv=argv, **kwargs)
 
@@ -147,7 +220,14 @@ class TrySelect(MachCommandBase):
           ^start 'exact | !ignore fuzzy end$
         """
         from tryselect.selectors.fuzzy import run_fuzzy_try
-        return run_fuzzy_try(**kwargs)
+        if kwargs.get('save') and not kwargs.get('query'):
+            # If saving preset without -q/--query, allow user to use the
+            # interface to build the query.
+            kwargs_copy = kwargs.copy()
+            kwargs_copy['push'] = False
+            kwargs['query'] = run_fuzzy_try(**kwargs_copy)
+
+        return run_fuzzy_try(**self.handle_presets(**kwargs))
 
     @SubCommand('try',
                 'chooser',
@@ -164,7 +244,6 @@ class TrySelect(MachCommandBase):
         """
         self._activate_virtualenv()
         self.virtualenv_manager.install_pip_package('flask')
-        self.virtualenv_manager.install_pip_package('flask-wtf')
 
         from tryselect.selectors.chooser import run_try_chooser
         return run_try_chooser(**kwargs)
@@ -238,6 +317,7 @@ class TrySelect(MachCommandBase):
         """
         from tryselect.selectors.syntax import AutoTry
 
+        kwargs = self.handle_presets(**kwargs)
         try:
             if self.substs.get("MOZ_ARTIFACT_BUILDS"):
                 kwargs['local_artifact_build'] = True

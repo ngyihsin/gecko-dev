@@ -5,13 +5,14 @@
 // @flow
 // This module converts Firefox specific types to the generic types
 
+import { isUrlExtension } from "../../utils/source";
+
 import type { Frame, Source, ThreadId } from "../../types";
 import type {
   PausedPacket,
   FramesResponse,
   FramePacket,
-  SourcePayload,
-  CreateSourceResult
+  SourcePayload
 } from "./types";
 
 import { clientCommands } from "./commands";
@@ -20,7 +21,7 @@ export function createFrame(thread: ThreadId, frame: FramePacket): ?Frame {
   if (!frame) {
     return null;
   }
-  
+
   const location = {
     sourceId: clientCommands.getSourceForActor(frame.where.actor),
     line: frame.where.line,
@@ -47,9 +48,15 @@ export function createSource(
   thread: string,
   source: SourcePayload,
   { supportsWasm }: { supportsWasm: boolean }
-): CreateSourceResult {
+): Source {
+  const id = makeSourceId(source);
+  const sourceActor = {
+    actor: source.actor,
+    source: id,
+    thread
+  };
   const createdSource: any = {
-    id: makeSourceId(source),
+    id,
     url: source.url,
     relativeUrl: source.url,
     isPrettyPrinted: false,
@@ -57,15 +64,12 @@ export function createSource(
     introductionUrl: source.introductionUrl,
     isBlackBoxed: false,
     loadedState: "unloaded",
-    isWasm: supportsWasm && source.introductionType === "wasm"
-  };
-  const sourceActor = {
-    actor: source.actor,
-    source: createdSource.id,
-    thread
+    isWasm: supportsWasm && source.introductionType === "wasm",
+    isExtension: (source.url && isUrlExtension(source.url)) || false,
+    actors: [sourceActor]
   };
   clientCommands.registerSourceActor(sourceActor);
-  return { sourceActor, source: (createdSource: Source) };
+  return createdSource;
 }
 
 export function createPause(

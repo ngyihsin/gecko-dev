@@ -72,9 +72,7 @@ static const RedirEntry kRedirMap[] = {
     {"checkerboard", "chrome://global/content/aboutCheckerboard.xhtml",
      nsIAboutModule::URI_SAFE_FOR_UNTRUSTED_CONTENT |
          nsIAboutModule::ALLOW_SCRIPT},
-#ifndef MOZ_BUILD_APP_IS_BROWSER
     {"config", "chrome://global/content/config.xul", 0},
-#endif
 #ifdef MOZ_CRASHREPORTER
     {"crashes", "chrome://global/content/crashes.xhtml", 0},
 #endif
@@ -150,6 +148,7 @@ nsAboutRedirector::NewChannel(nsIURI* aURI, nsILoadInfo* aLoadInfo,
 
   if (path.EqualsASCII("crashparent") || path.EqualsASCII("crashcontent")) {
     nsCOMPtr<nsIChannel> channel = new CrashChannel(aURI);
+    channel->SetLoadInfo(aLoadInfo);
     channel.forget(aResult);
     return NS_OK;
   }

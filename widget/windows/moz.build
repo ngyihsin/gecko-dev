@@ -66,6 +66,7 @@ UNIFIED_SOURCES += [
     'nsWindowDbg.cpp',
     'nsWindowGfx.cpp',
     'nsWinGesture.cpp',
+    'ProcInfo.cpp',
     'ScreenHelperWin.cpp',
     'TaskbarPreview.cpp',
     'TaskbarPreviewButton.cpp',
@@ -115,6 +116,10 @@ if CONFIG['NS_ENABLE_TSF']:
     SOURCES += [
         'TSFTextStore.cpp',
     ]
+
+XPCOM_MANIFESTS += [
+    'components.conf',
+]
 
 include('/ipc/chromium/chromium-config.mozbuild')
 

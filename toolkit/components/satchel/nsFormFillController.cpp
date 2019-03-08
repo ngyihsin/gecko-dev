@@ -223,7 +223,27 @@ nsFormFillController::AttachToBrowser(nsIDocShell* aDocShell,
   nsCOMPtr<nsPIDOMWindowOuter> window = GetWindowForDocShell(aDocShell);
   AddWindowListeners(window);
 
+  nsFocusManager* fm = nsFocusManager::GetFocusManager();
+  if (fm) {
+    nsCOMPtr<nsIContent> focusedContent = fm->GetFocusedElement();
+    this->HandleFocus(HTMLInputElement::FromNodeOrNull(focusedContent));
+  }
+
   return NS_OK;
+}
+
+NS_IMETHODIMP
+nsFormFillController::AttachPopupElementToBrowser(nsIDocShell* aDocShell,
+                                                  dom::Element* aPopupEl) {
+  MOZ_LOG(sLogger, LogLevel::Debug,
+          ("AttachPopupElementToBrowser for docShell %p with popup %p",
+           aDocShell, aPopupEl));
+  NS_ENSURE_TRUE(aDocShell && aPopupEl, NS_ERROR_ILLEGAL_VALUE);
+
+  nsCOMPtr<nsIAutoCompletePopup> popup = aPopupEl->AsAutoCompletePopup();
+  NS_ENSURE_STATE(popup);
+
+  return AttachToBrowser(aDocShell, popup);
 }
 
 NS_IMETHODIMP
@@ -324,6 +344,11 @@ nsFormFillController::GetPopup(nsIAutoCompletePopup** aPopup) {
   *aPopup = mFocusedPopup;
   NS_IF_ADDREF(*aPopup);
   return NS_OK;
+}
+
+NS_IMETHODIMP
+nsFormFillController::GetPopupElement(Element** aPopup) {
+  return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 NS_IMETHODIMP
@@ -924,9 +949,8 @@ void nsFormFillController::MaybeStartControllingInput(
 #endif
 }
 
-nsresult nsFormFillController::Focus(Event* aEvent) {
-  nsCOMPtr<nsIContent> input = do_QueryInterface(aEvent->GetComposedTarget());
-  MaybeStartControllingInput(HTMLInputElement::FromNodeOrNull(input));
+nsresult nsFormFillController::HandleFocus(HTMLInputElement* aInput) {
+  MaybeStartControllingInput(aInput);
 
   // Bail if we didn't start controlling the input.
   if (!mFocusedInput) {
@@ -960,6 +984,11 @@ nsresult nsFormFillController::Focus(Event* aEvent) {
 #endif
 
   return NS_OK;
+}
+
+nsresult nsFormFillController::Focus(Event* aEvent) {
+  nsCOMPtr<nsIContent> input = do_QueryInterface(aEvent->GetComposedTarget());
+  return this->HandleFocus(HTMLInputElement::FromNodeOrNull(input));
 }
 
 nsresult nsFormFillController::KeyDown(Event* aEvent) {

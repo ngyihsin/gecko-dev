@@ -78,9 +78,9 @@ WINDOWS_WORKER_TYPES = {
       'hardware': 'releng-hardware/gecko-t-win10-64-hw',
     },
     'windows10-aarch64': {
-      'virtual': 'test-provisioner/bitbar',
-      'virtual-with-gpu': 'test-provisioner/bitbar',
-      'hardware': 'test-provisioner/bitbar',
+      'virtual': 'bitbar/gecko-t-win64-aarch64-laptop',
+      'virtual-with-gpu': 'bitbar/gecko-t-win64-aarch64-laptop',
+      'hardware': 'bitbar/gecko-t-win64-aarch64-laptop',
     },
     'windows10-64-ccov': {
       'virtual': 'aws-provisioner-v1/gecko-t-win10-64',
@@ -108,6 +108,11 @@ WINDOWS_WORKER_TYPES = {
       'hardware': 'releng-hardware/gecko-t-win10-64-hw',
     },
     'windows10-64-qr': {
+      'virtual': 'aws-provisioner-v1/gecko-t-win10-64',
+      'virtual-with-gpu': 'aws-provisioner-v1/gecko-t-win10-64-gpu',
+      'hardware': 'releng-hardware/gecko-t-win10-64-hw',
+    },
+    'windows10-64-pgo-qr': {
       'virtual': 'aws-provisioner-v1/gecko-t-win10-64',
       'virtual-with-gpu': 'aws-provisioner-v1/gecko-t-win10-64-gpu',
       'hardware': 'releng-hardware/gecko-t-win10-64-hw',
@@ -215,6 +220,14 @@ test_description_schema = Schema({
     # one task without e10s.  E10s tasks have "-e10s" appended to the test name
     # and treeherder group.
     Required('e10s'): optionally_keyed_by(
+        'test-platform', 'project',
+        Any(bool, 'both')),
+
+    # Whether to run this task with the socket process enabled (desktop-test
+    # only).  If 'both', run one task with and one task without.  Tasks with
+    # this enabled have have "-spi" appended to the test name and treeherder
+    # group.
+    Optional('socketprocess-e10s'): optionally_keyed_by(
         'test-platform', 'project',
         Any(bool, 'both')),
 
@@ -479,6 +492,7 @@ def set_defaults(config, tests):
         test.setdefault('docker-image', {'in-tree': 'desktop1604-test'})
         test.setdefault('checkout', False)
         test.setdefault('serviceworker-e10s', False)
+        test.setdefault('socketprocess-e10s', False)
         test.setdefault('require-signed-extensions', False)
 
         test['mozharness'].setdefault('extra-options', [])
@@ -645,6 +659,7 @@ def set_tier(config, tests):
                                          'linux64-asan/opt',
                                          'linux64-qr/opt',
                                          'linux64-qr/debug',
+                                         'linux64-pgo-qr/opt',
                                          'windows7-32/debug',
                                          'windows7-32/opt',
                                          'windows7-32-pgo/opt',
@@ -659,6 +674,7 @@ def set_tier(config, tests):
                                          'windows10-64-asan/opt',
                                          'windows10-64-qr/opt',
                                          'windows10-64-qr/debug',
+                                         'windows10-64-pgo-qr/opt',
                                          'macosx64/opt',
                                          'macosx64/debug',
                                          'macosx64-nightly/opt',
@@ -718,6 +734,7 @@ def handle_keyed_by(config, tests):
         'chunks',
         'serviceworker-e10s',
         'e10s',
+        'socketprocess-e10s',
         'suite',
         'run-on-projects',
         'os-groups',
@@ -847,6 +864,10 @@ def handle_run_on_projects(config, tests):
 @transforms.add
 def split_serviceworker_e10s(config, tests):
     for test in tests:
+        if test['attributes'].get('socketprocess_e10s'):
+            yield test
+            continue
+
         sw = test.pop('serviceworker-e10s')
 
         test['serviceworker-e10s'] = False
@@ -902,6 +923,39 @@ def split_e10s(config, tests):
                         test['mozharness']['extra-options'][i] += '-e10s'
             else:
                 test['mozharness']['extra-options'].append('--e10s')
+        yield test
+
+
+@transforms.add
+def split_socketprocess_e10s(config, tests):
+    for test in tests:
+        if test['attributes'].get('serviceworker_e10s'):
+            yield test
+            continue
+
+        sw = test.pop('socketprocess-e10s')
+
+        test['socketprocess-e10s'] = False
+        test['attributes']['socketprocess_e10s'] = False
+
+        if sw == 'both':
+            yield copy.deepcopy(test)
+            sw = True
+        if sw:
+            test['description'] += " with socket process enabled"
+            test['test-name'] += '-spi'
+            test['try-name'] += '-spi'
+            test['attributes']['socketprocess_e10s'] = True
+            group, symbol = split_symbol(test['treeherder-symbol'])
+            if group != '?':
+                group += '-spi'
+            else:
+                symbol += '-spi'
+            test['treeherder-symbol'] = join_symbol(group, symbol)
+            test['mozharness']['extra-options'].append(
+                '--setpref="media.peerconnection.mtransport_process=true"')
+            test['mozharness']['extra-options'].append(
+                '--setpref="network.process.enabled=true"')
         yield test
 
 
@@ -1055,6 +1109,8 @@ def set_worker_type(config, tests):
                 # some jobs like talos and reftest run on real h/w - those are all win10
                 if test_platform.startswith('windows10-64-ux'):
                     win_worker_type_platform = WINDOWS_WORKER_TYPES['windows10-64-ux']
+                elif test_platform.startswith('windows10-aarch64'):
+                    win_worker_type_platform = WINDOWS_WORKER_TYPES['windows10-aarch64']
                 else:
                     win_worker_type_platform = WINDOWS_WORKER_TYPES['windows10-64']
             else:

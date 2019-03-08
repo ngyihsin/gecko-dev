@@ -8,12 +8,11 @@ var {AppConstants} = ChromeUtils.import("resource://gre/modules/AppConstants.jsm
 var {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 var {XPCOMUtils} = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
 
-ChromeUtils.defineModuleGetter(this, "PrivateBrowsingUtils",
-                               "resource://gre/modules/PrivateBrowsingUtils.jsm");
-
 XPCOMUtils.defineLazyModuleGetters(this, {
   BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.jsm",
   ContextualIdentityService: "resource://gre/modules/ContextualIdentityService.jsm",
+  ExtensionSettingsStore: "resource://gre/modules/ExtensionSettingsStore.jsm",
+  PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.jsm",
   ShellService: "resource:///modules/ShellService.jsm",
 });
 
@@ -24,10 +23,20 @@ XPCOMUtils.defineLazyServiceGetter(this, "aboutNewTabService",
 Object.defineProperty(this, "BROWSER_NEW_TAB_URL", {
   enumerable: true,
   get() {
-    if (PrivateBrowsingUtils.isWindowPrivate(window) &&
-        !PrivateBrowsingUtils.permanentPrivateBrowsing &&
-        !aboutNewTabService.overridden) {
-      return "about:privatebrowsing";
+    if (PrivateBrowsingUtils.isWindowPrivate(window)) {
+      if (!PrivateBrowsingUtils.permanentPrivateBrowsing &&
+          !aboutNewTabService.overridden) {
+        return "about:privatebrowsing";
+      }
+      // If the extension does not have private browsing permission,
+      // use about:privatebrowsing.
+      let extensionInfo = ExtensionSettingsStore.getSetting("url_overrides", "newTabURL");
+      if (extensionInfo) {
+        let policy = WebExtensionPolicy.getByID(extensionInfo.id);
+        if (!policy || !policy.privateBrowsingAllowed) {
+          return "about:privatebrowsing";
+        }
+      }
     }
     return aboutNewTabService.newTabURL;
   },
@@ -86,6 +95,7 @@ function doGetProtocolFlags(aURI) {
  */
 function openUILink(url, event, aIgnoreButton, aIgnoreAlt, aAllowThirdPartyFixup,
                     aPostData, aReferrerURI) {
+  event = getRootEvent(event);
   let params;
 
   if (aIgnoreButton && typeof aIgnoreButton == "object") {
@@ -114,6 +124,26 @@ function openUILink(url, event, aIgnoreButton, aIgnoreAlt, aAllowThirdPartyFixup
   openUILinkIn(url, where, params);
 }
 
+
+// Utility function to check command events for potential middle-click events
+// from checkForMiddleClick and unwrap them.
+function getRootEvent(aEvent) {
+  // Part of the fix for Bug 1523813.
+  // Middle-click events arrive here wrapped in different numbers (1-2) of
+  // command events, depending on the button originally clicked.
+  if (!aEvent) {
+    return aEvent;
+  }
+  let tempEvent = aEvent;
+  while (tempEvent.sourceEvent) {
+    if (tempEvent.sourceEvent.button == 1) {
+      aEvent = tempEvent.sourceEvent;
+      break;
+    }
+    tempEvent = tempEvent.sourceEvent;
+  }
+  return aEvent;
+}
 
 /**
  * whereToOpenLink() looks at an event to decide where to open a link.
@@ -146,6 +176,8 @@ function whereToOpenLink(e, ignoreButton, ignoreAlt) {
   // for compatibility purposes.
   if (!e)
     return "current";
+
+  e = getRootEvent(e);
 
   var shift = e.shiftKey;
   var ctrl =  e.ctrlKey;
@@ -287,6 +319,7 @@ function openLinkIn(url, where, params) {
   var aIndicateErrorPageLoad = params.indicateErrorPageLoad;
   var aPrincipal            = params.originPrincipal;
   var aTriggeringPrincipal  = params.triggeringPrincipal;
+  var aCsp                  = params.csp;
   var aForceAboutBlankViewerInCurrent =
       params.forceAboutBlankViewerInCurrent;
   var aResolveOnNewTabCreated = params.resolveOnNewTabCreated;
@@ -398,6 +431,8 @@ function openLinkIn(url, where, params) {
     sa.appendElement(userContextIdSupports);
     sa.appendElement(aPrincipal);
     sa.appendElement(aTriggeringPrincipal);
+    sa.appendElement(null); // allowInheritPrincipal
+    sa.appendElement(aCsp);
 
     const sourceWindow = (w || window);
     let win;
@@ -516,6 +551,7 @@ function openLinkIn(url, where, params) {
                                               "init");
     targetBrowser.loadURI(url, {
       triggeringPrincipal: aTriggeringPrincipal,
+      csp: aCsp,
       referrerInfo: new ReferrerInfo(
         aReferrerPolicy, !aNoReferrer, aReferrerURI),
       flags,
@@ -550,6 +586,7 @@ function openLinkIn(url, where, params) {
       originPrincipal: aPrincipal,
       triggeringPrincipal: aTriggeringPrincipal,
       allowInheritPrincipal: aAllowInheritPrincipal,
+      csp: aCsp,
       focusUrlBar,
     });
     targetBrowser = tabUsedForLoad.linkedBrowser;
@@ -592,13 +629,13 @@ function checkForMiddleClick(node, event) {
 
   if (event.button == 1) {
     /* Execute the node's oncommand or command.
-     *
-     * XXX: we should use node.oncommand(event) once bug 246720 is fixed.
      */
-    var target = node.hasAttribute("oncommand") ? node :
-                 node.ownerDocument.getElementById(node.getAttribute("command"));
-    var fn = new Function("event", target.getAttribute("oncommand"));
-    fn.call(target, event);
+
+    let cmdEvent = document.createEvent("xulcommandevent");
+    cmdEvent.initCommandEvent("command", true, true, window, 0,
+                         event.ctrlKey, event.altKey, event.shiftKey,
+                         event.metaKey, event, event.mozInputSource);
+    node.dispatchEvent(cmdEvent);
 
     // If the middle-click was on part of a menu, close the menu.
     // (Menus close automatically with left-click but not with middle-click.)
@@ -930,8 +967,8 @@ function isElementVisible(aElement) {
 
   // If aElement or a direct or indirect parent is hidden or collapsed,
   // height, width or both will be 0.
-  var bo = aElement.boxObject;
-  return (bo.height > 0 && bo.width > 0);
+  var rect = aElement.getBoundingClientRect();
+  return (rect.height > 0 && rect.width > 0);
 }
 
 function makeURLAbsolute(aBase, aUrl) {

@@ -1849,11 +1849,15 @@ var gCategories = {
 
     AddonManager.addTypeListener(this);
 
+    let lastView = Services.prefs.getStringPref(PREF_UI_LASTCATEGORY, "");
     // Set this to the default value first, or setting it to a nonexistent value
     // from the pref will leave the old value in place.
     this.node.value = gViewDefault;
-    this.node.value = Services.prefs.getStringPref(PREF_UI_LASTCATEGORY, "");
-
+    this.node.value = lastView;
+    // Fixup the last view if legacy is disabled.
+    if (lastView !== this.node.value && lastView == "addons://legacy/") {
+      this.node.value = "addons://list/extension";
+    }
     // If there was no last view or no existing category matched the last view
     // then switch to the default category
     if (!this.node.selectedItem) {
@@ -2795,8 +2799,10 @@ var gDetailView = {
       let perms = {permissions: ["internal:privateBrowsingAllowed"], origins: []};
       if (this._privateBrowsing.value == "1") {
         await ExtensionPermissions.add(addon.id, perms, extension);
+        recordActionTelemetry({action: "privateBrowsingAllowed", value: "on", addon});
       } else {
         await ExtensionPermissions.remove(addon.id, perms, extension);
+        recordActionTelemetry({action: "privateBrowsingAllowed", value: "off", addon});
       }
 
       // Reload the extension if it is already enabled.  This ensures any change
@@ -3299,13 +3305,13 @@ var gDetailView = {
     // in case it has been changed by the observers.
     let firstRow = gDetailView.node.querySelector('setting[first-row="true"]');
     if (firstRow) {
-      let top = firstRow.boxObject.y;
+      let top = firstRow.getBoundingClientRect().y;
       top -= parseInt(window.getComputedStyle(firstRow).getPropertyValue("margin-top"));
 
-      let detailViewBoxObject = gDetailView.node.boxObject;
-      top -= detailViewBoxObject.y;
+      let detailView = gDetailView.node;
+      top -= detailView.getBoundingClientRect().y;
 
-      detailViewBoxObject.scrollTo(0, top);
+      detailView.scrollTo(0, top);
     }
   },
 
@@ -3557,7 +3563,7 @@ var gUpdatesView = {
 
   hide() {
     this._updateSelected.hidden = true;
-    this._categoryItem.disabled = this._categoryItem.badgeCount == 0;
+    this._categoryItem.hidden = this._categoryItem.badgeCount == 0;
     doPendingUninstalls(this._listBox);
   },
 
@@ -3658,7 +3664,7 @@ var gUpdatesView = {
     var count = aInstallsList.filter(aInstall => {
       return this.isManualUpdate(aInstall, true);
     }).length;
-    this._categoryItem.disabled = gViewController.currentViewId != "addons://updates/available" &&
+    this._categoryItem.hidden = gViewController.currentViewId != "addons://updates/available" &&
                                   count == 0;
     this._categoryItem.badgeCount = count;
     if (aInitializing)

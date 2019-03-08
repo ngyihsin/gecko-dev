@@ -179,12 +179,16 @@ static nsCString GetDeviceModelId() {
 
 StaticRefPtr<nsHttpHandler> gHttpHandler;
 
-/* static */ already_AddRefed<nsHttpHandler> nsHttpHandler::GetInstance() {
+/* static */
+already_AddRefed<nsHttpHandler> nsHttpHandler::GetInstance() {
   if (!gHttpHandler) {
     gHttpHandler = new nsHttpHandler();
     DebugOnly<nsresult> rv = gHttpHandler->Init();
     MOZ_ASSERT(NS_SUCCEEDED(rv));
-    ClearOnShutdown(&gHttpHandler);
+    // There is code that may be executed during the final cycle collection
+    // shutdown and still referencing gHttpHandler.
+    ClearOnShutdown(&gHttpHandler,
+                    ShutdownPhase::ShutdownPostLastCycleCollection);
   }
   RefPtr<nsHttpHandler> httpHandler = gHttpHandler;
   return httpHandler.forget();
@@ -849,9 +853,9 @@ nsresult nsHttpHandler::AsyncOnChannelRedirect(
                                       mainThreadEventTarget);
 }
 
-/* static */ nsresult nsHttpHandler::GenerateHostPort(const nsCString &host,
-                                                      int32_t port,
-                                                      nsACString &hostLine) {
+/* static */
+nsresult nsHttpHandler::GenerateHostPort(const nsCString &host, int32_t port,
+                                         nsACString &hostLine) {
   return NS_GenerateHostPort(host, port, hostLine);
 }
 
@@ -2026,8 +2030,8 @@ nsHttpHandler::NewURI(const nsACString &aSpec, const char *aCharset,
 }
 
 NS_IMETHODIMP
-nsHttpHandler::NewChannel2(nsIURI *uri, nsILoadInfo *aLoadInfo,
-                           nsIChannel **result) {
+nsHttpHandler::NewChannel(nsIURI *uri, nsILoadInfo *aLoadInfo,
+                          nsIChannel **result) {
   LOG(("nsHttpHandler::NewChannel\n"));
 
   NS_ENSURE_ARG_POINTER(uri);
@@ -2047,12 +2051,7 @@ nsHttpHandler::NewChannel2(nsIURI *uri, nsILoadInfo *aLoadInfo,
     }
   }
 
-  return NewProxiedChannel2(uri, nullptr, 0, nullptr, aLoadInfo, result);
-}
-
-NS_IMETHODIMP
-nsHttpHandler::NewChannel(nsIURI *uri, nsIChannel **result) {
-  return NewChannel2(uri, nullptr, result);
+  return NewProxiedChannel(uri, nullptr, 0, nullptr, aLoadInfo, result);
 }
 
 NS_IMETHODIMP
@@ -2067,9 +2066,9 @@ nsHttpHandler::AllowPort(int32_t port, const char *scheme, bool *_retval) {
 //-----------------------------------------------------------------------------
 
 NS_IMETHODIMP
-nsHttpHandler::NewProxiedChannel2(nsIURI *uri, nsIProxyInfo *givenProxyInfo,
-                                  uint32_t proxyResolveFlags, nsIURI *proxyURI,
-                                  nsILoadInfo *aLoadInfo, nsIChannel **result) {
+nsHttpHandler::NewProxiedChannel(nsIURI *uri, nsIProxyInfo *givenProxyInfo,
+                                 uint32_t proxyResolveFlags, nsIURI *proxyURI,
+                                 nsILoadInfo *aLoadInfo, nsIChannel **result) {
   RefPtr<HttpBaseChannel> httpChannel;
 
   LOG(("nsHttpHandler::NewProxiedChannel [proxyInfo=%p]\n", givenProxyInfo));
@@ -2130,14 +2129,6 @@ nsHttpHandler::NewProxiedChannel2(nsIURI *uri, nsIProxyInfo *givenProxyInfo,
 
   httpChannel.forget(result);
   return NS_OK;
-}
-
-NS_IMETHODIMP
-nsHttpHandler::NewProxiedChannel(nsIURI *uri, nsIProxyInfo *givenProxyInfo,
-                                 uint32_t proxyResolveFlags, nsIURI *proxyURI,
-                                 nsIChannel **result) {
-  return NewProxiedChannel2(uri, givenProxyInfo, proxyResolveFlags, proxyURI,
-                            nullptr, result);
 }
 
 //-----------------------------------------------------------------------------
@@ -2485,15 +2476,15 @@ nsresult nsHttpHandler::SpeculativeConnectInternal(
 }
 
 NS_IMETHODIMP
-nsHttpHandler::SpeculativeConnect2(nsIURI *aURI, nsIPrincipal *aPrincipal,
-                                   nsIInterfaceRequestor *aCallbacks) {
+nsHttpHandler::SpeculativeConnect(nsIURI *aURI, nsIPrincipal *aPrincipal,
+                                  nsIInterfaceRequestor *aCallbacks) {
   return SpeculativeConnectInternal(aURI, aPrincipal, aCallbacks, false);
 }
 
 NS_IMETHODIMP
-nsHttpHandler::SpeculativeAnonymousConnect2(nsIURI *aURI,
-                                            nsIPrincipal *aPrincipal,
-                                            nsIInterfaceRequestor *aCallbacks) {
+nsHttpHandler::SpeculativeAnonymousConnect(nsIURI *aURI,
+                                           nsIPrincipal *aPrincipal,
+                                           nsIInterfaceRequestor *aCallbacks) {
   return SpeculativeConnectInternal(aURI, aPrincipal, aCallbacks, true);
 }
 
@@ -2563,16 +2554,11 @@ nsHttpsHandler::NewURI(const nsACString &aSpec, const char *aOriginCharset,
 }
 
 NS_IMETHODIMP
-nsHttpsHandler::NewChannel2(nsIURI *aURI, nsILoadInfo *aLoadInfo,
-                            nsIChannel **_retval) {
+nsHttpsHandler::NewChannel(nsIURI *aURI, nsILoadInfo *aLoadInfo,
+                           nsIChannel **_retval) {
   MOZ_ASSERT(gHttpHandler);
   if (!gHttpHandler) return NS_ERROR_UNEXPECTED;
-  return gHttpHandler->NewChannel2(aURI, aLoadInfo, _retval);
-}
-
-NS_IMETHODIMP
-nsHttpsHandler::NewChannel(nsIURI *aURI, nsIChannel **_retval) {
-  return NewChannel2(aURI, nullptr, _retval);
+  return gHttpHandler->NewChannel(aURI, aLoadInfo, _retval);
 }
 
 NS_IMETHODIMP

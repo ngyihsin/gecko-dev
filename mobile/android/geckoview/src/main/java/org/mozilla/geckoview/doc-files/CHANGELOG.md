@@ -9,32 +9,88 @@ exclude: true
 <h1> GeckoView API Changelog. </h1>
 
 ## v67
-- Added GeckoRuntimeSetting for automatically adjusting font size settings
+- Added [`setAutomaticFontSizeAdjustment`][67.2] to
+  [`GeckoRuntimeSettings`][67.3] for automatically adjusting font size settings
   depending on the OS-level font size setting.
 
-- Added GeckoRuntimeSettings for setting a font size scaling factor, and for
-  enabling font inflation for non-mobile-friendly pages.
+[67.2]: ../GeckoRuntimeSettings.html#setAutomaticFontSizeAdjustment-boolean-
+[67.3]: ../GeckoRuntimeSettings.html
 
-- Updated video autoplay API to reflect changes in Gecko. Instead of being a per-video
-  permission in the PermissionDelegate, it is a runtime setting that either allows or
-  blocks autoplay videos.
+- Added [`setFontSizeFactor`][67.4] to [`GeckoRuntimeSettings`][67.3] for
+  setting a font size scaling factor, and for enabling font inflation for
+  non-mobile-friendly pages.
 
-- Change `ContentBlocking.AT_ALL` and `ContentBlocking.SB_ALL` values to mirror
-  the actual constants they encompass.
+[67.4]: ../GeckoRuntimeSettings.html#setFontSizeFactor-float-
 
-- Added nested `ContentBlocking` runtime settings.
+- Updated video autoplay API to reflect changes in Gecko. Instead of being a
+  per-video permission in the [`PermissionDelegate`][67.5], it is a [runtime
+  setting][67.6] that either allows or blocks autoplay videos.
 
-- Added `RuntimeSettings` base class to support nested settings.
+[67.5]: ../GeckoSession.PermissionDelegate.html
+[67.6]: ../GeckoRuntimeSettings.html#setAutoplayDefault-int-
 
-- Added `baseUri` to [`ContentDelegate.ContextElement`][65.21] and changed
-  `linkUri` to absolute form.
+- Change [`ContentBlocking.AT_ALL`][67.7] and [`ContentBlocking.SB_ALL`][67.8]
+  values to mirror the actual constants they encompass.
 
-- Added `scrollBy()` and `scrollTo()` to `PanZoomController`.
+[67.7]: ../ContentBlocking.html#AT_ALL
+[67.8]: ../ContentBlocking.html#SB_ALL
+
+- Added nested [`ContentBlocking`][67.9] runtime settings.
+
+[67.9]: ../ContentBlocking.html
+
+- Added [`RuntimeSettings`][67.10] base class to support nested settings.
+
+[67.10]: ../RuntimeSettings.html
+
+- Added [`baseUri`][67.11] to [`ContentDelegate.ContextElement`][65.21] and
+  changed [`linkUri`][67.12] to absolute form.
+
+[67.11]: ../GeckoSession.ContentDelegate.ContextElement.html#baseUri
+[67.12]: ../GeckoSession.ContentDelegate.ContextElement.html#linkUri
+
+- Added [`scrollBy`][67.13] and [`scrollTo`][67.14] to [`PanZoomController`][65.4].
+
+[67.13]: ../PanZoomController.html#scrollBy-org.mozilla.geckoview.ScreenLength-org.mozilla.geckoview.ScreenLength-
+[67.14]: ../PanZoomController.html#scrollTo-org.mozilla.geckoview.ScreenLength-org.mozilla.geckoview.ScreenLength-
+
+- Added [`GeckoSession.getDefaultUserAgent`][67.1] to expose the build-time
+  default user agent synchronously.
+
+- Changed `WebResponse.body` from a `ByteBuffer` to an `InputStream`. Apps that want access
+  to the entire response body will now need to read the stream themselves.
+
+- Added `GeckoWebExecutor.FETCH_FLAGS_NO_REDIRECTS`, which will cause `GeckoWebExecutor.fetch()` to not
+  automatically follow HTTP redirects (e.g., 302).
+
+- Moved [`GeckoVRManager`][67.2] into the org.mozilla.geckoview package.
+
+[67.1]: ../GeckoSession.html#getDefaultUserAgent--
+[67.2]: ../GeckoVRManager.html
+
+- Initial WebExtension support. [`GeckoRuntime#registerWebExtension`][67.15]
+  allows embedders to register a local web extension.
+
+[67.15]: ../GeckoRuntime.html#registerWebExtension-org.mozilla.geckoview.WebExtension-
+
+- Added API to [`GeckoView`][65.5] to take screenshot of the visible page. Calling [`capturePixels`][67.16] returns a ['GeckoResult'][65.25] that completes to a [`Bitmap`][67.17] of the current [`Surface`][67.18] contents, or an [`IllegalStateException`][67.19] if the [`GeckoSession`][65.9] is not ready to render content.
+
+[67.16]: ../GeckoView.html#capturePixels
+[67.17]: https://developer.android.com/reference/android/graphics/Bitmap
+[67.18]: https://developer.android.com/reference/android/view/Surface
+[67.19]: https://developer.android.com/reference/java/lang/IllegalStateException
+
+- Added API to capture a screenshot to [`GeckoDisplay`][67.20]. [`capturePixels`][67.21] returns a ['GeckoResult'][65.25] that completes to a [`Bitmap`][67.16] of the current [`Surface`][67.17] contents, or an [`IllegalStateException`][67.18] if the [`GeckoSession`][65.9] is not ready to render content.
+
+[67.20]: ../GeckoDisplay.html
+[67.21]: ../GeckoDisplay.html#capturePixels
 
 ## v66
-- Removed redundant field `GeckoSession.ProgressDelegate.SecurityInformation.trackingMode`.
-  Use `GeckoSession.TrackingProtectionDelegate.onTrackerBlocked` for
-  notification of blocked elements during page load.
+- Removed redundant field `trackingMode` from [`SecurityInformation`][66.6].
+  Use `TrackingProtectionDelegate.onTrackerBlocked` for notification of blocked
+  elements during page load.
+
+[66.6]: ../GeckoSession.ProgressDelegate.SecurityInformation.html
 
 - Added [`@NonNull`][66.1] or [`@Nullable`][66.2] to all APIs.
 
@@ -45,10 +101,18 @@ exclude: true
 
 [66.3]: ../GeckoSessionSettings.html
 
-- Added GeckoRuntimeSetting for enabling desktop viewport. Desktop viewport is
-  no longer set by `USER_AGENT_MODE_DESKTOP` and must be set separately.
+- Added [`GeckoSessionSettings`][66.4] for enabling desktop viewport. Desktop
+  viewport is no longer set by [`USER_AGENT_MODE_DESKTOP`][66.5] and must be set
+  separately.
 
-- Added `@UiThread` to `GeckoSession.releaseSession` and `GeckoSession.setSession`
+[66.4]: ../GeckoSessionSettings.html
+[66.5]: ../GeckoSessionSettings.html#USER_AGENT_MODE_DESKTOP
+
+- Added [`@UiThread`][65.6] to [`GeckoSession.releaseSession`][66.7] and
+  [`GeckoSession.setSession`][66.8]
+
+[66.7]: ../GeckoView.html#releaseSession--
+[66.8]: ../GeckoView.html#setSession-org.mozilla.geckoview.GeckoSession-
 
 ## v65
 - Added experimental ad-blocking category to `GeckoSession.TrackingProtectionDelegate`.
@@ -140,4 +204,4 @@ exclude: true
 [65.24]: ../CrashReporter.html#sendCrashReport-android.content.Context-android.os.Bundle-java.lang.String-
 [65.25]: ../GeckoResult.html
 
-[api-version]: f318744a2a5bd8058977a5709a3e9a3b73d5202b
+[api-version]: 0bcb9f0f763b746bb6f27f5d275c351818ab971b

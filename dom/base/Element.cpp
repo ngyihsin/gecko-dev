@@ -159,6 +159,7 @@
 #include "nsIDOMXULSelectCntrlEl.h"
 #include "nsIDOMXULSelectCntrlItemEl.h"
 #include "nsIBrowser.h"
+#include "nsIAutoCompletePopup.h"
 
 #include "nsISpeculativeConnect.h"
 #include "nsIIOService.h"
@@ -1632,8 +1633,8 @@ nsresult Element::BindToTree(Document* aDocument, nsIContent* aParent,
     if (aParent->IsInNativeAnonymousSubtree()) {
       SetFlags(NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE);
     }
-    if (aParent->HasFlag(NODE_CHROME_ONLY_ACCESS)) {
-      SetFlags(NODE_CHROME_ONLY_ACCESS);
+    if (aParent->HasFlag(NODE_HAS_BEEN_IN_UA_WIDGET)) {
+      SetFlags(NODE_HAS_BEEN_IN_UA_WIDGET);
     }
     if (HasFlag(NODE_IS_ANONYMOUS_ROOT)) {
       aParent->SetMayHaveAnonymousChildren();
@@ -1731,9 +1732,7 @@ nsresult Element::BindToTree(Document* aDocument, nsIContent* aParent,
         OwnerDoc()->BindingManager()->GetBindingWithContent(this);
 
     if (binding) {
-      binding->BindAnonymousContent(
-          binding->GetAnonymousContent(), this,
-          binding->PrototypeBinding()->ChromeOnlyContent());
+      binding->BindAnonymousContent(binding->GetAnonymousContent(), this);
     }
   }
 
@@ -1775,10 +1774,10 @@ nsresult Element::BindToTree(Document* aDocument, nsIContent* aParent,
   // Also, if this _is_ needed, then it's wrong and should use GetComposedDoc()
   // to account for Shadow DOM.
   if (aDocument && MayHaveAnimations()) {
-    CSSPseudoElementType pseudoType = GetPseudoElementType();
-    if ((pseudoType == CSSPseudoElementType::NotPseudo ||
-         pseudoType == CSSPseudoElementType::before ||
-         pseudoType == CSSPseudoElementType::after) &&
+    PseudoStyleType pseudoType = GetPseudoElementType();
+    if ((pseudoType == PseudoStyleType::NotPseudo ||
+         pseudoType == PseudoStyleType::before ||
+         pseudoType == PseudoStyleType::after) &&
         EffectSet::GetEffectSet(this, pseudoType)) {
       if (nsPresContext* presContext = aDocument->GetPresContext()) {
         presContext->EffectCompositor()->RequestRestyle(
@@ -3105,7 +3104,7 @@ nsresult Element::PostHandleEventForLinks(EventChainPostVisitor& aVisitor) {
           nsCOMPtr<nsISpeculativeConnect> sc =
               do_QueryInterface(nsContentUtils::GetIOService());
           nsCOMPtr<nsIInterfaceRequestor> ir = do_QueryInterface(handler);
-          sc->SpeculativeConnect2(absURI, NodePrincipal(), ir);
+          sc->SpeculativeConnect(absURI, NodePrincipal(), ir);
         }
       }
     } break;
@@ -3256,8 +3255,8 @@ static const nsAttrValue::EnumTable kCORSAttributeTable[] = {
     {"use-credentials", CORS_USE_CREDENTIALS},
     {nullptr, 0}};
 
-/* static */ void Element::ParseCORSValue(const nsAString& aValue,
-                                          nsAttrValue& aResult) {
+/* static */
+void Element::ParseCORSValue(const nsAString& aValue, nsAttrValue& aResult) {
   DebugOnly<bool> success =
       aResult.ParseEnumValue(aValue, kCORSAttributeTable, false,
                              // default value is anonymous if aValue is
@@ -3266,7 +3265,8 @@ static const nsAttrValue::EnumTable kCORSAttributeTable[] = {
   MOZ_ASSERT(success);
 }
 
-/* static */ CORSMode Element::StringToCORSMode(const nsAString& aValue) {
+/* static */
+CORSMode Element::StringToCORSMode(const nsAString& aValue) {
   if (aValue.IsVoid()) {
     return CORS_NONE;
   }
@@ -3276,7 +3276,8 @@ static const nsAttrValue::EnumTable kCORSAttributeTable[] = {
   return CORSMode(val.GetEnumValue());
 }
 
-/* static */ CORSMode Element::AttrValueToCORSMode(const nsAttrValue* aValue) {
+/* static */
+CORSMode Element::AttrValueToCORSMode(const nsAttrValue* aValue) {
   if (!aValue) {
     return CORS_NONE;
   }
@@ -3410,7 +3411,8 @@ already_AddRefed<Animation> Element::Animate(
   return Animate(target, aContext, aKeyframes, aOptions, aError);
 }
 
-/* static */ already_AddRefed<Animation> Element::Animate(
+/* static */
+already_AddRefed<Animation> Element::Animate(
     const Nullable<ElementOrCSSPseudoElement>& aTarget, JSContext* aContext,
     JS::Handle<JSObject*> aKeyframes,
     const UnrestrictedDoubleOrKeyframeAnimationOptions& aOptions,
@@ -3423,7 +3425,7 @@ already_AddRefed<Animation> Element::Animate(
   if (aTarget.Value().IsElement()) {
     referenceElement = &aTarget.Value().GetAsElement();
   } else {
-    referenceElement = aTarget.Value().GetAsCSSPseudoElement().ParentElement();
+    referenceElement = aTarget.Value().GetAsCSSPseudoElement().Element();
   }
 
   nsCOMPtr<nsIGlobalObject> ownerGlobal = referenceElement->GetOwnerGlobal();
@@ -3484,23 +3486,23 @@ void Element::GetAnimations(const AnimationFilter& filter,
   }
 
   Element* elem = this;
-  CSSPseudoElementType pseudoType = CSSPseudoElementType::NotPseudo;
+  PseudoStyleType pseudoType = PseudoStyleType::NotPseudo;
   // For animations on generated-content elements, the animations are stored
   // on the parent element.
   if (IsGeneratedContentContainerForBefore()) {
     elem = GetParentElement();
-    pseudoType = CSSPseudoElementType::before;
+    pseudoType = PseudoStyleType::before;
   } else if (IsGeneratedContentContainerForAfter()) {
     elem = GetParentElement();
-    pseudoType = CSSPseudoElementType::after;
+    pseudoType = PseudoStyleType::after;
   }
 
   if (!elem) {
     return;
   }
 
-  if (!filter.mSubtree || pseudoType == CSSPseudoElementType::before ||
-      pseudoType == CSSPseudoElementType::after) {
+  if (!filter.mSubtree || pseudoType == PseudoStyleType::before ||
+      pseudoType == PseudoStyleType::after) {
     GetAnimationsUnsorted(elem, pseudoType, aAnimations);
   } else {
     for (nsIContent* node = this; node; node = node->GetNextNode(this)) {
@@ -3508,23 +3510,24 @@ void Element::GetAnimations(const AnimationFilter& filter,
         continue;
       }
       Element* element = node->AsElement();
-      Element::GetAnimationsUnsorted(element, CSSPseudoElementType::NotPseudo,
+      Element::GetAnimationsUnsorted(element, PseudoStyleType::NotPseudo,
                                      aAnimations);
-      Element::GetAnimationsUnsorted(element, CSSPseudoElementType::before,
+      Element::GetAnimationsUnsorted(element, PseudoStyleType::before,
                                      aAnimations);
-      Element::GetAnimationsUnsorted(element, CSSPseudoElementType::after,
+      Element::GetAnimationsUnsorted(element, PseudoStyleType::after,
                                      aAnimations);
     }
   }
   aAnimations.Sort(AnimationPtrComparator<RefPtr<Animation>>());
 }
 
-/* static */ void Element::GetAnimationsUnsorted(
-    Element* aElement, CSSPseudoElementType aPseudoType,
-    nsTArray<RefPtr<Animation>>& aAnimations) {
-  MOZ_ASSERT(aPseudoType == CSSPseudoElementType::NotPseudo ||
-                 aPseudoType == CSSPseudoElementType::after ||
-                 aPseudoType == CSSPseudoElementType::before,
+/* static */
+void Element::GetAnimationsUnsorted(Element* aElement,
+                                    PseudoStyleType aPseudoType,
+                                    nsTArray<RefPtr<Animation>>& aAnimations) {
+  MOZ_ASSERT(aPseudoType == PseudoStyleType::NotPseudo ||
+                 aPseudoType == PseudoStyleType::after ||
+                 aPseudoType == PseudoStyleType::before,
              "Unsupported pseudo type");
   MOZ_ASSERT(aElement, "Null element");
 
@@ -4086,6 +4089,12 @@ already_AddRefed<nsIBrowser> Element::AsBrowser() {
   return value.forget();
 }
 
+already_AddRefed<nsIAutoCompletePopup> Element::AsAutoCompletePopup() {
+  nsCOMPtr<nsIAutoCompletePopup> value;
+  GetCustomInterface(getter_AddRefs(value));
+  return value.forget();
+}
+
 MOZ_DEFINE_MALLOC_SIZE_OF(ServoElementMallocSizeOf)
 MOZ_DEFINE_MALLOC_ENCLOSING_SIZE_OF(ServoElementMallocEnclosingSizeOf)
 
@@ -4117,7 +4126,7 @@ void Element::AddSizeOfExcludingThis(nsWindowSizes& aSizes,
         sc->AddSizeOfIncludingThis(aSizes, &aSizes.mLayoutComputedValuesDom);
       }
 
-      for (size_t i = 0; i < nsCSSPseudoElements::kEagerPseudoCount; i++) {
+      for (size_t i = 0; i < PseudoStyle::kEagerPseudoCount; i++) {
         if (Servo_Element_HasPseudoComputedValues(this, i)) {
           sc = Servo_Element_GetPseudoComputedValues(this, i).Consume();
           if (!aSizes.mState.HaveSeenPtr(sc.get())) {

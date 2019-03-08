@@ -664,6 +664,81 @@ async function sanitizeInternal(items, aItemsToClear, progress, options = {}) {
   }
 }
 
+// This is an helper that retrieves the principals with site data just once
+// and only when needed.
+class PrincipalsCollector {
+  constructor() {
+    this.principals = null;
+  }
+
+  async getAllPrincipals(progress) {
+    if (this.principals == null) {
+      // Here is the list of principals with site data.
+      progress.advancement = "get-principals";
+      this.principals = await this.getAllPrincipalsInternal(progress);
+    }
+
+    return this.principals;
+  }
+
+  async getAllPrincipalsInternal(progress) {
+    progress.step = "principals-quota-manager";
+    let principals = await new Promise(resolve => {
+      quotaManagerService.getUsage(request => {
+        progress.step = "principals-quota-manager-getUsage";
+        if (request.resultCode != Cr.NS_OK) {
+          // We are probably shutting down. We don't want to propagate the
+          // error, rejecting the promise.
+          resolve([]);
+          return;
+        }
+
+        let list = [];
+        for (let item of request.result) {
+          let principal = Services.scriptSecurityManager.createCodebasePrincipalFromOrigin(item.origin);
+          let uri = principal.URI;
+          if (isSupportedURI(uri)) {
+            list.push(principal);
+          }
+        }
+
+        progress.step = "principals-quota-manager-completed";
+        resolve(list);
+      });
+    }).catch(ex => {
+      Cu.reportError("QuotaManagerService promise failed: " + ex);
+      return [];
+    });
+
+    progress.step = "principals-service-workers";
+    let serviceWorkers = serviceWorkerManager.getAllRegistrations();
+    for (let i = 0; i < serviceWorkers.length; i++) {
+      let sw = serviceWorkers.queryElementAt(i, Ci.nsIServiceWorkerRegistrationInfo);
+      // We don't need to check the scheme. SW are just exposed to http/https URLs.
+      principals.push(sw.principal);
+    }
+
+    // Let's take the list of unique hosts+OA from cookies.
+    progress.step = "principals-cookies";
+    let enumerator = Services.cookies.enumerator;
+    let hosts = new Set();
+    for (let cookie of enumerator) {
+      hosts.add(cookie.rawHost + ChromeUtils.originAttributesToSuffix(cookie.originAttributes));
+    }
+
+    progress.step = "principals-host-cookie";
+    hosts.forEach(host => {
+      // Cookies and permissions are handled by origin/host. Doesn't matter if we
+      // use http: or https: schema here.
+      principals.push(
+        Services.scriptSecurityManager.createCodebasePrincipalFromOrigin("https://" + host));
+    });
+
+    progress.step = "total-principals:" + principals.length;
+    return principals;
+  }
+}
+
 async function sanitizeOnShutdown(progress) {
   log("Sanitizing on shutdown");
 
@@ -673,6 +748,8 @@ async function sanitizeOnShutdown(progress) {
     let itemsToClear = getItemsToClearFromPrefBranch(Sanitizer.PREF_SHUTDOWN_BRANCH);
     await Sanitizer.sanitize(itemsToClear, { progress });
   }
+
+  let principalsCollector = new PrincipalsCollector();
 
   // Clear out QuotaManager storage for principals that have been marked as
   // session only.  The cookie service has special logic that avoids writing
@@ -700,8 +777,10 @@ async function sanitizeOnShutdown(progress) {
                                 Ci.nsICookieService.ACCEPT_NORMALLY) == Ci.nsICookieService.ACCEPT_SESSION) {
     log("Session-only configuration detected");
     progress.advancement = "session-only";
-    let principals = await getAllPrincipals(progress);
+
+    let principals = await principalsCollector.getAllPrincipals(progress);
     await maybeSanitizeSessionPrincipals(progress, principals);
+    return;
   }
 
   progress.advancement = "session-permission";
@@ -721,8 +800,9 @@ async function sanitizeOnShutdown(progress) {
     log("Custom session cookie permission detected for: " + permission.principal.URI.spec);
 
     // We use just the URI here, because permissions ignore OriginAttributes.
-    let principals = await getAllPrincipals(progress, permission.principal.URI);
-    await maybeSanitizeSessionPrincipals(progress, principals);
+    let principals = await principalsCollector.getAllPrincipals(progress);
+    let selectedPrincipals = extractMatchingPrincipals(principals, permission.principal.URI);
+    await maybeSanitizeSessionPrincipals(progress, selectedPrincipals);
   }
 
   if (Sanitizer.shouldSanitizeNewTabContainer) {
@@ -741,67 +821,11 @@ async function sanitizeOnShutdown(progress) {
   progress.advancement = "done";
 }
 
-// Retrieve the list of nsIPrincipals with site data. If matchUri is not null,
-// it returns only the principals matching that URI, ignoring the
-// OriginAttributes.
-async function getAllPrincipals(progress, matchUri = null) {
-  progress.step = "principals-quota-manager";
-  let principals = await new Promise(resolve => {
-    quotaManagerService.getUsage(request => {
-      if (request.resultCode != Cr.NS_OK) {
-        // We are probably shutting down. We don't want to propagate the
-        // error, rejecting the promise.
-        resolve([]);
-        return;
-      }
-
-      let list = [];
-      for (let item of request.result) {
-        let principal = Services.scriptSecurityManager.createCodebasePrincipalFromOrigin(item.origin);
-        let uri = principal.URI;
-        if (!isSupportedURI(uri)) {
-          continue;
-        }
-
-        if (!matchUri || Services.eTLD.hasRootDomain(matchUri.host, uri.host)) {
-          list.push(principal);
-        }
-      }
-      resolve(list);
-    });
-  }).catch(() => []);
-
-  progress.step = "principals-service-workers";
-  let serviceWorkers = serviceWorkerManager.getAllRegistrations();
-  for (let i = 0; i < serviceWorkers.length; i++) {
-    let sw = serviceWorkers.queryElementAt(i, Ci.nsIServiceWorkerRegistrationInfo);
-    let uri = sw.principal.URI;
-    // We don't need to check the scheme. SW are just exposed to http/https URLs.
-    if (!matchUri || Services.eTLD.hasRootDomain(matchUri.host, uri.host)) {
-      principals.push(sw.principal);
-    }
-  }
-
-  // Let's take the list of unique hosts+OA from cookies.
-  progress.step = "principals-cookies";
-  let enumerator = Services.cookies.enumerator;
-  let hosts = new Set();
-  for (let cookie of enumerator) {
-    if (!matchUri || Services.eTLD.hasRootDomain(matchUri.host, cookie.rawHost)) {
-      hosts.add(cookie.rawHost + ChromeUtils.originAttributesToSuffix(cookie.originAttributes));
-    }
-  }
-
-  progress.step = "principals-host-cookie";
-  hosts.forEach(host => {
-    // Cookies and permissions are handled by origin/host. Doesn't matter if we
-    // use http: or https: schema here.
-    principals.push(
-      Services.scriptSecurityManager.createCodebasePrincipalFromOrigin("https://" + host));
+// Extracts the principals matching matchUri as root domain.
+function extractMatchingPrincipals(principals, matchUri) {
+  return principals.filter(principal => {
+    return Services.eTLD.hasRootDomain(matchUri.host, principal.URI.host);
   });
-
-  progress.step = "total-principals:" + principals.length;
-  return principals;
 }
 
 // This method receives a list of principals and it checks if some of them or

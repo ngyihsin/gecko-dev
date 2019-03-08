@@ -118,8 +118,7 @@ static void BuildDisplayListForTopLayerFrame(nsDisplayListBuilder* aBuilder,
         savedOutOfFlowData->mContainingBlockActiveScrolledRoot);
   }
   nsDisplayListBuilder::AutoBuildingDisplayList buildingForChild(
-      aBuilder, aFrame, visible, dirty,
-      aBuilder->IsAtRootOfPseudoStackingContext());
+      aBuilder, aFrame, visible, dirty);
 
   nsDisplayList list;
   aFrame->BuildDisplayListForStackingContext(aBuilder, &list);
@@ -204,8 +203,8 @@ void ViewportFrame::RemoveFrame(ChildListID aListID, nsIFrame* aOldFrame) {
 }
 #endif
 
-/* virtual */ nscoord ViewportFrame::GetMinISize(
-    gfxContext* aRenderingContext) {
+/* virtual */
+nscoord ViewportFrame::GetMinISize(gfxContext* aRenderingContext) {
   nscoord result;
   DISPLAY_MIN_INLINE_SIZE(this, result);
   if (mFrames.IsEmpty())
@@ -216,8 +215,8 @@ void ViewportFrame::RemoveFrame(ChildListID aListID, nsIFrame* aOldFrame) {
   return result;
 }
 
-/* virtual */ nscoord ViewportFrame::GetPrefISize(
-    gfxContext* aRenderingContext) {
+/* virtual */
+nscoord ViewportFrame::GetPrefISize(gfxContext* aRenderingContext) {
   nscoord result;
   DISPLAY_PREF_INLINE_SIZE(this, result);
   if (mFrames.IsEmpty())
@@ -383,10 +382,9 @@ void ViewportFrame::Reflow(nsPresContext* aPresContext,
 }
 
 void ViewportFrame::UpdateStyle(ServoRestyleState& aRestyleState) {
-  nsAtom* pseudo = Style()->GetPseudo();
   RefPtr<ComputedStyle> newStyle =
-      aRestyleState.StyleSet().ResolveInheritingAnonymousBoxStyle(pseudo,
-                                                                  nullptr);
+      aRestyleState.StyleSet().ResolveInheritingAnonymousBoxStyle(
+          Style()->GetPseudoType(), nullptr);
 
   MOZ_ASSERT(!GetNextContinuation(), "Viewport has continuations?");
   SetComputedStyle(newStyle);

@@ -108,7 +108,7 @@ XPCOMUtils.defineLazyServiceGetter(this, "FontEnumerator",
   "@mozilla.org/gfx/fontenumerator;1",
   "nsIFontEnumerator");
 
-ChromeUtils.defineModuleGetter(this, "Utils", "resource://gre/modules/sessionstore/Utils.jsm");
+ChromeUtils.defineModuleGetter(this, "E10SUtils", "resource://gre/modules/E10SUtils.jsm");
 
 ChromeUtils.defineModuleGetter(this, "FormLikeFactory",
                                "resource://gre/modules/FormLikeFactory.jsm");
@@ -3841,7 +3841,7 @@ Tab.prototype = {
     // Always initialise new tabs with basic session store data to avoid
     // problems with functions that always expect it to be present
     let triggeringPrincipal_base64 = aParams.triggeringPrincipal ?
-      Utils.serializePrincipal(aParams.triggeringPrincipal) : Utils.SERIALIZED_SYSTEMPRINCIPAL;
+      E10SUtils.serializePrincipal(aParams.triggeringPrincipal) : E10SUtils.SERIALIZED_SYSTEMPRINCIPAL;
     this.browser.__SS_data = {
       entries: [{
         url: uri,
@@ -4660,7 +4660,9 @@ Tab.prototype = {
     let contentType = contentWin.document.contentType;
 
     // If fixedURI matches browser.lastURI, we assume this isn't a real location
-    // change but rather a spurious addition like a wyciwyg URI prefix. See Bug 747883.
+    // change but rather a spurious addition like adding a username/password. See Bug 747883.
+    // XXXbz Is this still relevant now that document.open doesn't do such
+    // things?  See bug 1528448.
     // Note that we have to ensure fixedURI is not the same as aLocationURI so we
     // don't false-positive page reloads as spurious additions.
     let sameDocument = (aFlags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT) != 0 ||
@@ -4995,9 +4997,9 @@ var BrowserEventHandler = {
     let uri = this._getLinkURI(target);
     if (uri) {
       try {
-        Services.io.QueryInterface(Ci.nsISpeculativeConnect).speculativeConnect2(uri,
-                                                                                 target.ownerDocument.nodePrincipal,
-                                                                                 null);
+        Services.io.QueryInterface(Ci.nsISpeculativeConnect).speculativeConnect(uri,
+                                                                                target.ownerDocument.nodePrincipal,
+                                                                                null);
       } catch (e) {}
     }
     this._doTapHighlight(target);
@@ -6486,7 +6488,9 @@ var ExternalApps = {
             buttons: [
               Strings.browser.GetStringFromName("openInApp.ok"),
               Strings.browser.GetStringFromName("openInApp.cancel")
-            ]
+            ],
+            // Support double tapping to launch an app
+            doubleTapButton: 0
           }, (result) => {
             if (result.button != 0) {
               if (wasPlaying) {
@@ -6784,7 +6788,7 @@ var Tabs = {
         try {
           let uri = Services.io.newURI(data.url);
           if (uri && !this._domains.has(uri.host)) {
-            Services.io.QueryInterface(Ci.nsISpeculativeConnect).speculativeConnect2(
+            Services.io.QueryInterface(Ci.nsISpeculativeConnect).speculativeConnect(
                 uri, BrowserApp.selectedBrowser.contentDocument.nodePrincipal, null);
             this._domains.add(uri.host);
           }

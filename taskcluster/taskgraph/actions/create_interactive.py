@@ -78,7 +78,6 @@ def context(params):
     title='Create Interactive Task',
     name='create-interactive',
     symbol='create-inter',
-    kind='hook',
     generic=True,
     description=(
         'Create a a copy of the task that you can interact with'
@@ -149,7 +148,7 @@ def create_interactive_action(parameters, graph_config, input, task_group_id, ta
 
     # Create the task and any of its dependencies. This uses a new taskGroupId to avoid
     # polluting the existing taskGroup with interactive tasks.
-    label_to_taskid = create_tasks([label], full_task_graph, label_to_taskid,
+    label_to_taskid = create_tasks(graph_config, [label], full_task_graph, label_to_taskid,
                                    parameters, modifier=edit)
 
     taskId = label_to_taskid[label]
