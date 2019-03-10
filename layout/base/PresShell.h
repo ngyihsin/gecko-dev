@@ -1069,12 +1069,31 @@ class PresShell final : public nsIPresShell,
     };
 
     /**
+     * RecordEventPreparationPerformance() records event preparation performance
+     * with telemetry.
+     *
+     * @param aEvent            The handling event which we've finished
+     *                          preparing something to dispatch.
+     */
+    void RecordEventPreparationPerformance(const WidgetEvent* aEvent);
+
+    /**
      * RecordEventHandlingResponsePerformance() records event handling response
      * performance with telemetry.
      *
      * @param aEvent            The handled event.
      */
     void RecordEventHandlingResponsePerformance(const WidgetEvent* aEvent);
+
+    /**
+     * MaybeHandleKeyboardEventBeforeDispatch() may handle aKeyboardEvent
+     * if it should do something before dispatched into the DOM.
+     *
+     * @param aKeyboardEvent    The handling keyboard event.
+     */
+    MOZ_CAN_RUN_SCRIPT
+    void MaybeHandleKeyboardEventBeforeDispatch(
+        WidgetKeyboardEvent* aKeyboardEvent);
 
     /**
      * PrepareToDispatchContextMenuEvent() prepares to dispatch aEvent into
