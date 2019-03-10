@@ -954,6 +954,17 @@ class PresShell final : public nsIPresShell,
         nsIContent* aPointerCapturingContent, nsEventStatus* aEventStatus);
 
     /**
+     * HandleEventAtFocusedContent() handles aGUIEvent at focused content.
+     *
+     * @param aGUIEvent         The handling event which should be handled at
+     *                          focused content.
+     * @param aEventStatus      [in/out] The event status of aGUIEvent.
+     */
+    MOZ_CAN_RUN_SCRIPT
+    nsresult HandleEventAtFocusedContent(WidgetGUIEvent* aGUIEvent,
+                                         nsEventStatus* aEventStatus);
+
+    /**
      * ComputeFocusedEventTargetElement() returns event target element for
      * aGUIEvent which should be handled with focused content.
      * This may set/unset sLastKeyDownEventTarget if necessary.
@@ -1008,6 +1019,21 @@ class PresShell final : public nsIPresShell,
     }
 
     /**
+     * HandleEventWithFrameForPresShell() handles aGUIEvent with the frame
+     * for mPresShell.
+     *
+     * @param aFrameForPresShell        The frame for mPresShell.
+     * @param aGUIEvent                 The handling event.  It shouldn't be
+     *                                  handled with using coordinates nor
+     *                                  handled at focused content.
+     * @param aEventStatus              [in/out] The status of aGUIEvent.
+     */
+    MOZ_CAN_RUN_SCRIPT
+    nsresult HandleEventWithFrameForPresShell(nsIFrame* aFrameForPresShell,
+                                              WidgetGUIEvent* aGUIEvent,
+                                              nsEventStatus* aEventStatus);
+
+    /**
      * XXX Needs better name.
      * HandleEventInternal() dispatches aEvent into the DOM tree and
      * notify EventStateManager of that.
@@ -1023,6 +1049,14 @@ class PresShell final : public nsIPresShell,
                                  nsEventStatus* aEventStatus,
                                  bool aIsHandlingNativeEvent,
                                  nsIContent* aOverrideClickTarget);
+
+    /**
+     * RecordEventHandlingResponsePerformance() records event handling response
+     * performance with telemetry.
+     *
+     * @param aEvent            The handled event.
+     */
+    void RecordEventHandlingResponsePerformance(const WidgetEvent* aEvent);
 
     /**
      * This and the next two helper methods are used to target and position the
