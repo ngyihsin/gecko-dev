@@ -3627,8 +3627,8 @@ static bool ArraySliceDenseKernel(JSContext* cx, ArrayObject* arr,
   return true;
 }
 
-JSObject* js::array_slice_dense(JSContext* cx, HandleObject obj, int32_t begin,
-                                int32_t end, HandleObject result) {
+JSObject* js::ArraySliceDense(JSContext* cx, HandleObject obj, int32_t begin,
+                              int32_t end, HandleObject result) {
   if (result && IsArraySpecies(cx, obj)) {
     if (!ArraySliceDenseKernel(cx, &obj->as<ArrayObject>(), begin, end,
                                &result->as<ArrayObject>())) {
@@ -4064,7 +4064,7 @@ static MOZ_ALWAYS_INLINE ArrayObject* NewArray(
   AutoSetNewObjectMetadata metadata(cx);
   RootedArrayObject arr(
       cx, ArrayObject::createArray(
-              cx, allocKind, GetInitialHeap(newKind, &ArrayObject::class_),
+              cx, allocKind, GetInitialHeap(newKind, group),
               shape, group, length, metadata));
   if (!arr) {
     return nullptr;
@@ -4153,7 +4153,7 @@ ArrayObject* js::NewDenseFullyAllocatedArrayWithTemplate(
   RootedObjectGroup group(cx, templateObject->group());
   RootedShape shape(cx, templateObject->as<ArrayObject>().lastProperty());
 
-  gc::InitialHeap heap = GetInitialHeap(GenericObject, &ArrayObject::class_);
+  gc::InitialHeap heap = GetInitialHeap(GenericObject, group);
   Rooted<ArrayObject*> arr(
       cx, ArrayObject::createArray(cx, allocKind, heap, shape, group, length,
                                    metadata));
@@ -4171,9 +4171,10 @@ ArrayObject* js::NewDenseFullyAllocatedArrayWithTemplate(
 }
 
 ArrayObject* js::NewDenseCopyOnWriteArray(JSContext* cx,
-                                          HandleArrayObject templateObject,
-                                          gc::InitialHeap heap) {
+                                          HandleArrayObject templateObject) {
   MOZ_ASSERT(!gc::IsInsideNursery(templateObject));
+
+  gc::InitialHeap heap = GetInitialHeap(GenericObject, templateObject->group());
 
   ArrayObject* arr =
       ArrayObject::createCopyOnWriteArray(cx, heap, templateObject);
@@ -4322,6 +4323,19 @@ ArrayObject* js::NewCopiedArrayForCallingAllocationSite(
     return nullptr;
   }
   return NewCopiedArrayTryUseGroup(cx, group, vp, length);
+}
+
+ArrayObject* js::NewArrayWithGroup(JSContext* cx, uint32_t length,
+                                   HandleObjectGroup group,
+                                   bool convertDoubleElements) {
+  ArrayObject* res = NewFullyAllocatedArrayTryUseGroup(cx, group, length);
+  if (!res) {
+    return nullptr;
+  }
+  if (convertDoubleElements) {
+    res->setShouldConvertDoubleElements();
+  }
+  return res;
 }
 
 #ifdef DEBUG

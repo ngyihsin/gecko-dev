@@ -658,13 +658,14 @@ pref("media.cubeb.sandbox", false);
 #ifdef MOZ_AV1
 #if defined(XP_WIN) && !defined(_ARM64_)
 pref("media.av1.enabled", true);
+pref("media.av1.use-dav1d", true);
 #elif defined(XP_MACOSX)
 pref("media.av1.enabled", true);
+pref("media.av1.use-dav1d", false);
 #else
 pref("media.av1.enabled", false);
-#endif
-// Use libdav1d instead of libaom
 pref("media.av1.use-dav1d", false);
+#endif
 #endif
 
 pref("media.webaudio.audiocontextoptions-samplerate.enabled", true);
@@ -1301,9 +1302,9 @@ pref("dom.serviceWorkers.disable_open_click_delay", 1000);
 
 pref("dom.storage.enabled", true);
 // Whether or not LSNG (Next Generation Local Storage) is enabled.
-// See bug 1510410 for enabling this on Nightly.
+// See bug 1517090 for enabling this on Nightly.
 #ifdef NIGHTLY_BUILD
-pref("dom.storage.next_gen", false);
+pref("dom.storage.next_gen", true);
 #else
 pref("dom.storage.next_gen", false);
 #endif
@@ -1312,6 +1313,7 @@ pref("dom.storage.shadow_writes", true);
 pref("dom.storage.snapshot_prefill", 16384);
 pref("dom.storage.snapshot_reusing", true);
 pref("dom.storage.testing", false);
+pref("dom.storage.client_validation", true);
 
 pref("dom.send_after_paint_to_content", false);
 
@@ -1602,11 +1604,7 @@ pref("javascript.options.streams", true);
 pref("javascript.options.bigint", false);
 
 // Dynamic module import.
-#ifdef NIGHTLY_BUILD
 pref("javascript.options.dynamicImport", true);
-#else
-pref("javascript.options.dynamicImport", false);
-#endif
 
 // advanced prefs
 pref("advanced.mailftp",                    false);
@@ -4675,6 +4673,7 @@ pref("font.name-list.monospace.x-unicode", "dt-interface user-ucs2.cjk_japan-0")
 pref("signon.rememberSignons",              true);
 pref("signon.rememberSignons.visibilityToggle", true);
 pref("signon.autofillForms",                true);
+pref("signon.autofillForms.autocompleteOff", true);
 pref("signon.autofillForms.http",           false);
 pref("signon.autologin.proxy",              false);
 pref("signon.formlessCapture.enabled",      true);

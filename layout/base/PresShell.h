@@ -1051,12 +1051,40 @@ class PresShell final : public nsIPresShell,
                                  nsIContent* aOverrideClickTarget);
 
     /**
+     * HandlingTimeAccumulator() may accumulate handling time of telemetry
+     * for each type of events.
+     */
+    class MOZ_STACK_CLASS HandlingTimeAccumulator final {
+     public:
+      HandlingTimeAccumulator() = delete;
+      HandlingTimeAccumulator(const HandlingTimeAccumulator& aOther) = delete;
+      HandlingTimeAccumulator(const EventHandler& aEventHandler,
+                              const WidgetEvent* aEvent);
+      ~HandlingTimeAccumulator();
+
+     private:
+      const EventHandler& mEventHandler;
+      const WidgetEvent* mEvent;
+      TimeStamp mHandlingStartTime;
+    };
+
+    /**
      * RecordEventHandlingResponsePerformance() records event handling response
      * performance with telemetry.
      *
      * @param aEvent            The handled event.
      */
     void RecordEventHandlingResponsePerformance(const WidgetEvent* aEvent);
+
+    /**
+     * PrepareToDispatchContextMenuEvent() prepares to dispatch aEvent into
+     * the DOM.
+     *
+     * @param aEvent            Must be eContextMenu event.
+     * @return                  true if it can be dispatched into the DOM.
+     *                          Otherwise, false.
+     */
+    bool PrepareToDispatchContextMenuEvent(WidgetEvent* aEvent);
 
     /**
      * This and the next two helper methods are used to target and position the

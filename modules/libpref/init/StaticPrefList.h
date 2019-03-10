@@ -526,6 +526,13 @@ VARCACHE_PREF(
   bool, false
 )
 
+// This currently only affects XHTML. For XUL the cache is always allowed.
+VARCACHE_PREF(
+  "dom.prototype_document_cache.enabled",
+   dom_prototype_document_cache_enabled,
+  bool, true
+)
+
 VARCACHE_PREF(
   "dom.storage_access.auto_grants.delayed",
    dom_storage_access_auto_grants_delayed,
@@ -575,10 +582,11 @@ VARCACHE_PREF(
   uint32_t, 1
 )
 
+// 0=solid, 1=dotted
 VARCACHE_PREF(
   "browser.display.focus_ring_style",
    browser_display_focus_ring_style,
-  bool, false
+  uint32_t, 1
 )
 
 VARCACHE_PREF(
@@ -1814,6 +1822,14 @@ VARCACHE_PREF(
   bool, true
 )
 
+// Allow CookieSettings to be unblocked for channels without a document.
+// This is for testing only.
+VARCACHE_PREF(
+  "network.cookieSettings.unblocked_for_testing",
+   network_cookieSettings_unblocked_for_testing,
+  bool, false
+)
+
 VARCACHE_PREF(
   "network.predictor.enable-hover-on-ssl",
    network_predictor_enable_hover_on_ssl,
@@ -2297,6 +2313,13 @@ VARCACHE_PREF(
 VARCACHE_PREF(
   "medium_high_event_queue.enabled",
    medium_high_event_queue_enabled,
+  RelaxedAtomicBool, true
+)
+
+// Whether strict file origin policy is in effect.
+VARCACHE_PREF(
+  "security.fileuri.strict_origin_policy",
+   security_fileuri_strict_origin_policy,
   RelaxedAtomicBool, true
 )
 

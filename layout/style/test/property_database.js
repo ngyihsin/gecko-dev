@@ -81,10 +81,14 @@ function initial_font_family_is_sans_serif()
 {
   // The initial value of 'font-family' might be 'serif' or
   // 'sans-serif'.
-  var div = document.createElement("div");
-  div.setAttribute("style", "font: initial");
-  return getComputedStyle(div, "").fontFamily == "sans-serif";
+  const meta = document.createElement("meta");
+  meta.setAttribute("style", "font: initial;");
+  document.documentElement.appendChild(meta);
+  const family = getComputedStyle(meta).fontFamily;
+  meta.remove();
+  return family == "sans-serif";
 }
+
 var gInitialFontFamilyIsSansSerif = initial_font_family_is_sans_serif();
 
 // shared by background-image and border-image-source
@@ -5590,8 +5594,8 @@ var gCSSProperties = {
     inherited: true,
     type: CSS_TYPE_LONGHAND,
     initial_values: [ "4" ],
-    other_values: [ "1", "7", "5000", "1.1" ],
-    invalid_values: [ "0.9", "0", "-1", "3px", "-0.3" ]
+    other_values: [ "0", "0.9", "1", "7", "5000", "1.1" ],
+    invalid_values: [ "-1", "3px", "-0.3" ]
   },
   "stroke-opacity": {
     domProp: "strokeOpacity",

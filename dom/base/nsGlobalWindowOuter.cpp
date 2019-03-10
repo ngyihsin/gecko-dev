@@ -1258,10 +1258,6 @@ nsGlobalWindowOuter::~nsGlobalWindowOuter() {
   if (obs) {
     obs->RemoveObserver(this, PERM_CHANGE_NOTIFICATION);
   }
-  nsCOMPtr<nsIPrefBranch> prefBranch = do_GetService(NS_PREFSERVICE_CONTRACTID);
-  if (prefBranch) {
-    prefBranch->RemoveObserver("network.cookie.cookieBehavior", this);
-  }
 
   nsLayoutStatics::Release();
 }
@@ -1782,7 +1778,6 @@ struct MOZ_STACK_CLASS CompartmentFinderState {
   JS::Compartment* compartment;
 };
 
-#if 0 /* Temporarily disabled; will reenable in bug 1533105 */
 static JS::CompartmentIterResult FindSameOriginCompartment(
     JSContext* aCx, void* aData, JS::Compartment* aCompartment) {
   auto* data = static_cast<CompartmentFinderState*>(aData);
@@ -1807,7 +1802,6 @@ static JS::CompartmentIterResult FindSameOriginCompartment(
   data->compartment = aCompartment;
   return JS::CompartmentIterResult::Stop;
 }
-#endif
 
 static JS::RealmCreationOptions& SelectZone(
     JSContext* aCx, nsIPrincipal* aPrincipal, nsGlobalWindowInner* aNewInner,
@@ -1828,7 +1822,6 @@ static JS::RealmCreationOptions& SelectZone(
 
     // If we have a top-level window, use its zone.
     if (top && top->GetGlobalJSObject()) {
-#if 0 /* Temporarily disabled; will reenable in bug 1533105 */
       JS::Zone* zone = JS::GetObjectZone(top->GetGlobalJSObject());
       // Now try to find an existing compartment that's same-origin
       // with our principal.
@@ -1837,7 +1830,6 @@ static JS::RealmCreationOptions& SelectZone(
       if (data.compartment) {
         return aOptions.setExistingCompartment(data.compartment);
       }
-#endif
       return aOptions.setNewCompartmentInExistingZone(top->GetGlobalJSObject());
     }
   }
@@ -2295,20 +2287,18 @@ nsresult nsGlobalWindowOuter::SetNewDocument(Document* aDocument,
 
   mHasStorageAccess = false;
   nsIURI* uri = aDocument->GetDocumentURI();
-  if (newInnerWindow) {
-    if (StaticPrefs::network_cookie_cookieBehavior() ==
-            nsICookieService::BEHAVIOR_REJECT_TRACKER &&
-        nsContentUtils::IsThirdPartyWindowOrChannel(newInnerWindow, nullptr,
-                                                    uri) &&
-        nsContentUtils::IsTrackingResourceWindow(newInnerWindow)) {
-      // Grant storage access by default if the first-party storage access
-      // permission has been granted already.
-      // Don't notify in this case, since we would be notifying the user
-      // needlessly.
-      mHasStorageAccess =
-          AntiTrackingCommon::IsFirstPartyStorageAccessGrantedFor(
-              newInnerWindow, uri, nullptr);
-    }
+  if (newInnerWindow &&
+      aDocument->CookieSettings()->GetCookieBehavior() ==
+          nsICookieService::BEHAVIOR_REJECT_TRACKER &&
+      nsContentUtils::IsThirdPartyWindowOrChannel(newInnerWindow, nullptr,
+                                                  uri) &&
+      nsContentUtils::IsTrackingResourceWindow(newInnerWindow)) {
+    // Grant storage access by default if the first-party storage access
+    // permission has been granted already.
+    // Don't notify in this case, since we would be notifying the user
+    // needlessly.
+    mHasStorageAccess = AntiTrackingCommon::IsFirstPartyStorageAccessGrantedFor(
+        newInnerWindow, uri, nullptr);
   }
 
   return NS_OK;
@@ -6948,11 +6938,6 @@ NS_IMETHODIMP
 nsGlobalWindowOuter::Observe(nsISupports* aSupports, const char* aTopic,
                              const char16_t* aData) {
   if (!nsCRT::strcmp(aTopic, PERM_CHANGE_NOTIFICATION)) {
-    if (!nsCRT::strcmp(aData, u"cleared") && !aSupports) {
-      // All permissions have been cleared.
-      mHasStorageAccess = false;
-      return NS_OK;
-    }
     nsCOMPtr<nsIPermission> permission = do_QueryInterface(aSupports);
     if (!permission) {
       return NS_OK;
@@ -6984,10 +6969,6 @@ nsGlobalWindowOuter::Observe(nsISupports* aSupports, const char* aTopic,
         return NS_OK;
       }
     }
-  } else if (!nsCRT::strcmp(aTopic, NS_PREFBRANCH_PREFCHANGE_TOPIC_ID)) {
-    // Reset the storage access permission when our cookie policy changes.
-    mHasStorageAccess = false;
-    return NS_OK;
   }
   return NS_OK;
 }
@@ -7784,10 +7765,6 @@ already_AddRefed<nsGlobalWindowOuter> nsGlobalWindowOuter::Create(
         NS_NewRunnableFunction("PermChangeDelayRunnable", [obs, window] {
           obs->AddObserver(window, PERM_CHANGE_NOTIFICATION, true);
         }));
-  }
-  nsCOMPtr<nsIPrefBranch> prefBranch = do_GetService(NS_PREFSERVICE_CONTRACTID);
-  if (prefBranch) {
-    prefBranch->AddObserver("network.cookie.cookieBehavior", window, true);
   }
   return window.forget();
 }
