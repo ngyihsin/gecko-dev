@@ -1516,7 +1516,7 @@ gfxFontFamily* gfxFT2FontList::GetDefaultFontForPlatform(
     const gfxFontStyle* aStyle) {
   gfxFontFamily* ff = nullptr;
 #ifdef MOZ_WIDGET_GONK
-    ff = FindFamily(NS_LITERAL_STRING("Fira Sans"));
+    ff = FindFamily(NS_LITERAL_CSTRING("Fira Sans"));
 #elif defined(MOZ_WIDGET_ANDROID)
   ff = FindFamily(NS_LITERAL_CSTRING("Roboto"));
   if (!ff) {
