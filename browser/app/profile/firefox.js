@@ -489,11 +489,11 @@ pref("browser.tabs.remote.separatePrivilegedContentProcess", true);
 // Turn on HTTP response process selection.
 pref("browser.tabs.remote.useHTTPResponseProcessSelection", true);
 
-// Unload tabs on low-memory on nightly.
-#ifdef RELEASE_OR_BETA
-pref("browser.tabs.unloadOnLowMemory", false);
-#else
+// Unload tabs on low-memory on nightly and beta.
+#ifdef EARLY_BETA_OR_EARLIER
 pref("browser.tabs.unloadOnLowMemory", true);
+#else
+pref("browser.tabs.unloadOnLowMemory", false);
 #endif
 
 pref("browser.ctrlTab.recentlyUsedOrder", true);
@@ -1379,7 +1379,7 @@ pref("dom.debug.propagate_gesture_events_through_content", false);
 // All the Geolocation preferences are here.
 //
 #ifndef EARLY_BETA_OR_EARLIER
-pref("geo.wifi.uri", "https://www.googleapis.com/geolocation/v1/geolocate?key=%GOOGLE_API_KEY%");
+pref("geo.wifi.uri", "https://www.googleapis.com/geolocation/v1/geolocate?key=%GOOGLE_LOCATION_SERVICE_API_KEY%");
 #else
 // Use MLS on Nightly and early Beta.
 pref("geo.wifi.uri", "https://location.services.mozilla.com/v1/geolocate?key=%MOZILLA_API_KEY%");

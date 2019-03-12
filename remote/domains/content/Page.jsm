@@ -6,13 +6,13 @@
 
 var EXPORTED_SYMBOLS = ["Page"];
 
-const {Domain} = ChromeUtils.import("chrome://remote/content/domains/Domain.jsm");
+const {ContentProcessDomain} = ChromeUtils.import("chrome://remote/content/domains/ContentProcessDomain.jsm");
 const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const {UnsupportedError} = ChromeUtils.import("chrome://remote/content/Error.jsm");
 
-class Page extends Domain {
-  constructor(session, target) {
-    super(session, target);
+class Page extends ContentProcessDomain {
+  constructor(session) {
+    super(session);
     this.enabled = false;
   }
 
@@ -67,6 +67,21 @@ class Page extends Domain {
     return {frameId: "42"};
   }
 
+  getFrameTree() {
+    return {
+      frameTree: {
+        frame: {
+          // id, parentId
+        },
+        childFrames: [],
+      },
+    };
+  }
+
+  setLifecycleEventsEnabled() {}
+  addScriptToEvaluateOnNewDocument() {}
+  createIsolatedWorld() {}
+
   url() {
     return this.content.location.href;
   }
@@ -81,6 +96,9 @@ class Page extends Domain {
 
     case "pageshow":
       this.emit("Page.loadEventFired", {timestamp});
+      // XXX this should most likely be sent differently
+      this.emit("Page.navigatedWithinDocument", {timestamp});
+      this.emit("Page.frameStoppedLoading", {timestamp});
       break;
     }
   }

@@ -1070,7 +1070,7 @@ class PresShell final : public nsIPresShell,
 
     /**
      * RecordEventPreparationPerformance() records event preparation performance
-     * with telemetry.
+     * with telemetry only when aEvent is a trusted event.
      *
      * @param aEvent            The handling event which we've finished
      *                          preparing something to dispatch.
@@ -1084,6 +1084,17 @@ class PresShell final : public nsIPresShell,
      * @param aEvent            The handled event.
      */
     void RecordEventHandlingResponsePerformance(const WidgetEvent* aEvent);
+
+    /**
+     * PrepareToDispatchEvent() prepares to dispatch aEvent.
+     *
+     * @param aEvent            The handling event.
+     * @return                  true if the event is user interaction.  I.e.,
+     *                          enough obvious input to allow to open popup,
+     *                          etc.  false, otherwise.
+     */
+    MOZ_CAN_RUN_SCRIPT
+    bool PrepareToDispatchEvent(WidgetEvent* aEvent);
 
     /**
      * MaybeHandleKeyboardEventBeforeDispatch() may handle aKeyboardEvent
@@ -1136,6 +1147,27 @@ class PresShell final : public nsIPresShell,
 
     nsIContent* GetOverrideClickTarget(WidgetGUIEvent* aGUIEvent,
                                        nsIFrame* aFrame);
+
+    /**
+     * DispatchEvent() tries to dispatch aEvent and notifies aEventStateManager
+     * of doing it.
+     *
+     * @param aEventStateManager        EventStateManager which should handle
+     *                                  the event before/after dispatching
+     *                                  aEvent into the DOM.
+     * @param aEvent                    The handling event.
+     * @param aTouchIsNew               Set this to true when the message is
+     *                                  eTouchMove and it's newly touched.
+     *                                  Then, the "touchmove" event becomes
+     *                                  cancelable.
+     * @param aEventStatus              [in/out] The status of aEvent.
+     * @param aOverrideClickTarget      Override click event target.
+     */
+    MOZ_CAN_RUN_SCRIPT
+    nsresult DispatchEvent(EventStateManager* aEventStateManager,
+                           WidgetEvent* aEvent, bool aTouchIsNew,
+                           nsEventStatus* aEventStatus,
+                           nsIContent* aOverrideClickTarget);
 
     /**
      * DispatchEventToDOM() actually dispatches aEvent into the DOM tree.

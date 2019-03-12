@@ -3,9 +3,14 @@
 
 "use strict";
 
-const {Session} = ChromeUtils.import("chrome://remote/content/Session.jsm");
+const {Session} = ChromeUtils.import("chrome://remote/content/sessions/Session.jsm");
 
-const connection = {onmessage: () => {}};
+const connection = {
+  registerSession: () => {},
+  transport: {
+    on: () => {},
+  },
+};
 
 class MockTarget {
   constructor() {

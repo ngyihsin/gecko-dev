@@ -7644,77 +7644,33 @@ nsresult PresShell::EventHandler::HandleEventInternal(
     return NS_OK;
   }
 
-  bool touchIsNew = false;
-  bool isHandlingUserInput = false;
-
   if (mPresShell->mCurrentEventContent && aEvent->IsTargetedAtFocusedWindow()) {
     nsFocusManager* fm = nsFocusManager::GetFocusManager();
     if (fm) {
+      // This may run script now.  So, mPresShell might be destroyed after here.
       fm->FlushBeforeEventHandlingIfNeeded(mPresShell->mCurrentEventContent);
     }
   }
 
-  // XXX How about IME events and input events for plugins?
-  if (aEvent->IsTrusted()) {
-    if (aEvent->IsUserAction()) {
-      mPresShell->mHasHandledUserInput = true;
-    }
-
-    switch (aEvent->mMessage) {
-      case eKeyPress:
-      case eKeyDown:
-      case eKeyUp: {
-        WidgetKeyboardEvent* keyboardEvent = aEvent->AsKeyboardEvent();
-        MaybeHandleKeyboardEventBeforeDispatch(keyboardEvent);
-        // Not all keyboard events are treated as user input, so that popups
-        // can't be opened, fullscreen mode can't be started, etc at unexpected
-        // time.
-        isHandlingUserInput = keyboardEvent->CanTreatAsUserInput();
-        break;
-      }
-      case eMouseDown:
-      case eMouseUp:
-      case ePointerDown:
-      case ePointerUp:
-        isHandlingUserInput = true;
-        break;
-
-      case eMouseMove:
-        nsIPresShell::AllowMouseCapture(
-            EventStateManager::GetActiveEventStateManager() == manager);
-        break;
-
-      case eDrop: {
-        nsCOMPtr<nsIDragSession> session = nsContentUtils::GetDragSession();
-        if (session) {
-          bool onlyChromeDrop = false;
-          session->GetOnlyChromeDrop(&onlyChromeDrop);
-          if (onlyChromeDrop) {
-            aEvent->mFlags.mOnlyChromeDispatch = true;
-          }
-        }
-        break;
-      }
-
-      default:
-        break;
-    }
-
-    RecordEventPreparationPerformance(aEvent);
-
-    if (!mPresShell->mTouchManager.PreHandleEvent(
-            aEvent, aEventStatus, touchIsNew, isHandlingUserInput,
-            mPresShell->mCurrentEventContent)) {
-      return NS_OK;
-    }
-  }
+  bool isHandlingUserInput = PrepareToDispatchEvent(aEvent);
 
   // If we cannot open context menu even though eContextMenu is fired, we
   // should stop dispatching it into the DOM.
-  // XXX Can it be untrusted eContextMenu event here?  If not, we can do
-  //     this in the above block's switch statement.
   if (aEvent->mMessage == eContextMenu &&
       !PrepareToDispatchContextMenuEvent(aEvent)) {
+    return NS_OK;
+  }
+
+  // We finished preparing to dispatch the event.  So, let's record the
+  // performance.
+  RecordEventPreparationPerformance(aEvent);
+
+  // XXX Why don't we measure the performance of TouchManager::PreHandleEvent()
+  //     with RecordEventPreparationPerformance()?
+  bool touchIsNew = false;
+  if (!mPresShell->mTouchManager.PreHandleEvent(
+          aEvent, aEventStatus, touchIsNew, isHandlingUserInput,
+          mPresShell->mCurrentEventContent)) {
     return NS_OK;
   }
 
@@ -7730,66 +7686,8 @@ nsresult PresShell::EventHandler::HandleEventInternal(
 
   HandlingTimeAccumulator handlingTimeAccumulator(*this, aEvent);
 
-  // 1. Give event to event manager for pre event state changes and
-  //    generation of synthetic events.
-  nsresult rv = manager->PreHandleEvent(
-      GetPresContext(), aEvent, mPresShell->mCurrentEventFrame,
-      mPresShell->mCurrentEventContent, aEventStatus, aOverrideClickTarget);
-
-  // 2. Give event to the DOM for third party and JS use.
-  if (NS_SUCCEEDED(rv)) {
-    bool wasHandlingKeyBoardEvent = nsContentUtils::IsHandlingKeyBoardEvent();
-    if (aEvent->mClass == eKeyboardEventClass) {
-      nsContentUtils::SetIsHandlingKeyBoardEvent(true);
-    }
-    // If EventStateManager or something wants reply from remote process and
-    // needs to win any other event listeners in chrome, the event is both
-    // stopped its propagation and marked as "waiting reply from remote
-    // process".  In this case, PresShell shouldn't dispatch the event into
-    // the DOM tree because they don't have a chance to stop propagation in
-    // the system event group.  On the other hand, if its propagation is not
-    // stopped, that means that the event may be reserved by chrome.  If it's
-    // reserved by chrome, the event shouldn't be sent to any remote
-    // processes.  In this case, PresShell needs to dispatch the event to
-    // the DOM tree for checking if it's reserved.
-    if (aEvent->IsAllowedToDispatchDOMEvent() &&
-        !(aEvent->PropagationStopped() &&
-          aEvent->IsWaitingReplyFromRemoteProcess())) {
-      MOZ_ASSERT(nsContentUtils::IsSafeToRunScript(),
-                 "Somebody changed aEvent to cause a DOM event!");
-      nsPresShellEventCB eventCB(mPresShell);
-      if (nsIFrame* target = mPresShell->GetCurrentEventFrame()) {
-        if (target->OnlySystemGroupDispatch(aEvent->mMessage)) {
-          aEvent->StopPropagation();
-        }
-      }
-      if (aEvent->mClass == eTouchEventClass) {
-        DispatchTouchEventToDOM(aEvent, aEventStatus, &eventCB, touchIsNew);
-      } else {
-        DispatchEventToDOM(aEvent, aEventStatus, &eventCB);
-      }
-    }
-
-    nsContentUtils::SetIsHandlingKeyBoardEvent(wasHandlingKeyBoardEvent);
-
-    if (aEvent->mMessage == ePointerUp || aEvent->mMessage == ePointerCancel) {
-      // Implicitly releasing capture for given pointer.
-      // ePointerLostCapture should be send after ePointerUp or
-      // ePointerCancel.
-      WidgetPointerEvent* pointerEvent = aEvent->AsPointerEvent();
-      MOZ_ASSERT(pointerEvent);
-      PointerEventHandler::ReleasePointerCaptureById(pointerEvent->pointerId);
-      PointerEventHandler::CheckPointerCaptureState(pointerEvent);
-    }
-
-    // 3. Give event to event manager for post event state changes and
-    //    generation of synthetic events.
-    if (!mPresShell->IsDestroying() && NS_SUCCEEDED(rv)) {
-      rv = manager->PostHandleEvent(GetPresContext(), aEvent,
-                                    mPresShell->GetCurrentEventFrame(),
-                                    aEventStatus, aOverrideClickTarget);
-    }
-  }
+  nsresult rv = DispatchEvent(manager, aEvent, touchIsNew, aEventStatus,
+                              aOverrideClickTarget);
 
   if (!mPresShell->IsDestroying() && aIsHandlingNativeEvent) {
     // Ensure that notifications to IME should be sent before getting next
@@ -7849,10 +7747,136 @@ nsresult PresShell::EventHandler::HandleEventInternal(
   return rv;
 }
 
+nsresult PresShell::EventHandler::DispatchEvent(
+    EventStateManager* aEventStateManager, WidgetEvent* aEvent,
+    bool aTouchIsNew, nsEventStatus* aEventStatus,
+    nsIContent* aOverrideClickTarget) {
+  MOZ_ASSERT(aEventStateManager);
+  MOZ_ASSERT(aEvent);
+  MOZ_ASSERT(aEventStatus);
+
+  // 1. Give event to event manager for pre event state changes and
+  //    generation of synthetic events.
+  nsresult rv = aEventStateManager->PreHandleEvent(
+      GetPresContext(), aEvent, mPresShell->mCurrentEventFrame,
+      mPresShell->mCurrentEventContent, aEventStatus, aOverrideClickTarget);
+  if (NS_FAILED(rv)) {
+    return rv;
+  }
+
+  // 2. Give event to the DOM for third party and JS use.
+  bool wasHandlingKeyBoardEvent = nsContentUtils::IsHandlingKeyBoardEvent();
+  if (aEvent->mClass == eKeyboardEventClass) {
+    nsContentUtils::SetIsHandlingKeyBoardEvent(true);
+  }
+  // If EventStateManager or something wants reply from remote process and
+  // needs to win any other event listeners in chrome, the event is both
+  // stopped its propagation and marked as "waiting reply from remote
+  // process".  In this case, PresShell shouldn't dispatch the event into
+  // the DOM tree because they don't have a chance to stop propagation in
+  // the system event group.  On the other hand, if its propagation is not
+  // stopped, that means that the event may be reserved by chrome.  If it's
+  // reserved by chrome, the event shouldn't be sent to any remote
+  // processes.  In this case, PresShell needs to dispatch the event to
+  // the DOM tree for checking if it's reserved.
+  if (aEvent->IsAllowedToDispatchDOMEvent() &&
+      !(aEvent->PropagationStopped() &&
+        aEvent->IsWaitingReplyFromRemoteProcess())) {
+    MOZ_ASSERT(nsContentUtils::IsSafeToRunScript(),
+               "Somebody changed aEvent to cause a DOM event!");
+    nsPresShellEventCB eventCB(mPresShell);
+    if (nsIFrame* target = mPresShell->GetCurrentEventFrame()) {
+      if (target->OnlySystemGroupDispatch(aEvent->mMessage)) {
+        aEvent->StopPropagation();
+      }
+    }
+    if (aEvent->mClass == eTouchEventClass) {
+      DispatchTouchEventToDOM(aEvent, aEventStatus, &eventCB, aTouchIsNew);
+    } else {
+      DispatchEventToDOM(aEvent, aEventStatus, &eventCB);
+    }
+  }
+
+  nsContentUtils::SetIsHandlingKeyBoardEvent(wasHandlingKeyBoardEvent);
+
+  if (aEvent->mMessage == ePointerUp || aEvent->mMessage == ePointerCancel) {
+    // Implicitly releasing capture for given pointer.
+    // ePointerLostCapture should be send after ePointerUp or
+    // ePointerCancel.
+    WidgetPointerEvent* pointerEvent = aEvent->AsPointerEvent();
+    MOZ_ASSERT(pointerEvent);
+    PointerEventHandler::ReleasePointerCaptureById(pointerEvent->pointerId);
+    PointerEventHandler::CheckPointerCaptureState(pointerEvent);
+  }
+
+  if (mPresShell->IsDestroying()) {
+    return NS_OK;
+  }
+
+  // 3. Give event to event manager for post event state changes and
+  //    generation of synthetic events.
+  return aEventStateManager->PostHandleEvent(
+      GetPresContext(), aEvent, mPresShell->GetCurrentEventFrame(),
+      aEventStatus, aOverrideClickTarget);
+}
+
+bool PresShell::EventHandler::PrepareToDispatchEvent(WidgetEvent* aEvent) {
+  if (!aEvent->IsTrusted()) {
+    return false;
+  }
+
+  if (aEvent->IsUserAction()) {
+    mPresShell->mHasHandledUserInput = true;
+  }
+
+  switch (aEvent->mMessage) {
+    case eKeyPress:
+    case eKeyDown:
+    case eKeyUp: {
+      WidgetKeyboardEvent* keyboardEvent = aEvent->AsKeyboardEvent();
+      MaybeHandleKeyboardEventBeforeDispatch(keyboardEvent);
+      // Not all keyboard events are treated as user input, so that popups
+      // can't be opened, fullscreen mode can't be started, etc at unexpected
+      // time.
+      return keyboardEvent->CanTreatAsUserInput();
+    }
+    case eMouseDown:
+    case eMouseUp:
+    case ePointerDown:
+    case ePointerUp:
+      return true;
+
+    case eMouseMove: {
+      bool allowCapture = EventStateManager::GetActiveEventStateManager() &&
+                          GetPresContext() &&
+                          GetPresContext()->EventStateManager() ==
+                              EventStateManager::GetActiveEventStateManager();
+      nsIPresShell::AllowMouseCapture(allowCapture);
+      return false;
+    }
+    case eDrop: {
+      nsCOMPtr<nsIDragSession> session = nsContentUtils::GetDragSession();
+      if (session) {
+        bool onlyChromeDrop = false;
+        session->GetOnlyChromeDrop(&onlyChromeDrop);
+        if (onlyChromeDrop) {
+          aEvent->mFlags.mOnlyChromeDispatch = true;
+        }
+      }
+      return false;
+    }
+
+    default:
+      return false;
+  }
+}
+
 bool PresShell::EventHandler::PrepareToDispatchContextMenuEvent(
     WidgetEvent* aEvent) {
   MOZ_ASSERT(aEvent);
   MOZ_ASSERT(aEvent->mMessage == eContextMenu);
+
+  // XXX Why do we treat untrusted eContextMenu here?
 
   WidgetMouseEvent* mouseEvent = aEvent->AsMouseEvent();
   if (mouseEvent->IsContextMenuKeyEvent() &&
@@ -7928,6 +7952,10 @@ void PresShell::EventHandler::RecordEventPreparationPerformance(
     const WidgetEvent* aEvent) {
   MOZ_ASSERT(aEvent);
 
+  if (!aEvent->IsTrusted()) {
+    return;
+  }
+
   switch (aEvent->mMessage) {
     case eKeyPress:
     case eKeyDown:
@@ -7986,6 +8014,9 @@ void PresShell::EventHandler::RecordEventPreparationPerformance(
 
 void PresShell::EventHandler::RecordEventHandlingResponsePerformance(
     const WidgetEvent* aEvent) {
+  // XXX Why we include the peformance of untrusted events only here?
+  //     We don't include it at recoding the preparation performance.
+
   if (!Telemetry::CanRecordBase() || aEvent->mTimeStamp.IsNull() ||
       aEvent->mTimeStamp <= mPresShell->mLastOSWake ||
       !aEvent->AsInputEvent()) {
