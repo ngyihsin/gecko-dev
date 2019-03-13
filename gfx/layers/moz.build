@@ -28,6 +28,7 @@ EXPORTS += [
     'FrameMetrics.h',
     'GLImages.h',
     'GPUVideoImage.h',
+    'GrallocImages.h',
     'ImageContainer.h',
     'ImageLayers.h',
     'ImageTypes.h',
@@ -183,6 +184,9 @@ EXPORTS.mozilla.layers += [
     'ipc/CompositorVsyncScheduler.h',
     'ipc/CompositorVsyncSchedulerOwner.h',
     'ipc/CrossProcessCompositorBridgeParent.h',
+    'ipc/FenceUtils.h',
+    'ipc/GonkNativeHandle.h',
+    'ipc/GonkNativeHandleUtils.h',
     'ipc/ImageBridgeChild.h',
     'ipc/ImageBridgeParent.h',
     'ipc/ISurfaceAllocator.h',
@@ -222,6 +226,8 @@ EXPORTS.mozilla.layers += [
     'mlgpu/UtilityMLGPU.h',
     'opengl/CompositingRenderTargetOGL.h',
     'opengl/CompositorOGL.h',
+    'opengl/GrallocTextureClient.h',
+    'opengl/GrallocTextureHost.h',
     'opengl/MacIOSurfaceTextureClientOGL.h',
     'opengl/MacIOSurfaceTextureHostOGL.h',
     'opengl/TextureClientOGL.h',
@@ -308,6 +314,34 @@ if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'android':
     ]
     EXPORTS.mozilla.layers += [
         'apz/src/AndroidDynamicToolbarAnimator.h',
+    ]
+
+# NB: Gralloc is available on other platforms that use the android GL
+# libraries, but only Gonk is able to use it reliably because Gecko
+# has full system permissions there.
+if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gonk':
+    EXPORTS.mozilla.layers += [
+        'basic/GrallocTextureHostBasic.h',
+        'ipc/ShadowLayerUtilsGralloc.h',
+    ]
+    UNIFIED_SOURCES += [
+        'basic/GrallocTextureHostBasic.cpp',
+        'GrallocImages.cpp',
+        'opengl/EGLImageHelpers.cpp',
+        'opengl/GrallocTextureClient.cpp',
+        'opengl/GrallocTextureHost.cpp',
+    ]
+    LOCAL_INCLUDES += ['/widget/gonk']
+    if CONFIG['ANDROID_VERSION'] >= '21':
+        LOCAL_INCLUDES += [
+             '%' + '%s/%s' % (CONFIG['GONK_PATH'], d) for d in [
+                 'system/core/libsync/include'
+             ]
+        ]
+    SOURCES += [
+        'ipc/GonkNativeHandle.cpp',
+        'ipc/GonkNativeHandleUtils.cpp',
+        'ipc/ShadowLayerUtilsGralloc.cpp',
     ]
 
 UNIFIED_SOURCES += [
@@ -426,6 +460,7 @@ UNIFIED_SOURCES += [
     'ipc/CompositorThread.cpp',
     'ipc/CompositorVsyncScheduler.cpp',
     'ipc/CrossProcessCompositorBridgeParent.cpp',
+    'ipc/FenceUtils.cpp',
     'ipc/ImageBridgeChild.cpp',
     'ipc/ImageBridgeParent.cpp',
     'ipc/ISurfaceAllocator.cpp',

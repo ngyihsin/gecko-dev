@@ -59,7 +59,7 @@ class gfxAndroidPlatform : public gfxPlatform {
   CreateHardwareVsyncSource() override;
 
 #ifdef MOZ_WIDGET_GONK
-    virtual bool IsInGonkEmulator() const { return mIsInGonkEmulator; }
+    virtual bool IsInGonkEmulator() const override { return mIsInGonkEmulator; }
 #endif
 
  protected:
