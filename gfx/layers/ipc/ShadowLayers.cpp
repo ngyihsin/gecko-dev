@@ -965,7 +965,7 @@ bool ShadowLayerForwarder::AllocSurfaceDescriptorWithCaps(
       return false;
     }
 
-    bufferDesc = shmem;
+    bufferDesc = std::move(shmem);
   }
 
   // Use an intermediate buffer by default. Skipping the intermediate buffer is

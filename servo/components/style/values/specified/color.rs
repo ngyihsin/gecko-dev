@@ -274,8 +274,9 @@ impl Color {
                 if ident.len() != 3 && ident.len() != 6 {
                     return Err(location.new_custom_error(StyleParseErrorKind::UnspecifiedError));
                 }
-                return parse_hash_color(ident.as_bytes())
-                    .map_err(|()| location.new_custom_error(StyleParseErrorKind::UnspecifiedError));
+                return parse_hash_color(ident.as_bytes()).map_err(|()| {
+                    location.new_custom_error(StyleParseErrorKind::UnspecifiedError)
+                });
             },
             ref t => {
                 return Err(location.new_unexpected_token_error(t.clone()));
@@ -350,13 +351,13 @@ impl Color {
             Color::Special(special) => {
                 use self::gecko::SpecialColorKeyword as Keyword;
                 _context.map(|context| {
-                    let pres_context = context.device().pres_context();
+                    let prefs = context.device().pref_sheet_prefs();
                     convert_nscolor_to_computedcolor(match special {
-                        Keyword::MozDefaultColor => pres_context.mDefaultColor,
-                        Keyword::MozDefaultBackgroundColor => pres_context.mBackgroundColor,
-                        Keyword::MozHyperlinktext => pres_context.mLinkColor,
-                        Keyword::MozActivehyperlinktext => pres_context.mActiveLinkColor,
-                        Keyword::MozVisitedhyperlinktext => pres_context.mVisitedLinkColor,
+                        Keyword::MozDefaultColor => prefs.mDefaultColor,
+                        Keyword::MozDefaultBackgroundColor => prefs.mDefaultBackgroundColor,
+                        Keyword::MozHyperlinktext => prefs.mLinkColor,
+                        Keyword::MozActivehyperlinktext => prefs.mActiveLinkColor,
+                        Keyword::MozVisitedhyperlinktext => prefs.mVisitedLinkColor,
                     })
                 })
             },

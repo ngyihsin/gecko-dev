@@ -6,11 +6,11 @@ use api::{BorderRadius, ClipMode, ComplexClipRegion, DeviceIntRect, DevicePixelS
 use api::{ImageRendering, LayoutRect, LayoutSize, LayoutPoint, LayoutVector2D};
 use api::{BoxShadowClipMode, LayoutToWorldScale, PicturePixel, WorldPixel};
 use api::{PictureRect, LayoutPixel, WorldPoint, WorldSize, WorldRect, LayoutToWorldTransform};
-use api::{ImageKey};
+use api::{ClipIntern, ImageKey};
 use app_units::Au;
 use border::{ensure_no_corner_overlap, BorderRadiusAu};
 use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowClipSource, BoxShadowCacheKey};
-use clip_scroll_tree::{ClipScrollTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
+use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use ellipse::Ellipse;
 use gpu_cache::{GpuCache, GpuCacheHandle, ToGpuBlocks};
 use gpu_types::{BoxShadowStretchMode};
@@ -104,8 +104,8 @@ use util::{extract_inner_rect_safe, project_rect, ScaleOffset};
 
 // Type definitions for interning clip nodes.
 
-pub use intern_types::clip::Store as ClipDataStore;
-use intern_types::clip::Handle as ClipDataHandle;
+pub type ClipDataStore = intern::DataStore<ClipIntern>;
+type ClipDataHandle = intern::Handle<ClipIntern>;
 
 // Result of comparing a clip node instance against a local rect.
 #[derive(Debug)]
@@ -847,6 +847,12 @@ impl ClipItemKey {
 
 impl intern::InternDebug for ClipItemKey {}
 
+impl intern::Internable for ClipIntern {
+    type Key = ClipItemKey;
+    type StoreData = ClipNode;
+    type InternData = ();
+}
+
 #[derive(Debug, MallocSizeOf)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -1304,15 +1310,11 @@ fn add_clip_node_to_current_chain(
             .accumulate(&clip_spatial_node.coordinate_system_relative_scale_offset);
         ClipSpaceConversion::ScaleOffset(scale_offset)
     } else {
-        match clip_scroll_tree.get_relative_transform(
-            node.spatial_node_index,
-            ROOT_SPATIAL_NODE_INDEX,
-        ) {
-            None => return true,
-            Some(relative) => ClipSpaceConversion::Transform(
-                relative.flattened.with_destination::<WorldPixel>(),
-            ),
-        }
+        ClipSpaceConversion::Transform(
+            clip_scroll_tree
+                .get_world_transform(node.spatial_node_index)
+                .flattened
+        )
     };
 
     // If we can convert spaces, try to reduce the size of the region

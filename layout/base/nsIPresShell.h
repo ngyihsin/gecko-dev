@@ -1451,6 +1451,7 @@ class nsIPresShell : public nsStubDocumentObserver {
   };
   virtual void Paint(nsView* aViewToPaint, const nsRegion& aDirtyRegion,
                      uint32_t aFlags) = 0;
+  MOZ_CAN_RUN_SCRIPT
   virtual nsresult HandleEvent(nsIFrame* aFrame,
                                mozilla::WidgetGUIEvent* aEvent,
                                bool aDontRetargetEvents,
@@ -1489,6 +1490,7 @@ class nsIPresShell : public nsStubDocumentObserver {
   virtual void ScheduleViewManagerFlush(PaintType aType = PAINT_DEFAULT) = 0;
   virtual void ClearMouseCaptureOnView(nsView* aView) = 0;
   virtual bool IsVisible() = 0;
+  MOZ_CAN_RUN_SCRIPT
   void DispatchSynthMouseMove(mozilla::WidgetGUIEvent* aEvent);
 
   /* Temporarily ignore the Displayport for better paint performance. We
@@ -2050,8 +2052,6 @@ class nsIPresShell : public nsStubDocumentObserver {
   bool mResolutionUpdated : 1;
 
   uint32_t mPresShellId;
-
-  static nsIContent* gKeyDownTarget;
 
   // Cached font inflation values. This is done to prevent changing of font
   // inflation until a page is reloaded.

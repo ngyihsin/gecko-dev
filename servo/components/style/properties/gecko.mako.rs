@@ -1227,56 +1227,23 @@ impl Clone for ${style_struct.gecko_struct_name} {
 
     # Types used with predefined_type()-defined properties that we can auto-generate.
     predefined_types = {
-        "Appearance": impl_simple,
-        "OverscrollBehavior": impl_simple,
-        "OverflowClipBox": impl_simple,
-        "ScrollSnapAlign": impl_simple,
-        "ScrollSnapType": impl_simple,
-        "Float": impl_simple,
-        "Overflow": impl_simple,
-        "BreakBetween": impl_simple,
-        "BreakWithin": impl_simple,
-        "Resize": impl_simple,
         "Color": impl_color,
         "ColorOrAuto": impl_color,
-        "GreaterThanOrEqualToOneNumber": impl_simple,
-        "Integer": impl_simple,
         "length::LengthOrAuto": impl_style_coord,
         "length::LengthOrNormal": impl_style_coord,
         "length::NonNegativeLengthOrAuto": impl_style_coord,
         "length::NonNegativeLengthPercentageOrNormal": impl_style_coord,
-        "FillRule": impl_simple,
-        "FlexBasis": impl_simple,
         "Length": impl_absolute_length,
         "LengthOrNormal": impl_style_coord,
-        "LengthPercentage": impl_simple,
         "LengthPercentageOrAuto": impl_style_coord,
-        "MaxSize": impl_simple,
-        "Size": impl_simple,
         "MozScriptMinSize": impl_absolute_length,
-        "MozScriptSizeMultiplier": impl_simple,
-        "NonNegativeLengthPercentage": impl_simple,
-        "NonNegativeLengthOrNumber": impl_simple,
-        "NonNegativeLengthOrNumberRect": impl_simple,
-        "BorderImageSlice": impl_simple,
-        "NonNegativeNumber": impl_simple,
-        "Number": impl_simple,
-        "Opacity": impl_simple,
-        "OverflowWrap": impl_simple,
-        "OverflowAnchor": impl_simple,
-        "Perspective": impl_simple,
-        "Position": impl_simple,
         "RGBAColor": impl_rgba_color,
         "SVGLength": impl_svg_length,
         "SVGOpacity": impl_svg_opacity,
         "SVGPaint": impl_svg_paint,
         "SVGWidth": impl_svg_length,
         "Transform": impl_transform,
-        "TransformOrigin": impl_simple,
-        "UserSelect": impl_simple,
         "url::UrlOrNone": impl_css_url,
-        "WordBreak": impl_simple,
-        "ZIndex": impl_simple,
     }
 
     def longhand_method(longhand):
@@ -1291,15 +1258,12 @@ impl Clone for ${style_struct.gecko_struct_name} {
             args.update(keyword=longhand.keyword)
             if "font" in longhand.ident:
                 args.update(cast_type=longhand.cast_type)
-        else:
+        elif longhand.predefined_type in predefined_types:
             method = predefined_types[longhand.predefined_type]
+        else:
+            method = impl_simple
 
         method(**args)
-
-    picked_longhands = []
-    for x in longhands:
-        if x.keyword or x.predefined_type in predefined_types or x.logical:
-            picked_longhands.append(x)
 %>
 impl ${style_struct.gecko_struct_name} {
     /*
@@ -1311,7 +1275,7 @@ impl ${style_struct.gecko_struct_name} {
      * Auto-Generated Methods.
      */
     <%
-    for longhand in picked_longhands:
+    for longhand in longhands:
         longhand_method(longhand)
     %>
 }
@@ -1992,6 +1956,7 @@ fn static_assert() {
 
 <%
     skip_font_longhands = """font-family font-size font-size-adjust font-weight
+                             font-style font-stretch -moz-script-level
                              font-synthesis -x-lang font-variant-alternates
                              font-variant-east-asian font-variant-ligatures
                              font-variant-numeric font-language-override
@@ -2783,6 +2748,7 @@ fn static_assert() {
                           animation-iteration-count animation-timing-function
                           clear transition-duration transition-delay
                           transition-timing-function transition-property
+                          transform-style
                           rotate scroll-snap-points-x scroll-snap-points-y
                           scroll-snap-coordinate -moz-binding will-change
                           offset-path shape-outside contain touch-action
@@ -3211,7 +3177,6 @@ fn static_assert() {
         use crate::gecko_bindings::structs::NS_STYLE_CONTAIN_CONTENT;
         use crate::gecko_bindings::structs::NS_STYLE_CONTAIN_SIZE;
         use crate::gecko_bindings::structs::NS_STYLE_CONTAIN_LAYOUT;
-        use crate::gecko_bindings::structs::NS_STYLE_CONTAIN_STYLE;
         use crate::gecko_bindings::structs::NS_STYLE_CONTAIN_PAINT;
         use crate::gecko_bindings::structs::NS_STYLE_CONTAIN_ALL_BITS;
         use crate::gecko_bindings::structs::NS_STYLE_CONTAIN_CONTENT_BITS;
@@ -3235,9 +3200,6 @@ fn static_assert() {
         if v.contains(SpecifiedValue::LAYOUT) {
             bitfield |= NS_STYLE_CONTAIN_LAYOUT;
         }
-        if v.contains(SpecifiedValue::STYLE) {
-            bitfield |= NS_STYLE_CONTAIN_STYLE;
-        }
         if v.contains(SpecifiedValue::PAINT) {
             bitfield |= NS_STYLE_CONTAIN_PAINT;
         }
@@ -3253,7 +3215,6 @@ fn static_assert() {
         use crate::gecko_bindings::structs::NS_STYLE_CONTAIN_CONTENT;
         use crate::gecko_bindings::structs::NS_STYLE_CONTAIN_SIZE;
         use crate::gecko_bindings::structs::NS_STYLE_CONTAIN_LAYOUT;
-        use crate::gecko_bindings::structs::NS_STYLE_CONTAIN_STYLE;
         use crate::gecko_bindings::structs::NS_STYLE_CONTAIN_PAINT;
         use crate::gecko_bindings::structs::NS_STYLE_CONTAIN_ALL_BITS;
         use crate::gecko_bindings::structs::NS_STYLE_CONTAIN_CONTENT_BITS;
@@ -3282,9 +3243,6 @@ fn static_assert() {
         }
         if gecko_flags & (NS_STYLE_CONTAIN_LAYOUT as u8) != 0 {
             servo_flags.insert(SpecifiedValue::LAYOUT);
-        }
-        if gecko_flags & (NS_STYLE_CONTAIN_STYLE as u8) != 0 {
-            servo_flags.insert(SpecifiedValue::STYLE);
         }
         if gecko_flags & (NS_STYLE_CONTAIN_PAINT as u8) != 0 {
             servo_flags.insert(SpecifiedValue::PAINT);
@@ -3790,6 +3748,7 @@ fn static_assert() {
     #[allow(non_snake_case)]
     pub fn set__moz_image_region(&mut self, v: longhands::_moz_image_region::computed_value::T) {
         use crate::values::Either;
+        use crate::values::generics::length::LengthPercentageOrAuto::*;
 
         match v {
             Either::Second(_auto) => {
@@ -3799,15 +3758,21 @@ fn static_assert() {
                 self.gecko.mImageRegion.height = 0;
             }
             Either::First(rect) => {
-                self.gecko.mImageRegion.x = rect.left.map(Au::from).unwrap_or(Au(0)).0;
-                self.gecko.mImageRegion.y = rect.top.map(Au::from).unwrap_or(Au(0)).0;
+                self.gecko.mImageRegion.x = match rect.left {
+                    LengthPercentage(v) => v.to_i32_au(),
+                    Auto => 0,
+                };
+                self.gecko.mImageRegion.y = match rect.top {
+                    LengthPercentage(v) => v.to_i32_au(),
+                    Auto => 0,
+                };
                 self.gecko.mImageRegion.height = match rect.bottom {
-                    Some(value) => (Au::from(value) - Au(self.gecko.mImageRegion.y)).0,
-                    None => 0,
+                    LengthPercentage(value) => (Au::from(value) - Au(self.gecko.mImageRegion.y)).0,
+                    Auto => 0,
                 };
                 self.gecko.mImageRegion.width = match rect.right {
-                    Some(value) => (Au::from(value) - Au(self.gecko.mImageRegion.x)).0,
-                    None => 0,
+                    LengthPercentage(value) => (Au::from(value) - Au(self.gecko.mImageRegion.x)).0,
+                    Auto => 0,
                 };
             }
         }
@@ -3816,6 +3781,7 @@ fn static_assert() {
     #[allow(non_snake_case)]
     pub fn clone__moz_image_region(&self) -> longhands::_moz_image_region::computed_value::T {
         use crate::values::{Auto, Either};
+        use crate::values::generics::length::LengthPercentageOrAuto::*;
         use crate::values::computed::ClipRect;
 
         // There is no ideal way to detect auto type for structs::nsRect and its components, so
@@ -3828,10 +3794,10 @@ fn static_assert() {
         }
 
         Either::First(ClipRect {
-            top: Some(Au(self.gecko.mImageRegion.y).into()),
-            right: Some(Au(self.gecko.mImageRegion.width + self.gecko.mImageRegion.x).into()),
-            bottom: Some(Au(self.gecko.mImageRegion.height + self.gecko.mImageRegion.y).into()),
-            left: Some(Au(self.gecko.mImageRegion.x).into()),
+            top: LengthPercentage(Au(self.gecko.mImageRegion.y).into()),
+            right: LengthPercentage(Au(self.gecko.mImageRegion.width + self.gecko.mImageRegion.x).into()),
+            bottom: LengthPercentage(Au(self.gecko.mImageRegion.height + self.gecko.mImageRegion.y).into()),
+            left: LengthPercentage(Au(self.gecko.mImageRegion.x).into()),
         })
     }
 
@@ -3888,38 +3854,43 @@ fn static_assert() {
         use crate::gecko_bindings::structs::NS_STYLE_CLIP_TOP_AUTO;
         use crate::gecko_bindings::structs::NS_STYLE_CLIP_RIGHT_AUTO;
         use crate::gecko_bindings::structs::NS_STYLE_CLIP_BOTTOM_AUTO;
+        use crate::values::generics::length::LengthPercentageOrAuto::*;
         use crate::values::Either;
 
         match v {
             Either::First(rect) => {
                 self.gecko.mClipFlags = NS_STYLE_CLIP_RECT as u8;
-                if let Some(left) = rect.left {
-                    self.gecko.mClip.x = left.to_i32_au();
-                } else {
-                    self.gecko.mClip.x = 0;
-                    self.gecko.mClipFlags |= NS_STYLE_CLIP_LEFT_AUTO as u8;
-                }
+                self.gecko.mClip.x = match rect.left {
+                    LengthPercentage(l) => l.to_i32_au(),
+                    Auto => {
+                        self.gecko.mClipFlags |= NS_STYLE_CLIP_LEFT_AUTO as u8;
+                        0
+                    }
+                };
 
-                if let Some(top) = rect.top {
-                    self.gecko.mClip.y = top.to_i32_au();
-                } else {
-                    self.gecko.mClip.y = 0;
-                    self.gecko.mClipFlags |= NS_STYLE_CLIP_TOP_AUTO as u8;
-                }
+                self.gecko.mClip.y = match rect.top {
+                    LengthPercentage(l) => l.to_i32_au(),
+                    Auto => {
+                        self.gecko.mClipFlags |= NS_STYLE_CLIP_TOP_AUTO as u8;
+                        0
+                    }
+                };
 
-                if let Some(bottom) = rect.bottom {
-                    self.gecko.mClip.height = (Au::from(bottom) - Au(self.gecko.mClip.y)).0;
-                } else {
-                    self.gecko.mClip.height = 1 << 30; // NS_MAXSIZE
-                    self.gecko.mClipFlags |= NS_STYLE_CLIP_BOTTOM_AUTO as u8;
-                }
+                self.gecko.mClip.height = match rect.bottom {
+                    LengthPercentage(l) => (Au::from(l) - Au(self.gecko.mClip.y)).0,
+                    Auto => {
+                        self.gecko.mClipFlags |= NS_STYLE_CLIP_BOTTOM_AUTO as u8;
+                        1 << 30 // NS_MAXSIZE
+                    }
+                };
 
-                if let Some(right) = rect.right {
-                    self.gecko.mClip.width = (Au::from(right) - Au(self.gecko.mClip.x)).0;
-                } else {
-                    self.gecko.mClip.width = 1 << 30; // NS_MAXSIZE
-                    self.gecko.mClipFlags |= NS_STYLE_CLIP_RIGHT_AUTO as u8;
-                }
+                self.gecko.mClip.width = match rect.right {
+                    LengthPercentage(l) => (Au::from(l) - Au(self.gecko.mClip.x)).0,
+                    Auto => {
+                        self.gecko.mClipFlags |= NS_STYLE_CLIP_RIGHT_AUTO as u8;
+                        1 << 30 // NS_MAXSIZE
+                    }
+                };
             },
             Either::Second(_auto) => {
                 self.gecko.mClipFlags = NS_STYLE_CLIP_AUTO as u8;
@@ -3946,42 +3917,42 @@ fn static_assert() {
         use crate::gecko_bindings::structs::NS_STYLE_CLIP_LEFT_AUTO;
         use crate::gecko_bindings::structs::NS_STYLE_CLIP_RIGHT_AUTO;
         use crate::gecko_bindings::structs::NS_STYLE_CLIP_TOP_AUTO;
+        use crate::values::generics::length::LengthPercentageOrAuto::*;
         use crate::values::computed::{ClipRect, ClipRectOrAuto};
         use crate::values::Either;
 
         if self.gecko.mClipFlags == NS_STYLE_CLIP_AUTO as u8 {
-            ClipRectOrAuto::auto()
-        } else {
-            let left = if self.gecko.mClipFlags & NS_STYLE_CLIP_LEFT_AUTO as u8 != 0 {
-                debug_assert_eq!(self.gecko.mClip.x, 0);
-                None
-            } else {
-                Some(Au(self.gecko.mClip.x).into())
-            };
-
-            let top = if self.gecko.mClipFlags & NS_STYLE_CLIP_TOP_AUTO as u8 != 0 {
-                debug_assert_eq!(self.gecko.mClip.y, 0);
-                None
-            } else {
-                Some(Au(self.gecko.mClip.y).into())
-            };
-
-            let bottom = if self.gecko.mClipFlags & NS_STYLE_CLIP_BOTTOM_AUTO as u8 != 0 {
-                debug_assert_eq!(self.gecko.mClip.height, 1 << 30); // NS_MAXSIZE
-                None
-            } else {
-                Some(Au(self.gecko.mClip.y + self.gecko.mClip.height).into())
-            };
-
-            let right = if self.gecko.mClipFlags & NS_STYLE_CLIP_RIGHT_AUTO as u8 != 0 {
-                debug_assert_eq!(self.gecko.mClip.width, 1 << 30); // NS_MAXSIZE
-                None
-            } else {
-                Some(Au(self.gecko.mClip.x + self.gecko.mClip.width).into())
-            };
-
-            Either::First(ClipRect { top, right, bottom, left })
+            return ClipRectOrAuto::auto()
         }
+        let left = if self.gecko.mClipFlags & NS_STYLE_CLIP_LEFT_AUTO as u8 != 0 {
+            debug_assert_eq!(self.gecko.mClip.x, 0);
+            Auto
+        } else {
+            LengthPercentage(Au(self.gecko.mClip.x).into())
+        };
+
+        let top = if self.gecko.mClipFlags & NS_STYLE_CLIP_TOP_AUTO as u8 != 0 {
+            debug_assert_eq!(self.gecko.mClip.y, 0);
+            Auto
+        } else {
+            LengthPercentage(Au(self.gecko.mClip.y).into())
+        };
+
+        let bottom = if self.gecko.mClipFlags & NS_STYLE_CLIP_BOTTOM_AUTO as u8 != 0 {
+            debug_assert_eq!(self.gecko.mClip.height, 1 << 30); // NS_MAXSIZE
+            Auto
+        } else {
+            LengthPercentage(Au(self.gecko.mClip.y + self.gecko.mClip.height).into())
+        };
+
+        let right = if self.gecko.mClipFlags & NS_STYLE_CLIP_RIGHT_AUTO as u8 != 0 {
+            debug_assert_eq!(self.gecko.mClip.width, 1 << 30); // NS_MAXSIZE
+            Auto
+        } else {
+            LengthPercentage(Au(self.gecko.mClip.x + self.gecko.mClip.width).into())
+        };
+
+        Either::First(ClipRect { top, right, bottom, left })
     }
 
     <%
@@ -4158,7 +4129,7 @@ fn static_assert() {
 
 
 <%self:impl_trait style_struct_name="InheritedText"
-                  skip_longhands="text-align text-emphasis-style text-shadow line-height letter-spacing word-spacing
+                  skip_longhands="text-align text-emphasis-style text-shadow
                                   -webkit-text-stroke-width text-emphasis-position">
 
     <% text_align_keyword = Keyword("text-align",
@@ -4189,78 +4160,6 @@ fn static_assert() {
         let buf = self.gecko.mTextShadow.iter().map(|v| v.to_simple_shadow()).collect();
         longhands::text_shadow::computed_value::List(buf)
     }
-
-    pub fn set_line_height(&mut self, v: longhands::line_height::computed_value::T) {
-        use crate::values::generics::text::LineHeight;
-        // FIXME: Align binary representations and ditch |match| for cast + static_asserts
-        let en = match v {
-            LineHeight::Normal => CoordDataValue::Normal,
-            LineHeight::Length(val) => CoordDataValue::Coord(val.0.to_i32_au()),
-            LineHeight::Number(val) => CoordDataValue::Factor(val.0),
-            LineHeight::MozBlockHeight =>
-                    CoordDataValue::Enumerated(structs::NS_STYLE_LINE_HEIGHT_BLOCK_HEIGHT),
-        };
-        self.gecko.mLineHeight.set_value(en);
-    }
-
-    pub fn clone_line_height(&self) -> longhands::line_height::computed_value::T {
-        use crate::values::generics::text::LineHeight;
-        return match self.gecko.mLineHeight.as_value() {
-            CoordDataValue::Normal => LineHeight::Normal,
-            CoordDataValue::Coord(coord) => LineHeight::Length(Au(coord).into()),
-            CoordDataValue::Factor(n) => LineHeight::Number(n.into()),
-            CoordDataValue::Enumerated(val) if val == structs::NS_STYLE_LINE_HEIGHT_BLOCK_HEIGHT =>
-                LineHeight::MozBlockHeight,
-            _ => panic!("this should not happen"),
-        }
-    }
-
-    <%call expr="impl_coord_copy('line_height', 'mLineHeight')"></%call>
-
-    pub fn set_letter_spacing(&mut self, v: longhands::letter_spacing::computed_value::T) {
-        use crate::values::generics::text::Spacing;
-        match v {
-            Spacing::Value(value) => self.gecko.mLetterSpacing.set(value),
-            Spacing::Normal => self.gecko.mLetterSpacing.set_value(CoordDataValue::Normal)
-        }
-    }
-
-    pub fn clone_letter_spacing(&self) -> longhands::letter_spacing::computed_value::T {
-        use crate::values::computed::Length;
-        use crate::values::generics::text::Spacing;
-        debug_assert!(
-            matches!(self.gecko.mLetterSpacing.as_value(),
-                     CoordDataValue::Normal |
-                     CoordDataValue::Coord(_)),
-            "Unexpected computed value for letter-spacing");
-        Length::from_gecko_style_coord(&self.gecko.mLetterSpacing).map_or(Spacing::Normal, Spacing::Value)
-    }
-
-    <%call expr="impl_coord_copy('letter_spacing', 'mLetterSpacing')"></%call>
-
-    pub fn set_word_spacing(&mut self, v: longhands::word_spacing::computed_value::T) {
-        use crate::values::generics::text::Spacing;
-        match v {
-            Spacing::Value(lp) => self.gecko.mWordSpacing.set(lp),
-            // https://drafts.csswg.org/css-text-3/#valdef-word-spacing-normal
-            Spacing::Normal => self.gecko.mWordSpacing.set_value(CoordDataValue::Coord(0)),
-        }
-    }
-
-    pub fn clone_word_spacing(&self) -> longhands::word_spacing::computed_value::T {
-        use crate::values::computed::LengthPercentage;
-        use crate::values::generics::text::Spacing;
-        debug_assert!(
-            matches!(self.gecko.mWordSpacing.as_value(),
-                     CoordDataValue::Normal |
-                     CoordDataValue::Coord(_) |
-                     CoordDataValue::Percent(_) |
-                     CoordDataValue::Calc(_)),
-            "Unexpected computed value for word-spacing");
-        LengthPercentage::from_gecko_style_coord(&self.gecko.mWordSpacing).map_or(Spacing::Normal, Spacing::Value)
-    }
-
-    <%call expr="impl_coord_copy('word_spacing', 'mWordSpacing')"></%call>
 
     fn clear_text_emphasis_style_if_string(&mut self) {
         if self.gecko.mTextEmphasisStyle == structs::NS_STYLE_TEXT_EMPHASIS_STYLE_STRING as u8 {

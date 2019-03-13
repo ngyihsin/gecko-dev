@@ -277,6 +277,20 @@ static void SetPaintRequestTime(nsIContent* aContent,
                         nsINode::DeleteProperty<TimeStamp>);
 }
 
+void APZCCallbackHelper::NotifyLayerTransforms(
+    const nsTArray<MatrixMessage>& aTransforms) {
+  MOZ_ASSERT(NS_IsMainThread());
+  for (const MatrixMessage& msg : aTransforms) {
+    TabParent* parent = TabParent::GetTabParentFromLayersId(msg.GetLayersId());
+    if (parent) {
+      parent->SetChildToParentConversionMatrix(
+          ViewAs<LayoutDeviceToLayoutDeviceMatrix4x4>(
+              msg.GetMatrix(),
+              PixelCastJustification::ContentProcessIsLayerInUiProcess));
+    }
+  }
+}
+
 void APZCCallbackHelper::UpdateRootFrame(const RepaintRequest& aRequest) {
   if (aRequest.GetScrollId() == ScrollableLayerGuid::NULL_SCROLL_ID) {
     return;
@@ -855,6 +869,9 @@ void APZCCallbackHelper::SendSetAllowedTouchBehaviorNotification(
     nsIWidget* aWidget, dom::Document* aDocument,
     const WidgetTouchEvent& aEvent, uint64_t aInputBlockId,
     const SetAllowedTouchBehaviorCallback& aCallback) {
+  if (!aWidget || !aDocument) {
+    return;
+  }
   if (nsIPresShell* shell = aDocument->GetShell()) {
     if (nsIFrame* rootFrame = shell->GetRootFrame()) {
       rootFrame = UpdateRootFrameForTouchTargetDocument(rootFrame);

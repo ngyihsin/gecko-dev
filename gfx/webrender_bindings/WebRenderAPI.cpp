@@ -199,6 +199,10 @@ bool TransactionBuilder::IsResourceUpdatesEmpty() const {
   return wr_transaction_resource_updates_is_empty(mTxn);
 }
 
+bool TransactionBuilder::IsRenderedFrameInvalidated() const {
+  return wr_transaction_is_rendered_frame_invalidated(mTxn);
+}
+
 void TransactionBuilder::SetDocumentView(
     const LayoutDeviceIntRect& aDocumentRect) {
   wr::FramebufferIntRect wrDocRect;
@@ -327,8 +331,8 @@ WebRenderAPI::~WebRenderAPI() {
 }
 
 void WebRenderAPI::UpdateDebugFlags(uint32_t aFlags) {
-  if (mDebugFlags.mBits != aFlags) {
-    mDebugFlags.mBits = aFlags;
+  if (mDebugFlags.bits != aFlags) {
+    mDebugFlags.bits = aFlags;
     wr_api_set_debug_flags(mDocHandle, mDebugFlags);
   }
 }

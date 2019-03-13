@@ -1350,6 +1350,7 @@ Toolbox.prototype = {
 
   _onPickerStarted: async function() {
     this.doc.addEventListener("keypress", this._onPickerKeypress, true);
+    this.telemetry.scalarAdd("devtools.inspector.element_picker_used", 1);
   },
 
   _onPickerStopped: function() {
@@ -3193,8 +3194,8 @@ Toolbox.prototype = {
    * Opens source in style editor. Falls back to plain "view-source:".
    * @see devtools/client/shared/source-utils.js
    */
-  viewSourceInStyleEditor: function(sourceURL, sourceLine) {
-    return viewSource.viewSourceInStyleEditor(this, sourceURL, sourceLine);
+  viewSourceInStyleEditor: function(sourceURL, sourceLine, sourceColumn) {
+    return viewSource.viewSourceInStyleEditor(this, sourceURL, sourceLine, sourceColumn);
   },
 
   /**

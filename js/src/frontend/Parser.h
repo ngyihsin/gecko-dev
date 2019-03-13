@@ -240,8 +240,10 @@ class AutoInParametersOfAsyncFunction;
 
 class MOZ_STACK_CLASS ParserSharedBase : private JS::AutoGCRooter {
  public:
+  enum class Kind { Parser, BinASTParser };
+
   ParserSharedBase(JSContext* cx, LifoAlloc& alloc, UsedNameTracker& usedNames,
-                   ScriptSourceObject* sourceObject);
+                   ScriptSourceObject* sourceObject, Kind kind);
   ~ParserSharedBase();
 
  public:
@@ -271,8 +273,8 @@ class MOZ_STACK_CLASS ParserSharedBase : private JS::AutoGCRooter {
                                         JS::AutoGCRooter* parser);
 
 #if defined(JS_BUILD_BINAST)
-  friend void js::frontend::TraceBinParser(JSTracer* trc,
-                                           JS::AutoGCRooter* parser);
+  friend void js::frontend::TraceBinASTParser(JSTracer* trc,
+                                              JS::AutoGCRooter* parser);
 #endif  // JS_BUILD_BINAST
 
  private:
@@ -1303,6 +1305,18 @@ class MOZ_STACK_CLASS GeneralParser : public PerHandlerParser<ParseHandler> {
   ClassNodeType classDefinition(YieldHandling yieldHandling,
                                 ClassContext classContext,
                                 DefaultHandling defaultHandling);
+  MOZ_MUST_USE bool classMember(YieldHandling yieldHandling,
+                                DefaultHandling defaultHandling,
+                                const ParseContext::ClassStatement& classStmt,
+                                HandlePropertyName className,
+                                uint32_t classStartOffset, bool hasHeritage,
+                                size_t& numFieldsWithInitializers,
+                                ListNodeType& classMembers, bool* done);
+  MOZ_MUST_USE bool finishClassConstructor(
+      const ParseContext::ClassStatement& classStmt,
+      HandlePropertyName className, uint32_t classStartOffset,
+      uint32_t classEndOffset, size_t numFieldsWithInitializers,
+      ListNodeType& classMembers);
 
   FunctionNodeType fieldInitializer(YieldHandling yieldHandling,
                                     HandleAtom atom);

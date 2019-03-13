@@ -61,6 +61,12 @@ unit tests, source-code analysis, or measurement work. While source-test tasks r
 a source checkout, it is still possible for them to depend on a build artifact, though
 often they do not.
 
+code-review
+-----------
+
+Publish issues found by source-test tasks on Phabricator.
+This is a part of Release Management code review Bot.
+
 upload-symbols
 --------------
 
@@ -270,6 +276,11 @@ Generate an installer using Ubuntu's Snap format.
 release-snap-push
 -----------------
 Pushes Snap repackage on Snap store.
+
+release-secondary-snap-push
+---------------------------
+Performs the same function as `release-snap-push`, except for the beta channel as part of RC
+Releases.
 
 release-notify-push
 -------------------
@@ -555,3 +566,8 @@ generate-profile
 Tasks that take a build configured for PGO and run the binary against a sample
 set to generate profile data. This is the 2nd stage of the full 3-step PGO
 process.
+
+geckodriver-repack
+------------------
+Tasks to repackage the geckodriver binary from a build tasks's common
+test archive into it's own archive.

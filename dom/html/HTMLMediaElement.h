@@ -1669,6 +1669,21 @@ class HTMLMediaElement : public nsGenericHTMLElement,
   // audio.
   MozPromiseHolder<GenericNonExclusivePromise> mAllowedToPlayPromise;
 
+  // True if media has ever been blocked for autoplay, it's used to notify front
+  // end to show the correct blocking icon when the document goes back from
+  // bfcache.
+  bool mHasEverBeenBlockedForAutoplay = false;
+
+  // True if we have dispatched a task for text track changed, will be unset
+  // when we starts processing text track changed.
+  // https://html.spec.whatwg.org/multipage/media.html#pending-text-track-change-notification-flag
+  bool mPendingTextTrackChanged = false;
+
+ public:
+  // This function will be called whenever a text track that is in a media
+  // element's list of text tracks has its text track mode change value
+  void NotifyTextTrackModeChanged();
+
  public:
   // Helper class to measure times for playback telemetry stats
   class TimeDurationAccumulator {
@@ -1816,6 +1831,11 @@ class HTMLMediaElement : public nsGenericHTMLElement,
   // https://w3c.github.io/mediacapture-output/#htmlmediaelement-extensions
   // Read/Write from the main thread only.
   Pair<nsString, RefPtr<AudioDeviceInfo>> mSink;
+
+  // This flag is used to control when the user agent is to show a poster frame
+  // for a video element instead of showing the video contents.
+  // https://html.spec.whatwg.org/multipage/media.html#show-poster-flag
+  bool mShowPoster;
 };
 
 // Check if the context is chrome or has the debugger or tabs permission

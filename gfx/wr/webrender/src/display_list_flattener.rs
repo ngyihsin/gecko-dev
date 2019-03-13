@@ -3,29 +3,30 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayListIter};
-use api::{ClipId, ColorF, ComplexClipRegion, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use api::{DisplayItemRef, ExtendMode, ExternalScrollId, AuHelpers};
-use api::{FilterOp, FontInstanceKey, GlyphInstance, GlyphOptions, RasterSpace, GradientStop};
-use api::{IframeDisplayItem, ImageKey, ImageRendering, ItemRange, LayoutPoint, ColorDepth};
-use api::{LayoutPrimitiveInfo, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
-use api::{LineOrientation, LineStyle, NinePatchBorderSource, PipelineId};
+use api::{ClipId, ColorF, ComplexClipRegion, RasterSpace};
+use api::{DisplayItemRef, ExtendMode, ExternalScrollId};
+use api::{FilterOp, FontInstanceKey, GlyphInstance, GlyphOptions, GradientStop};
+use api::{IframeDisplayItem, ImageKey, ImageRendering, ItemRange, ColorDepth};
+use api::{LayoutPrimitiveInfo, LineOrientation, LineStyle, NinePatchBorderSource, PipelineId};
 use api::{PropertyBinding, ReferenceFrame, ReferenceFrameKind, ScrollFrameDisplayItem, ScrollSensitivity};
-use api::{Shadow, SpaceAndClipInfo, SpatialId, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect};
-use api::{ClipMode, TransformStyle, YuvColorSpace, YuvData, TempFilterData};
+use api::{Shadow, SpaceAndClipInfo, SpatialId, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem};
+use api::{ClipMode, PrimitiveKeyKind, TransformStyle, YuvColorSpace, YuvData, TempFilterData};
+use api::units::*;
 use app_units::Au;
 use clip::{ClipChainId, ClipRegion, ClipItemKey, ClipStore};
 use clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX, ClipScrollTree, SpatialNodeIndex};
 use frame_builder::{ChasePrimitive, FrameBuilder, FrameBuilderConfig};
 use glyph_rasterizer::FontInstance;
-use hit_test::{HitTestingItem, HitTestingRun};
+use hit_test::{HitTestingItem, HitTestingScene};
 use image::simplify_repeated_primitive;
-use intern::{Handle, Internable, InternDebug};
+use intern::Interner;
 use internal_types::{FastHashMap, FastHashSet};
 use picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, PictureOptions};
 use picture::{BlitReason, OrderedPictureChild, PrimitiveList, TileCache};
-use prim_store::{PrimitiveInstance, PrimitiveKeyKind, PrimitiveSceneData};
+use prim_store::{PrimitiveInstance, PrimitiveSceneData};
 use prim_store::{PrimitiveInstanceKind, NinePatchDescriptor, PrimitiveStore};
-use prim_store::{PrimitiveStoreStats, ScrollNodeAndClipChain, PictureIndex};
+use prim_store::{ScrollNodeAndClipChain, PictureIndex};
+use prim_store::InternablePrimitive;
 use prim_store::{register_prim_chase_id, get_line_decoration_sizes};
 use prim_store::borders::{ImageBorder, NormalBorderPrim};
 use prim_store::gradient::{GradientStopKey, LinearGradient, RadialGradient, RadialGradientParams};
@@ -36,9 +37,9 @@ use prim_store::text_run::TextRun;
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
 use scene::{Scene, StackingContextHelpers};
-use scene_builder::{InternerMut, Interners};
+use scene_builder::{DocumentStats, Interners};
 use spatial_node::{StickyFrameInfo, ScrollFrameKind, SpatialNodeType};
-use std::{f32, mem, usize};
+use std::{f32, mem, usize, ops};
 use std::collections::vec_deque::VecDeque;
 use std::sync::Arc;
 use tiling::{CompositeOps};
@@ -204,7 +205,7 @@ pub struct DisplayListFlattener<'a> {
     pub prim_store: PrimitiveStore,
 
     /// Information about all primitives involved in hit testing.
-    pub hit_testing_runs: Vec<HitTestingRun>,
+    pub hit_testing_scene: HitTestingScene,
 
     /// The store which holds all complex clipping information.
     pub clip_store: ClipStore,
@@ -234,7 +235,7 @@ impl<'a> DisplayListFlattener<'a> {
         frame_builder_config: &FrameBuilderConfig,
         new_scene: &mut Scene,
         interners: &mut Interners,
-        prim_store_stats: &PrimitiveStoreStats,
+        doc_stats: &DocumentStats,
     ) -> FrameBuilder {
         // We checked that the root pipeline is available on the render backend.
         let root_pipeline_id = scene.root_pipeline_id.unwrap();
@@ -251,11 +252,11 @@ impl<'a> DisplayListFlattener<'a> {
             config: *frame_builder_config,
             output_pipelines,
             id_to_index_mapper: NodeIdToIndexMapper::default(),
-            hit_testing_runs: Vec::new(),
+            hit_testing_scene: HitTestingScene::new(&doc_stats.hit_test_stats),
             pending_shadow_items: VecDeque::new(),
             sc_stack: Vec::new(),
             pipeline_clip_chain_stack: vec![ClipChainId::NONE],
-            prim_store: PrimitiveStore::new(&prim_store_stats),
+            prim_store: PrimitiveStore::new(&doc_stats.prim_store_stats),
             clip_store: ClipStore::new(),
             interners,
             root_pic_index: PictureIndex(0),
@@ -1148,16 +1149,14 @@ impl<'a> DisplayListFlattener<'a> {
         prim: P,
     ) -> PrimitiveInstance
     where
-        P: Internable<InternData=PrimitiveSceneData>,
-        P::Source: AsInstanceKind<Handle<P::Marker>> + InternDebug,
-        Interners: InternerMut<P>,
+        P: InternablePrimitive,
+        Interners: AsMut<Interner<P>>,
     {
         // Build a primitive key.
-        let prim_key = prim.build_key(info);
+        let prim_key = prim.into_key(info);
 
-        let interner = self.interners.interner_mut();
-        let prim_data_handle =
-            interner
+        let interner = self.interners.as_mut();
+        let prim_data_handle = interner
             .intern(&prim_key, || {
                 PrimitiveSceneData {
                     prim_size: info.rect.size,
@@ -1167,7 +1166,8 @@ impl<'a> DisplayListFlattener<'a> {
 
         let current_offset = self.rf_mapper.current_offset();
 
-        let instance_kind = prim_key.as_instance_kind(
+        let instance_kind = P::make_instance_kind(
+            prim_key,
             prim_data_handle,
             &mut self.prim_store,
             current_offset,
@@ -1192,17 +1192,34 @@ impl<'a> DisplayListFlattener<'a> {
             None => return,
         };
 
-        let new_item = HitTestingItem::new(tag, info);
-        match self.hit_testing_runs.last_mut() {
-            Some(&mut HitTestingRun(ref mut items, prev_clip_and_scroll))
-                if prev_clip_and_scroll == clip_and_scroll => {
-                items.push(new_item);
-                return;
-            }
-            _ => {}
+        // We want to get a range of clip chain roots that apply to this
+        // hit testing primitive.
+
+        // Get the start index for the clip chain root range for this primitive.
+        let start = self.hit_testing_scene.next_clip_chain_index();
+
+        // Add the clip chain root for the primitive itself.
+        self.hit_testing_scene.add_clip_chain(clip_and_scroll.clip_chain_id);
+
+        // Append any clip chain roots from enclosing stacking contexts.
+        for sc in &self.sc_stack {
+            self.hit_testing_scene.add_clip_chain(sc.clip_chain_id);
         }
 
-        self.hit_testing_runs.push(HitTestingRun(vec![new_item], clip_and_scroll));
+        // Construct a clip chain roots range to be stored with the item.
+        let clip_chain_range = ops::Range {
+            start,
+            end: self.hit_testing_scene.next_clip_chain_index(),
+        };
+
+        // Create and store the hit testing primitive itself.
+        let new_item = HitTestingItem::new(
+            tag,
+            info,
+            clip_and_scroll.spatial_node_index,
+            clip_chain_range,
+        );
+        self.hit_testing_scene.add_item(new_item);
     }
 
     /// Add an already created primitive to the draw lists.
@@ -1228,9 +1245,8 @@ impl<'a> DisplayListFlattener<'a> {
         prim: P,
     )
     where
-        P: Internable<InternData = PrimitiveSceneData> + IsVisible,
-        P::Source: AsInstanceKind<Handle<P::Marker>> + InternDebug,
-        Interners: InternerMut<P>,
+        P: InternablePrimitive + IsVisible,
+        Interners: AsMut<Interner<P>>,
     {
         if prim.is_visible() {
             let clip_chain_id = self.build_clip_chain(
@@ -1255,9 +1271,8 @@ impl<'a> DisplayListFlattener<'a> {
         prim: P,
     )
     where
-        P: Internable<InternData = PrimitiveSceneData> + IsVisible,
-        P::Source: AsInstanceKind<Handle<P::Marker>> + InternDebug,
-        Interners: InternerMut<P>,
+        P: InternablePrimitive + IsVisible,
+        Interners: AsMut<Interner<P>>,
         ShadowItem: From<PendingPrimitive<P>>
     {
         // If a shadow context is not active, then add the primitive
@@ -1290,9 +1305,8 @@ impl<'a> DisplayListFlattener<'a> {
         prim: P,
     )
     where
-        P: Internable<InternData = PrimitiveSceneData>,
-        P::Source: AsInstanceKind<Handle<P::Marker>> + InternDebug,
-        Interners: InternerMut<P>,
+        P: InternablePrimitive,
+        Interners: AsMut<Interner<P>>,
     {
         let prim_instance = self.create_primitive(
             info,
@@ -1606,7 +1620,7 @@ impl<'a> DisplayListFlattener<'a> {
                         };
 
                         let handle = self.interners
-                            .filterdata
+                            .filter_data
                             .intern(&filter_data_key, || ());
                         PictureCompositeMode::ComponentTransferFilter(handle)
                     }
@@ -2129,9 +2143,8 @@ impl<'a> DisplayListFlattener<'a> {
         prims: &mut Vec<PrimitiveInstance>,
     )
     where
-        P: Internable<InternData=PrimitiveSceneData> + CreateShadow,
-        P::Source: AsInstanceKind<Handle<P::Marker>> + InternDebug,
-        Interners: InternerMut<P>,
+        P: InternablePrimitive + CreateShadow,
+        Interners: AsMut<Interner<P>>,
     {
         // Offset the local rect and clip rect by the shadow offset.
         let mut info = pending_primitive.info.clone();
@@ -2156,9 +2169,8 @@ impl<'a> DisplayListFlattener<'a> {
         &mut self,
         pending_primitive: PendingPrimitive<P>,
     ) where
-        P: Internable<InternData = PrimitiveSceneData> + IsVisible,
-        P::Source: AsInstanceKind<Handle<P::Marker>> + InternDebug,
-        Interners: InternerMut<P>,
+        P: InternablePrimitive + IsVisible,
+        Interners: AsMut<Interner<P>>,
     {
         // For a normal primitive, if it has alpha > 0, then we add this
         // as a normal primitive to the parent picture.
@@ -2681,14 +2693,6 @@ impl<'a> DisplayListFlattener<'a> {
     }
 }
 
-pub trait AsInstanceKind<H> {
-    fn as_instance_kind(
-        &self,
-        data_handle: H,
-        prim_store: &mut PrimitiveStore,
-        reference_frame_relative_offset: LayoutVector2D,
-    ) -> PrimitiveInstanceKind;
-}
 
 pub trait CreateShadow {
     fn create_shadow(&self, shadow: &Shadow) -> Self;

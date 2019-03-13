@@ -12,12 +12,14 @@ import type {
   ActorId,
   BreakpointLocation,
   BreakpointOptions,
+  PendingLocation,
   EventListenerBreakpoints,
   Frame,
   FrameId,
   Script,
   SourceId,
   SourceActor,
+  Source,
   Worker,
   Range
 } from "../../types";
@@ -70,8 +72,8 @@ function releaseActor(actor: String) {
   return debuggerClient.release(actor);
 }
 
-function sendPacket(packet: Object, callback?: Function = r => r) {
-  return debuggerClient.request(packet).then(callback);
+function sendPacket(packet: Object) {
+  return debuggerClient.request(packet);
 }
 
 function lookupThreadClient(thread: string) {
@@ -93,6 +95,14 @@ function lookupConsoleClient(thread: string) {
 
 function listWorkerThreadClients() {
   return (Object.values(workerClients): any).map(({ thread }) => thread);
+}
+
+function forEachWorkerThread(iteratee) {
+  const promises = listWorkerThreadClients().map(thread => iteratee(thread));
+
+  if (shouldWaitForWorkers) {
+    return Promise.all(promises);
+  }
 }
 
 function resume(thread: string): Promise<*> {
@@ -167,19 +177,39 @@ function removeXHRBreakpoint(path: string, method: string) {
 
 // Get the string key to use for a breakpoint location.
 // See also duplicate code in breakpoint-actor-map.js :(
-function locationKey(location) {
-  const { sourceUrl, sourceId, line, column } = location;
-  return `${(sourceUrl: any)}:${(sourceId: any)}:${line}:${(column: any)}`;
+function locationKey(location: BreakpointLocation) {
+  const { sourceUrl, line, column } = location;
+  const sourceId = location.sourceId || "";
+  return `${(sourceUrl: any)}:${sourceId}:${line}:${(column: any)}`;
 }
 
 function waitForWorkers(shouldWait: boolean) {
   shouldWaitForWorkers = shouldWait;
 }
 
+function maybeGenerateLogGroupId(options) {
+  if (options.logValue && tabTarget.traits && tabTarget.traits.canRewind) {
+    return { ...options, logGroupId: `logGroup-${Math.random()}` };
+  }
+  return options;
+}
+
+function maybeClearLogpoint(location: BreakpointLocation) {
+  const bp = breakpoints[locationKey(location)];
+  if (bp && bp.options.logGroupId && tabTarget.activeConsole) {
+    tabTarget.activeConsole.emit(
+      "clearLogpointMessages",
+      bp.options.logGroupId
+    );
+  }
+}
+
 async function setBreakpoint(
   location: BreakpointLocation,
   options: BreakpointOptions
 ) {
+  maybeClearLogpoint(location);
+  options = maybeGenerateLogGroupId(options);
   breakpoints[locationKey(location)] = { location, options };
   await threadClient.setBreakpoint(location, options);
 
@@ -189,32 +219,17 @@ async function setBreakpoint(
   // setting its breakpoint, but this leads to more consistent behavior if the
   // user sets a breakpoint and immediately starts interacting with the page.
   // If the main thread stops responding then we're toast regardless.
-  if (shouldWaitForWorkers) {
-    for (const thread of listWorkerThreadClients()) {
-      await thread.setBreakpoint(location, options);
-    }
-  } else {
-    for (const thread of listWorkerThreadClients()) {
-      thread.setBreakpoint(location, options);
-    }
-  }
+  await forEachWorkerThread(thread => thread.setBreakpoint(location, options));
 }
 
-async function removeBreakpoint(location: BreakpointLocation) {
-  delete breakpoints[locationKey(location)];
+async function removeBreakpoint(location: PendingLocation) {
+  maybeClearLogpoint((location: any));
+  delete breakpoints[locationKey((location: any))];
   await threadClient.removeBreakpoint(location);
 
   // Remove breakpoints without waiting for the thread to respond, for the same
   // reason as in setBreakpoint.
-  if (shouldWaitForWorkers) {
-    for (const thread of listWorkerThreadClients()) {
-      await thread.removeBreakpoint(location);
-    }
-  } else {
-    for (const thread of listWorkerThreadClients()) {
-      thread.removeBreakpoint(location);
-    }
-  }
+  await forEachWorkerThread(thread => thread.removeBreakpoint(location));
 }
 
 async function evaluateInFrame(script: Script, options: EvaluateParam) {
@@ -294,16 +309,22 @@ async function getFrameScopes(frame: Frame): Promise<*> {
   return sourceThreadClient.getEnvironment(frame.id);
 }
 
-function pauseOnExceptions(
-  thread: string,
+async function pauseOnExceptions(
   shouldPauseOnExceptions: boolean,
   shouldPauseOnCaughtExceptions: boolean
 ): Promise<*> {
-  return lookupThreadClient(thread).pauseOnExceptions(
+  await threadClient.pauseOnExceptions(
     shouldPauseOnExceptions,
     // Providing opposite value because server
     // uses "shouldIgnoreCaughtExceptions"
     !shouldPauseOnCaughtExceptions
+  );
+
+  await forEachWorkerThread(thread =>
+    thread.pauseOnExceptions(
+      shouldPauseOnExceptions,
+      !shouldPauseOnCaughtExceptions
+    )
   );
 }
 
@@ -320,21 +341,13 @@ async function blackBox(
   }
 }
 
-async function setSkipPausing(thread: string, shouldSkip: boolean) {
-  const client = lookupThreadClient(thread);
-  return client.request({
-    skip: shouldSkip,
-    to: client.actor,
-    type: "skipBreakpoints"
-  });
+async function setSkipPausing(shouldSkip: boolean) {
+  await threadClient.skipBreakpoints(shouldSkip);
+  await forEachWorkerThread(thread => thread.skipBreakpoints(shouldSkip));
 }
 
 function interrupt(thread: string): Promise<*> {
   return lookupThreadClient(thread).interrupt();
-}
-
-function eventListeners(): Promise<*> {
-  return threadClient.eventListeners();
 }
 
 function setEventListenerBreakpoints(eventTypes: EventListenerBreakpoints) {
@@ -421,9 +434,10 @@ function getMainThread() {
 }
 
 async function getBreakpointPositions(
-  sourceActor: SourceActor,
+  source: Source,
   range: ?Range
 ): Promise<{ [string]: number[] }> {
+  const sourceActor = source.actors[0];
   const { thread, actor } = sourceActor;
   const sourceThreadClient = lookupThreadClient(thread);
   const sourceClient = sourceThreadClient.source({ actor });
@@ -439,7 +453,6 @@ const clientCommands = {
   createObjectClient,
   releaseActor,
   interrupt,
-  eventListeners,
   pauseGrip,
   resume,
   stepIn,

@@ -10,6 +10,7 @@
 #include "CrossProcessMutex.h"
 #include "mozilla/layers/GeckoContentController.h"
 #include "mozilla/layers/RepaintRequest.h"
+#include "mozilla/layers/ZoomConstraints.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/EventForwards.h"
 #include "mozilla/Monitor.h"
@@ -28,6 +29,7 @@
 #include "nsRegion.h"
 #include "nsTArray.h"
 #include "PotentialCheckerboardDurationTracker.h"
+#include "RecentEventsBuffer.h"  // for RecentEventsBuffer
 
 #include "base/message_loop.h"
 
@@ -663,6 +665,7 @@ class AsyncPanZoomController {
   /**
    * Helper methods for long press gestures.
    */
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY
   nsEventStatus OnLongPress(const TapGestureInput& aEvent);
   nsEventStatus OnLongPressUp(const TapGestureInput& aEvent);
 
@@ -679,6 +682,7 @@ class AsyncPanZoomController {
   /**
    * Helper method for double taps.
    */
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY
   nsEventStatus OnDoubleTap(const TapGestureInput& aEvent);
 
   /**
@@ -795,7 +799,7 @@ class AsyncPanZoomController {
   /**
    * Set and update the pinch lock
    */
-  void HandlePinchLocking(ScreenCoord spanDistance, ScreenPoint focusChange);
+  void HandlePinchLocking();
 
   /**
    * Sets up anything needed for panning. This takes us out of the "TOUCHING"
@@ -982,6 +986,12 @@ class AsyncPanZoomController {
   // This flag is set to true when we are in a pinch-locked state. ie: user
   // is performing a two-finger pan rather than a pinch gesture
   bool mPinchLocked;
+
+  // Stores the pinch events that occured within a given timeframe. Used to
+  // calculate the focusChange and spanDistance within a fixed timeframe.
+  // RecentEventsBuffer is not threadsafe. Should only be accessed on the
+  // controller thread.
+  RecentEventsBuffer<PinchGestureInput> mPinchEventBuffer;
 
   // Most up-to-date constraints on zooming. These should always be reasonable
   // values; for example, allowing a min zoom of 0.0 can cause very bad things

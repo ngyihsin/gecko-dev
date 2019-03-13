@@ -215,6 +215,9 @@ let ACTORS = {
         "PageStyle:Switch",
         "PageStyle:Disable",
       ],
+      // Only matching web pages, as opposed to internal about:, chrome: or
+      // resource: pages. See https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Match_patterns
+      matches: ["*://*/*"],
     },
   },
 
@@ -530,12 +533,13 @@ const listeners = {
     "Reader:FaviconRequest": ["ReaderParent"],
     "Reader:UpdateReaderButton": ["ReaderParent"],
     // PLEASE KEEP THIS LIST IN SYNC WITH THE MOBILE LISTENERS IN BrowserCLH.js
-    "RemoteLogins:findLogins": ["LoginManagerParent"],
-    "RemoteLogins:findRecipes": ["LoginManagerParent"],
-    "RemoteLogins:onFormSubmit": ["LoginManagerParent"],
-    "RemoteLogins:autoCompleteLogins": ["LoginManagerParent"],
-    "RemoteLogins:removeLogin": ["LoginManagerParent"],
-    "RemoteLogins:insecureLoginFormPresent": ["LoginManagerParent"],
+    "PasswordManager:findLogins": ["LoginManagerParent"],
+    "PasswordManager:findRecipes": ["LoginManagerParent"],
+    "PasswordManager:onFormSubmit": ["LoginManagerParent"],
+    "PasswordManager:autoCompleteLogins": ["LoginManagerParent"],
+    "PasswordManager:removeLogin": ["LoginManagerParent"],
+    "PasswordManager:insecureLoginFormPresent": ["LoginManagerParent"],
+    "PasswordManager:OpenPreferences": ["LoginManagerParent"],
     // PLEASE KEEP THIS LIST IN SYNC WITH THE MOBILE LISTENERS IN BrowserCLH.js
     "rtcpeer:CancelRequest": ["webrtcUI"],
     "rtcpeer:Request": ["webrtcUI"],
@@ -1443,9 +1447,11 @@ BrowserGlue.prototype = {
   },
 
   _sendMediaTelemetry() {
-    let win = Services.appShell.hiddenDOMWindow;
-    let v = win.document.createElementNS("http://www.w3.org/1999/xhtml", "video");
-    v.reportCanPlayTelemetry();
+    let win = Services.wm.getMostRecentWindow("navigator:browser");
+    if (win) {
+      let v = win.document.createElementNS("http://www.w3.org/1999/xhtml", "video");
+      v.reportCanPlayTelemetry();
+    }
   },
 
   /**
@@ -2805,13 +2811,15 @@ BrowserGlue.prototype = {
    * Open preferences even if there are no open windows.
    */
   _openPreferences(...args) {
-    if (Services.appShell.hiddenDOMWindow.openPreferences) {
-      Services.appShell.hiddenDOMWindow.openPreferences(...args);
+    let chromeWindow = BrowserWindowTracker.getTopWindow();
+    if (chromeWindow) {
+      chromeWindow.openPreferences(...args);
       return;
     }
 
-    let chromeWindow = BrowserWindowTracker.getTopWindow();
-    chromeWindow.openPreferences(...args);
+    if (Services.appShell.hiddenDOMWindow.openPreferences) {
+      Services.appShell.hiddenDOMWindow.openPreferences(...args);
+    }
   },
 
   _openURLInNewWindow(url) {
@@ -2853,8 +2861,8 @@ BrowserGlue.prototype = {
       const firstTab = await openTab(URIs[0]);
       await Promise.all(URIs.slice(1).map(URI => openTab(URI)));
 
+      const deviceName = URIs[0].sender && URIs[0].sender.name;
       let title, body;
-      const deviceName = URIs[0].sender.name;
       const bundle = Services.strings.createBundle("chrome://browser/locale/accounts.properties");
       if (URIs.length == 1) {
         // Due to bug 1305895, tabs from iOS may not have device information, so
@@ -2878,13 +2886,15 @@ BrowserGlue.prototype = {
         }
       } else {
         title = bundle.GetStringFromName("multipleTabsArrivingNotification.title");
-        const allSameDevice = URIs.every(URI => URI.sender.id == URIs[0].sender.id);
-        const unknownDevice = allSameDevice && !deviceName;
+        const allKnownSender = URIs.every(URI => URI.sender != null);
+        const allSameDevice = allKnownSender && URIs.every(URI => URI.sender.id == URIs[0].sender.id);
         let tabArrivingBody;
-        if (unknownDevice) {
-          tabArrivingBody = "unnamedTabsArrivingNotificationNoDevice.body";
-        } else if (allSameDevice) {
-          tabArrivingBody = "unnamedTabsArrivingNotification2.body";
+        if (allSameDevice) {
+          if (deviceName) {
+            tabArrivingBody = "unnamedTabsArrivingNotification2.body";
+          } else {
+            tabArrivingBody = "unnamedTabsArrivingNotificationNoDevice.body";
+          }
         } else {
           tabArrivingBody = "unnamedTabsArrivingNotificationMultiple2.body";
         }

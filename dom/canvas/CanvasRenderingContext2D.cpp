@@ -359,7 +359,12 @@ class AdjustedTargetForFilter {
     mTarget = mFinalTarget->CreateSimilarDrawTarget(mSourceGraphicRect.Size(),
                                                     SurfaceFormat::B8G8R8A8);
 
-    if (!mTarget) {
+    if (mTarget) {
+      // See bug 1524554.
+      mTarget->ClearRect(gfx::Rect());
+    }
+
+    if (!mTarget || !mTarget->IsValid()) {
       // XXX - Deal with the situation where our temp size is too big to
       // fit in a texture (bug 1066622).
       mTarget = mFinalTarget;
@@ -381,7 +386,13 @@ class AdjustedTargetForFilter {
 
     RefPtr<DrawTarget> dt = mFinalTarget->CreateSimilarDrawTarget(
         aRect.Size(), SurfaceFormat::B8G8R8A8);
-    if (!dt) {
+
+    if (dt) {
+      // See bug 1524554.
+      dt->ClearRect(gfx::Rect());
+    }
+
+    if (!dt || !dt->IsValid()) {
       aRect.SetEmpty();
       return nullptr;
     }
@@ -470,7 +481,12 @@ class AdjustedTargetForShadow {
     mTarget = mFinalTarget->CreateShadowDrawTarget(
         mTempRect.Size(), SurfaceFormat::B8G8R8A8, mSigma);
 
-    if (!mTarget) {
+    if (mTarget) {
+      // See bug 1524554.
+      mTarget->ClearRect(gfx::Rect());
+    }
+
+    if (!mTarget || !mTarget->IsValid()) {
       // XXX - Deal with the situation where our temp size is too big to
       // fit in a texture (bug 1066622).
       mTarget = mFinalTarget;
@@ -885,7 +901,7 @@ DrawTarget* CanvasRenderingContext2D::sErrorTarget = nullptr;
 
 CanvasRenderingContext2D::CanvasRenderingContext2D(
     layers::LayersBackend aCompositorBackend)
-    : // these are the default values from the Canvas spec
+    :  // these are the default values from the Canvas spec
       mWidth(0),
       mHeight(0),
       mZero(false),
@@ -901,7 +917,6 @@ CanvasRenderingContext2D::CanvasRenderingContext2D(
       mPathTransformWillUpdate(false),
       mInvalidateCount(0),
       mWriteOnly(false) {
-
   sNumLivingContexts++;
 
   mShutdownObserver = new CanvasShutdownObserver(this);
@@ -1089,8 +1104,7 @@ void CanvasRenderingContext2D::Redraw(const gfx::Rect& aR) {
   mCanvasElement->InvalidateCanvasContent(&aR);
 }
 
-void CanvasRenderingContext2D::DidRefresh() {
-}
+void CanvasRenderingContext2D::DidRefresh() {}
 
 void CanvasRenderingContext2D::RedrawUser(const gfxRect& aR) {
   mIsCapturedFrameInvalid = true;
@@ -1118,8 +1132,7 @@ bool CanvasRenderingContext2D::CopyBufferProvider(
   return true;
 }
 
-void CanvasRenderingContext2D::Demote() {
-}
+void CanvasRenderingContext2D::Demote() {}
 
 void CanvasRenderingContext2D::ScheduleStableStateCallback() {
   if (mHasPendingStableStateCallback) {
@@ -1167,8 +1180,8 @@ void CanvasRenderingContext2D::RestoreClipsAndTransformToTarget() {
   }
 }
 
-bool CanvasRenderingContext2D::EnsureTarget(
-    const gfx::Rect* aCoveredRect, bool aWillClear) {
+bool CanvasRenderingContext2D::EnsureTarget(const gfx::Rect* aCoveredRect,
+                                            bool aWillClear) {
   if (AlreadyShutDown()) {
     gfxCriticalError() << "Attempt to render into a Canvas2d after shutdown.";
     SetErrorState();
@@ -1242,7 +1255,8 @@ bool CanvasRenderingContext2D::EnsureTarget(
   MOZ_ASSERT(newProvider);
 
   bool needsClear = !canDiscardContent;
-  if (newTarget->GetBackendType() == gfx::BackendType::SKIA && (needsClear || !aWillClear)) {
+  if (newTarget->GetBackendType() == gfx::BackendType::SKIA &&
+      (needsClear || !aWillClear)) {
     // Skia expects the unused X channel to contains 0xFF even for opaque
     // operations so we can't skip clearing in that case, even if we are going
     // to cover the entire canvas in the next drawing operation.
@@ -1356,8 +1370,10 @@ bool CanvasRenderingContext2D::TrySharedTarget(
   }
 
 #ifdef XP_WIN
-  // Bug 1285271 - Disable shared buffer provider on Windows with D2D due to instability
-  if (gfxPlatform::GetPlatform()->GetPreferredCanvasBackend() == BackendType::DIRECT2D1_1) {
+  // Bug 1285271 - Disable shared buffer provider on Windows with D2D due to
+  // instability
+  if (gfxPlatform::GetPlatform()->GetPreferredCanvasBackend() ==
+      BackendType::DIRECT2D1_1) {
     return false;
   }
 #endif
@@ -1390,6 +1406,14 @@ bool CanvasRenderingContext2D::TryBasicTarget(
   aOutDT = gfxPlatform::GetPlatform()->CreateOffscreenCanvasDrawTarget(
       GetSize(), GetSurfaceFormat());
   if (!aOutDT) {
+    return false;
+  }
+
+  // See Bug 1524554 - this forces DT initialization.
+  aOutDT->ClearRect(gfx::Rect());
+
+  if (!aOutDT->IsValid()) {
+    aOutDT = nullptr;
     return false;
   }
 
@@ -4085,7 +4109,12 @@ static already_AddRefed<SourceSurface> ExtractSubrect(SourceSurface* aSurface,
   RefPtr<DrawTarget> subrectDT = aTargetDT->CreateSimilarDrawTarget(
       roundedOutSourceRectInt.Size(), SurfaceFormat::B8G8R8A8);
 
-  if (!subrectDT) {
+  if (subrectDT) {
+    // See bug 1524554.
+    subrectDT->ClearRect(gfx::Rect());
+  }
+
+  if (!subrectDT || !subrectDT->IsValid()) {
     RefPtr<SourceSurface> surface(aSurface);
     return surface.forget();
   }
@@ -4297,8 +4326,8 @@ void CanvasRenderingContext2D::DrawImage(const CanvasImageSource& aImage,
 
     if (res.mSourceSurface) {
       if (res.mImageRequest) {
-        CanvasImageCache::NotifyDrawImage(
-            element, mCanvasElement, res.mSourceSurface, imgSize);
+        CanvasImageCache::NotifyDrawImage(element, mCanvasElement,
+                                          res.mSourceSurface, imgSize);
       }
       srcSurf = res.mSourceSurface;
     } else {
@@ -4647,8 +4676,15 @@ void CanvasRenderingContext2D::DrawWindow(nsGlobalWindowInner& aWindow,
   } else {
     IntSize dtSize = IntSize::Ceil(sw, sh);
     if (!Factory::AllowedSurfaceSize(dtSize)) {
-      aError.Throw(NS_ERROR_FAILURE);
-      return;
+      // attempt to limit the DT to what will actually cover the target
+      Size limitSize(mTarget->GetSize());
+      limitSize.Scale(matrix._11, matrix._22);
+      dtSize = Min(dtSize, IntSize::Ceil(limitSize));
+      // if the DT is still too big, then error
+      if (!Factory::AllowedSurfaceSize(dtSize)) {
+        aError.Throw(NS_ERROR_FAILURE);
+        return;
+      }
     }
     drawDT = gfxPlatform::GetPlatform()->CreateOffscreenContentDrawTarget(
         dtSize, SurfaceFormat::B8G8R8A8);

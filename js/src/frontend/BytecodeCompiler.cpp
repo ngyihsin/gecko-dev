@@ -766,8 +766,8 @@ JSScript* frontend::CompileGlobalBinASTScript(
   GlobalSharedContext globalsc(cx, ScopeKind::Global, directives,
                                options.extraWarningsOption);
 
-  frontend::BinASTParser<BinTokenReaderMultipart> parser(cx, alloc, usedNames,
-                                                         options, sourceObj);
+  frontend::BinASTParser<BinASTTokenReaderMultipart> parser(
+      cx, alloc, usedNames, options, sourceObj);
 
   // Metadata stores internal pointers, so we must use the same buffer every
   // time, including for lazy parses
@@ -1057,7 +1057,7 @@ bool frontend::CompileLazyBinASTFunction(JSContext* cx,
     script->setHasBeenCloned();
   }
 
-  frontend::BinASTParser<BinTokenReaderMultipart> parser(
+  frontend::BinASTParser<BinASTTokenReaderMultipart> parser(
       cx, cx->tempLifoAlloc(), usedNames, options, sourceObj, lazy);
 
   auto parsed =
@@ -1087,11 +1087,13 @@ bool frontend::CompileLazyBinASTFunction(JSContext* cx,
 
 #endif  // JS_BUILD_BINAST
 
-bool frontend::CompileStandaloneFunction(
-    JSContext* cx, MutableHandleFunction fun,
-    const JS::ReadOnlyCompileOptions& options, JS::SourceText<char16_t>& srcBuf,
-    const Maybe<uint32_t>& parameterListEnd,
-    HandleScope enclosingScope /* = nullptr */) {
+static bool CompileStandaloneFunction(JSContext* cx, MutableHandleFunction fun,
+                                      const JS::ReadOnlyCompileOptions& options,
+                                      JS::SourceText<char16_t>& srcBuf,
+                                      const Maybe<uint32_t>& parameterListEnd,
+                                      GeneratorKind generatorKind,
+                                      FunctionAsyncKind asyncKind,
+                                      HandleScope enclosingScope = nullptr) {
   AutoAssertReportedException assertException(cx);
 
   StandaloneFunctionInfo info(cx, options);
@@ -1106,88 +1108,49 @@ bool frontend::CompileStandaloneFunction(
     scope = &cx->global()->emptyGlobalScope();
   }
 
-  FunctionNode* parsedFunction =
-      compiler.parse(info, fun, scope, GeneratorKind::NotGenerator,
-                     FunctionAsyncKind::SyncFunction, parameterListEnd);
+  FunctionNode* parsedFunction = compiler.parse(info, fun, scope, generatorKind,
+                                                asyncKind, parameterListEnd);
   if (!parsedFunction || !compiler.compile(fun, info, parsedFunction)) {
     return false;
   }
 
   assertException.reset();
   return true;
+}
+
+bool frontend::CompileStandaloneFunction(
+    JSContext* cx, MutableHandleFunction fun,
+    const JS::ReadOnlyCompileOptions& options, JS::SourceText<char16_t>& srcBuf,
+    const Maybe<uint32_t>& parameterListEnd,
+    HandleScope enclosingScope /* = nullptr */) {
+  return CompileStandaloneFunction(
+      cx, fun, options, srcBuf, parameterListEnd, GeneratorKind::NotGenerator,
+      FunctionAsyncKind::SyncFunction, enclosingScope);
 }
 
 bool frontend::CompileStandaloneGenerator(
     JSContext* cx, MutableHandleFunction fun,
     const JS::ReadOnlyCompileOptions& options, JS::SourceText<char16_t>& srcBuf,
     const Maybe<uint32_t>& parameterListEnd) {
-  AutoAssertReportedException assertException(cx);
-
-  StandaloneFunctionInfo info(cx, options);
-
-  StandaloneFunctionCompiler<char16_t> compiler(srcBuf);
-  if (!compiler.prepare(info, parameterListEnd)) {
-    return false;
-  }
-
-  RootedScope emptyGlobalScope(cx, &cx->global()->emptyGlobalScope());
-  FunctionNode* parsedFunction =
-      compiler.parse(info, fun, emptyGlobalScope, GeneratorKind::Generator,
-                     FunctionAsyncKind::SyncFunction, parameterListEnd);
-  if (!parsedFunction || !compiler.compile(fun, info, parsedFunction)) {
-    return false;
-  }
-
-  assertException.reset();
-  return true;
+  return CompileStandaloneFunction(cx, fun, options, srcBuf, parameterListEnd,
+                                   GeneratorKind::Generator,
+                                   FunctionAsyncKind::SyncFunction);
 }
 
 bool frontend::CompileStandaloneAsyncFunction(
     JSContext* cx, MutableHandleFunction fun,
     const ReadOnlyCompileOptions& options, JS::SourceText<char16_t>& srcBuf,
     const Maybe<uint32_t>& parameterListEnd) {
-  AutoAssertReportedException assertException(cx);
-
-  StandaloneFunctionInfo info(cx, options);
-
-  StandaloneFunctionCompiler<char16_t> compiler(srcBuf);
-  if (!compiler.prepare(info, parameterListEnd)) {
-    return false;
-  }
-
-  RootedScope emptyGlobalScope(cx, &cx->global()->emptyGlobalScope());
-  FunctionNode* parsedFunction =
-      compiler.parse(info, fun, emptyGlobalScope, GeneratorKind::NotGenerator,
-                     FunctionAsyncKind::AsyncFunction, parameterListEnd);
-  if (!parsedFunction || !compiler.compile(fun, info, parsedFunction)) {
-    return false;
-  }
-
-  assertException.reset();
-  return true;
+  return CompileStandaloneFunction(cx, fun, options, srcBuf, parameterListEnd,
+                                   GeneratorKind::NotGenerator,
+                                   FunctionAsyncKind::AsyncFunction);
 }
 
 bool frontend::CompileStandaloneAsyncGenerator(
     JSContext* cx, MutableHandleFunction fun,
     const ReadOnlyCompileOptions& options, JS::SourceText<char16_t>& srcBuf,
     const Maybe<uint32_t>& parameterListEnd) {
-  AutoAssertReportedException assertException(cx);
-
-  StandaloneFunctionInfo info(cx, options);
-
-  StandaloneFunctionCompiler<char16_t> compiler(srcBuf);
-  if (!compiler.prepare(info, parameterListEnd)) {
-    return false;
-  }
-
-  RootedScope emptyGlobalScope(cx, &cx->global()->emptyGlobalScope());
-  FunctionNode* parsedFunction =
-      compiler.parse(info, fun, emptyGlobalScope, GeneratorKind::Generator,
-                     FunctionAsyncKind::AsyncFunction, parameterListEnd);
-  if (!parsedFunction || !compiler.compile(fun, info, parsedFunction)) {
-    return false;
-  }
-
-  assertException.reset();
-  return true;
+  return CompileStandaloneFunction(cx, fun, options, srcBuf, parameterListEnd,
+                                   GeneratorKind::Generator,
+                                   FunctionAsyncKind::AsyncFunction);
 }

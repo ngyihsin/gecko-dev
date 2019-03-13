@@ -788,11 +788,7 @@ impl TileCache {
 
         // Work out the scroll offset to apply to the world reference point.
         let scroll_offset_point = frame_context.clip_scroll_tree
-            .get_relative_transform(
-                self.spatial_node_index,
-                ROOT_SPATIAL_NODE_INDEX,
-            )
-            .expect("bug: unable to get scroll transform")
+            .get_world_transform(self.spatial_node_index)
             .flattened
             .inverse_project_2d_origin()
             .unwrap_or_else(LayoutPoint::zero);
@@ -1433,7 +1429,6 @@ impl TileCache {
                             self.spatial_node_index,
                             spatial_node_index,
                         )
-                        .expect("BUG: unable to get relative transform")
                         .flattened
                         .transform_point2d(&LayoutPoint::zero())
                 } else {
@@ -1442,7 +1437,6 @@ impl TileCache {
                             spatial_node_index,
                             self.spatial_node_index,
                         )
-                        .expect("BUG: unable to get relative transform")
                         .flattened
                         .inverse_project_2d_origin()
                 };
@@ -2695,7 +2689,6 @@ impl PicturePrimitive {
             // rasterization root should be established.
             let establishes_raster_root = frame_context.clip_scroll_tree
                 .get_relative_transform(surface_spatial_node_index, parent_raster_node_index)
-                .expect("BUG: unable to get relative transform")
                 .is_perspective;
 
             let surface = SurfaceInfo::new(
@@ -3114,7 +3107,7 @@ impl PicturePrimitive {
                 PictureSurface::RenderTask(render_task_id)
             }
             PictureCompositeMode::ComponentTransferFilter(handle) => {
-                let filter_data = &mut data_stores.filterdata[handle];
+                let filter_data = &mut data_stores.filter_data[handle];
                 filter_data.update(frame_state);
 
                 let uv_rect_kind = calculate_uv_rect_kind(

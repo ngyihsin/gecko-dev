@@ -296,10 +296,10 @@ already_AddRefed<GLContext> GLContextEGLFactory::Create(
   return gl.forget();
 }
 
-#if defined(MOZ_WAYLAND)
+#if defined(MOZ_WAYLAND) || defined(MOZ_WIDGET_ANDROID)
 /* static */
 EGLSurface GLContextEGL::CreateEGLSurfaceForCompositorWidget(
-    widget::CompositorWidget* aCompositorWidget, bool aForceAccelerated) {
+    widget::CompositorWidget* aCompositorWidget, const EGLConfig aConfig) {
   nsCString discardFailureId;
   if (!GLLibraryEGL::EnsureInitialized(false, &discardFailureId)) {
     gfxCriticalNote << "Failed to load EGL library 6!";
@@ -313,16 +313,8 @@ EGLSurface GLContextEGL::CreateEGLSurfaceForCompositorWidget(
     gfxCriticalNote << "window is null";
     return EGL_NO_SURFACE;
   }
-  const bool useWebRender =
-      aCompositorWidget->GetCompositorOptions().UseWebRender();
 
-  EGLConfig config;
-  if (!CreateConfig(&config, useWebRender)) {
-    gfxCriticalNote << "Failed to create EGLConfig!";
-    return EGL_NO_SURFACE;
-  }
-
-  return mozilla::gl::CreateSurfaceFromNativeWindow(window, config);
+  return mozilla::gl::CreateSurfaceFromNativeWindow(window, aConfig);
 }
 #endif
 
@@ -876,11 +868,13 @@ already_AddRefed<GLContext> GLContextProviderEGL::CreateWrappingExisting(
 }
 
 already_AddRefed<GLContext> GLContextProviderEGL::CreateForCompositorWidget(
-    CompositorWidget* aCompositorWidget, bool aForceAccelerated) {
-  MOZ_ASSERT(aCompositorWidget);
-  return GLContextEGLFactory::Create(
-      GET_NATIVE_WINDOW_FROM_COMPOSITOR_WIDGET(aCompositorWidget),
-      aCompositorWidget->GetCompositorOptions().UseWebRender());
+    CompositorWidget* aCompositorWidget, bool aWebRender,
+    bool aForceAccelerated) {
+  EGLNativeWindowType window = nullptr;
+  if (aCompositorWidget) {
+    window = GET_NATIVE_WINDOW_FROM_COMPOSITOR_WIDGET(aCompositorWidget);
+  }
+  return GLContextEGLFactory::Create(window, aWebRender);
 }
 
 already_AddRefed<GLContext> GLContextProviderEGL::CreateForWindow(

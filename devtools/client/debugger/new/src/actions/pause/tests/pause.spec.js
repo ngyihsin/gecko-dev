@@ -30,7 +30,7 @@ const mockThreadClient = {
   evaluate: async () => {},
   evaluateInFrame: async () => {},
   evaluateExpressions: async () => {},
-
+  resume: async () => {},
   getFrameScopes: async frame => frame.scope,
   setBreakpoint: () => new Promise(_resolve => {}),
   sourceContents: ({ source }) => {
@@ -69,7 +69,8 @@ const mockThreadClient = {
           });
       }
     });
-  }
+  },
+  getBreakpointPositions: async () => ({})
 };
 
 const mockFrameId = "1";
@@ -255,6 +256,7 @@ describe("pause", () => {
 
       const sourceMapsMock = {
         getOriginalLocation: () => Promise.resolve(originalLocation),
+        getOriginalLocations: async items => items,
         getOriginalSourceText: async () => ({
           source: "\n\nfunction fooOriginal() {\n  return -5;\n}",
           contentType: "text/javascript"
@@ -317,10 +319,12 @@ describe("pause", () => {
       const sourceMapsMock = {
         getOriginalStackFrames: loc => Promise.resolve(originStackFrames),
         getOriginalLocation: () => Promise.resolve(originalLocation),
+        getOriginalLocations: async items => items,
         getOriginalSourceText: async () => ({
           source: "fn fooBar() {}\nfn barZoo() { fooBar() }",
           contentType: "text/rust"
-        })
+        }),
+        getGeneratedRangesForOriginal: async () => []
       };
 
       const store = createStore(mockThreadClient, {}, sourceMapsMock);

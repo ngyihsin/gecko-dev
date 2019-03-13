@@ -73,37 +73,28 @@ JSObject* TextTrack::WrapObject(JSContext* aCx,
 }
 
 void TextTrack::SetMode(TextTrackMode aValue) {
-  if (mMode != aValue) {
-    mMode = aValue;
-    if (aValue == TextTrackMode::Disabled) {
-      // Remove all the cues in MediaElement.
-      if (mTextTrackList) {
-        HTMLMediaElement* mediaElement = mTextTrackList->GetMediaElement();
-        if (mediaElement) {
-          for (size_t i = 0; i < mCueList->Length(); ++i) {
-            mediaElement->NotifyCueRemoved(*(*mCueList)[i]);
-          }
-        }
-      }
-      SetCuesInactive();
-    } else {
-      // Add all the cues into MediaElement.
-      if (mTextTrackList) {
-        HTMLMediaElement* mediaElement = mTextTrackList->GetMediaElement();
-        if (mediaElement) {
-          for (size_t i = 0; i < mCueList->Length(); ++i) {
-            mediaElement->NotifyCueAdded(*(*mCueList)[i]);
-          }
-        }
-      }
-    }
-    if (mTextTrackList) {
-      mTextTrackList->CreateAndDispatchChangeEvent();
-    }
-    // Ensure the TimeMarchesOn is called in case that the mCueList
-    // is empty.
-    NotifyCueUpdated(nullptr);
+  if (mMode == aValue) {
+    return;
   }
+  mMode = aValue;
+
+  HTMLMediaElement* mediaElement = GetMediaElement();
+  if (aValue == TextTrackMode::Disabled) {
+    for (size_t i = 0; i < mCueList->Length() && mediaElement; ++i) {
+      mediaElement->NotifyCueRemoved(*(*mCueList)[i]);
+    }
+    SetCuesInactive();
+  } else {
+    for (size_t i = 0; i < mCueList->Length() && mediaElement; ++i) {
+      mediaElement->NotifyCueAdded(*(*mCueList)[i]);
+    }
+  }
+  if (mediaElement) {
+    mediaElement->NotifyTextTrackModeChanged();
+  }
+  // Ensure the TimeMarchesOn is called in case that the mCueList
+  // is empty.
+  NotifyCueUpdated(nullptr);
 }
 
 void TextTrack::GetId(nsAString& aId) const {
@@ -122,13 +113,10 @@ void TextTrack::AddCue(TextTrackCue& aCue) {
   }
   mCueList->AddCue(aCue);
   aCue.SetTrack(this);
-  if (mTextTrackList) {
-    HTMLMediaElement* mediaElement = mTextTrackList->GetMediaElement();
-    if (mediaElement && (mMode != TextTrackMode::Disabled)) {
-      mediaElement->NotifyCueAdded(aCue);
-    }
+  HTMLMediaElement* mediaElement = GetMediaElement();
+  if (mediaElement && (mMode != TextTrackMode::Disabled)) {
+    mediaElement->NotifyCueAdded(aCue);
   }
-  SetDirty();
 }
 
 void TextTrack::RemoveCue(TextTrackCue& aCue, ErrorResult& aRv) {
@@ -139,58 +127,15 @@ void TextTrack::RemoveCue(TextTrackCue& aCue, ErrorResult& aRv) {
   }
   aCue.SetActive(false);
   aCue.SetTrack(nullptr);
-  if (mTextTrackList) {
-    HTMLMediaElement* mediaElement = mTextTrackList->GetMediaElement();
-    if (mediaElement) {
-      mediaElement->NotifyCueRemoved(aCue);
-    }
+  HTMLMediaElement* mediaElement = GetMediaElement();
+  if (mediaElement) {
+    mediaElement->NotifyCueRemoved(aCue);
   }
-  SetDirty();
 }
 
 void TextTrack::SetCuesDirty() {
   for (uint32_t i = 0; i < mCueList->Length(); i++) {
     ((*mCueList)[i])->Reset();
-  }
-}
-
-void TextTrack::UpdateActiveCueList() {
-  if (!mTextTrackList) {
-    return;
-  }
-
-  HTMLMediaElement* mediaElement = mTextTrackList->GetMediaElement();
-  if (!mediaElement) {
-    return;
-  }
-
-  // If we are dirty, i.e. an event happened that may cause the sorted mCueList
-  // to have changed like a seek or an insert for a cue, than we need to rebuild
-  // the active cue list from scratch.
-  if (mDirty) {
-    mCuePos = 0;
-    mDirty = false;
-    mActiveCueList->RemoveAll();
-  }
-
-  double playbackTime = mediaElement->CurrentTime();
-  // Remove all the cues from the active cue list whose end times now occur
-  // earlier then the current playback time.
-  for (uint32_t i = mActiveCueList->Length(); i > 0; i--) {
-    if ((*mActiveCueList)[i - 1]->EndTime() <= playbackTime) {
-      mActiveCueList->RemoveCueAt(i - 1);
-    }
-  }
-  // Add all the cues, starting from the position of the last cue that was
-  // added, that have valid start and end times for the current playback time.
-  // We can stop iterating safely once we encounter a cue that does not have
-  // a valid start time as the cue list is sorted.
-  for (; mCuePos < mCueList->Length() &&
-         (*mCueList)[mCuePos]->StartTime() <= playbackTime;
-       mCuePos++) {
-    if ((*mCueList)[mCuePos]->EndTime() > playbackTime) {
-      mActiveCueList->AddCue(*(*mCueList)[mCuePos]);
-    }
   }
 }
 
@@ -217,12 +162,7 @@ void TextTrack::SetReadyState(uint32_t aReadyState) {
 
 void TextTrack::SetReadyState(TextTrackReadyState aState) {
   mReadyState = aState;
-
-  if (!mTextTrackList) {
-    return;
-  }
-
-  HTMLMediaElement* mediaElement = mTextTrackList->GetMediaElement();
+  HTMLMediaElement* mediaElement = GetMediaElement();
   if (mediaElement && (mReadyState == TextTrackReadyState::Loaded ||
                        mReadyState == TextTrackReadyState::FailedToLoad)) {
     mediaElement->RemoveTextTrack(this, true);
@@ -246,13 +186,10 @@ void TextTrack::SetCuesInactive() { mCueList->SetCuesInactive(); }
 
 void TextTrack::NotifyCueUpdated(TextTrackCue* aCue) {
   mCueList->NotifyCueUpdated(aCue);
-  if (mTextTrackList) {
-    HTMLMediaElement* mediaElement = mTextTrackList->GetMediaElement();
-    if (mediaElement) {
-      mediaElement->NotifyCueUpdated(aCue);
-    }
+  HTMLMediaElement* mediaElement = GetMediaElement();
+  if (mediaElement) {
+    mediaElement->NotifyCueUpdated(aCue);
   }
-  SetDirty();
 }
 
 void TextTrack::GetLabel(nsAString& aLabel) const {
@@ -296,6 +233,41 @@ bool TextTrack::IsLoaded() {
     }
   }
   return (mReadyState >= Loaded);
+}
+
+void TextTrack::NotifyCueActiveStateChanged(TextTrackCue* aCue) {
+  MOZ_ASSERT(aCue);
+  if (aCue->GetActive()) {
+    MOZ_ASSERT(!mActiveCueList->IsCueExist(aCue));
+    mActiveCueList->AddCue(*aCue);
+  } else {
+    MOZ_ASSERT(mActiveCueList->IsCueExist(aCue));
+    mActiveCueList->RemoveCue(*aCue);
+  }
+}
+
+void TextTrack::GetCurrentCueList(RefPtr<TextTrackCueList>& aCueList) const {
+  const HTMLMediaElement* mediaElement = GetMediaElement();
+  if (!mediaElement) {
+    return;
+  }
+
+  // According to `time marches on` step1, current cue list contains the cues
+  // whose start times are less than or equal to the current playback position
+  // and whose end times are greater than the current playback position.
+  // https://html.spec.whatwg.org/multipage/media.html#time-marches-on
+  MOZ_ASSERT(aCueList);
+  const double playbackTime = mediaElement->CurrentTime();
+  for (uint32_t idx = 0; idx < mCueList->Length(); idx++) {
+    TextTrackCue* cue = (*mCueList)[idx];
+    if (cue->StartTime() <= playbackTime && cue->EndTime() > playbackTime) {
+      aCueList->AddCue(*cue);
+    }
+  }
+}
+
+HTMLMediaElement* TextTrack::GetMediaElement() const {
+  return mTextTrackList ? mTextTrackList->GetMediaElement() : nullptr;
 }
 
 }  // namespace dom

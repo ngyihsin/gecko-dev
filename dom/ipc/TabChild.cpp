@@ -30,7 +30,7 @@
 #include "mozilla/dom/PaymentRequestChild.h"
 #include "mozilla/dom/PBrowser.h"
 #include "mozilla/dom/WindowProxyHolder.h"
-#include "mozilla/dom/RemoteFrameChild.h"
+#include "mozilla/dom/BrowserBridgeChild.h"
 #include "mozilla/gfx/CrossProcessPaint.h"
 #include "mozilla/IMEStateManager.h"
 #include "mozilla/ipc/URIUtils.h"
@@ -1246,6 +1246,10 @@ mozilla::ipc::IPCResult TabChild::RecvHandleTap(
     const GeckoContentController::TapType& aType,
     const LayoutDevicePoint& aPoint, const Modifiers& aModifiers,
     const ScrollableLayerGuid& aGuid, const uint64_t& aInputBlockId) {
+  // IPDL doesn't hold a strong reference to protocols as they're not required
+  // to be refcounted. This function can run script, which may trigger a nested
+  // event loop, which may release this, so we hold a strong reference here.
+  RefPtr<TabChild> kungFuDeathGrip(this);
   nsCOMPtr<nsIPresShell> presShell = GetPresShell();
   if (!presShell) {
     return IPC_OK();
@@ -1274,13 +1278,15 @@ mozilla::ipc::IPCResult TabChild::RecvHandleTap(
       break;
     case GeckoContentController::TapType::eLongTap:
       if (mTabChildMessageManager) {
-        mAPZEventState->ProcessLongTap(presShell, point, scale, aModifiers,
-                                       aGuid, aInputBlockId);
+        RefPtr<APZEventState> eventState(mAPZEventState);
+        eventState->ProcessLongTap(presShell, point, scale, aModifiers, aGuid,
+                                   aInputBlockId);
       }
       break;
     case GeckoContentController::TapType::eLongTapUp:
       if (mTabChildMessageManager) {
-        mAPZEventState->ProcessLongTapUp(presShell, point, scale, aModifiers);
+        RefPtr<APZEventState> eventState(mAPZEventState);
+        eventState->ProcessLongTapUp(presShell, point, scale, aModifiers);
       }
       break;
   }
@@ -1291,6 +1297,10 @@ mozilla::ipc::IPCResult TabChild::RecvNormalPriorityHandleTap(
     const GeckoContentController::TapType& aType,
     const LayoutDevicePoint& aPoint, const Modifiers& aModifiers,
     const ScrollableLayerGuid& aGuid, const uint64_t& aInputBlockId) {
+  // IPDL doesn't hold a strong reference to protocols as they're not required
+  // to be refcounted. This function can run script, which may trigger a nested
+  // event loop, which may release this, so we hold a strong reference here.
+  RefPtr<TabChild> kungFuDeathGrip(this);
   return RecvHandleTap(aType, aPoint, aModifiers, aGuid, aInputBlockId);
 }
 
@@ -1378,8 +1388,13 @@ mozilla::ipc::IPCResult TabChild::RecvMouseEvent(
     const nsString& aType, const float& aX, const float& aY,
     const int32_t& aButton, const int32_t& aClickCount,
     const int32_t& aModifiers, const bool& aIgnoreRootScrollFrame) {
+  // IPDL doesn't hold a strong reference to protocols as they're not required
+  // to be refcounted. This function can run script, which may trigger a nested
+  // event loop, which may release this, so we hold a strong reference here.
+  RefPtr<TabChild> kungFuDeathGrip(this);
+  nsCOMPtr<nsIPresShell> presShell(GetPresShell());
   APZCCallbackHelper::DispatchMouseEvent(
-      GetPresShell(), aType, CSSPoint(aX, aY), aButton, aClickCount, aModifiers,
+      presShell, aType, CSSPoint(aX, aY), aButton, aClickCount, aModifiers,
       aIgnoreRootScrollFrame, MouseEvent_Binding::MOZ_SOURCE_UNKNOWN,
       0 /* Use the default value here. */);
   return IPC_OK();
@@ -3183,15 +3198,16 @@ bool TabChild::DeallocPWindowGlobalChild(PWindowGlobalChild* aActor) {
   return true;
 }
 
-PRemoteFrameChild* TabChild::AllocPRemoteFrameChild(const nsString&,
-                                                    const nsString&) {
-  MOZ_CRASH("We should never be manually allocating PRemoteFrameChild actors");
+PBrowserBridgeChild* TabChild::AllocPBrowserBridgeChild(const nsString&,
+                                                        const nsString&) {
+  MOZ_CRASH(
+      "We should never be manually allocating PBrowserBridgeChild actors");
   return nullptr;
 }
 
-bool TabChild::DeallocPRemoteFrameChild(PRemoteFrameChild* aActor) {
-  // This reference was added in RemoteFrameChild::Create.
-  static_cast<RemoteFrameChild*>(aActor)->Release();
+bool TabChild::DeallocPBrowserBridgeChild(PBrowserBridgeChild* aActor) {
+  // This reference was added in BrowserBridgeChild::Create.
+  static_cast<BrowserBridgeChild*>(aActor)->Release();
   return true;
 }
 

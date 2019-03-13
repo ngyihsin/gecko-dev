@@ -444,6 +444,10 @@ bool InspectorUtils::CssPropertySupportsType(GlobalObject& aGlobalObject,
                                              const nsAString& aProperty,
                                              uint32_t aType, ErrorResult& aRv) {
   NS_ConvertUTF16toUTF8 property(aProperty);
+  if (!aType || aType > InspectorUtils_Binding::TYPE_TIMING_FUNCTION) {
+    aRv.Throw(NS_ERROR_INVALID_ARG);
+    return false;
+  }
   bool found;
   bool result = Servo_Property_SupportsType(&property, aType, &found);
   if (!found) {
@@ -677,18 +681,6 @@ void InspectorUtils::ParseStyleSheet(GlobalObject& aGlobalObject,
                                      const nsAString& aInput,
                                      ErrorResult& aRv) {
   aRv = aSheet.ReparseSheet(aInput);
-}
-
-void InspectorUtils::ScrollElementIntoView(GlobalObject& aGlobalObject,
-                                           Element& aElement) {
-  nsIPresShell* presShell = aElement.OwnerDoc()->GetShell();
-  if (!presShell) {
-    return;
-  }
-
-  presShell->ScrollContentIntoView(&aElement, nsIPresShell::ScrollAxis(),
-                                   nsIPresShell::ScrollAxis(),
-                                   nsIPresShell::SCROLL_OVERFLOW_HIDDEN);
 }
 
 bool InspectorUtils::IsCustomElementName(GlobalObject&, const nsAString& aName,

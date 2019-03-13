@@ -199,6 +199,9 @@ const ignorableWhitelist = new Set([
 
   // Bug 1351669 - obsolete test file
   "resource://gre/res/test.properties",
+
+  // Bug 1532703
+  "resource://app/localization/en-US/browser/aboutConfig.ftl",
 ]);
 for (let entry of ignorableWhitelist) {
   whitelist.add(entry);
@@ -676,9 +679,7 @@ add_task(async function checkAllTheFiles() {
                           "resource://app/modules/devtools",
                           "resource://gre/modules/devtools",
                           "resource://app/localization/en-US/startup/aboutDevTools.ftl",
-                          "resource://app/localization/en-US/devtools/",
-                          /* remove editmenu.ftl if it starts being used by non-devtools things */
-                          "resource://gre/localization/en-US/toolkit/main-window/editmenu.ftl"];
+                          "resource://app/localization/en-US/devtools/"];
   let hasDevtoolsPrefix =
     uri => devtoolsPrefixes.some(prefix => uri.startsWith(prefix));
   let chromeFiles = [];

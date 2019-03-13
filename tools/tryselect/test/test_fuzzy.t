@@ -68,6 +68,51 @@ Test multiple selectors
   }
   
 
+Test query intersection
+
+  $ ./mach try fuzzy $testargs --and -q "'foo" -q "'opt"
+  Commit message:
+  Fuzzy query='foo&query='opt
+  
+  Pushed via `mach try fuzzy`
+  Calculated try_task_config.json:
+  {
+      "tasks": [
+          "test/foo-opt"
+      ],
+      "templates": {
+          "env": {
+              "TRY_SELECTOR": "fuzzy"
+          }
+      },
+      "version": 1
+  }
+  
+
+Test intersection with preset containing multiple queries
+
+  $ ./mach try fuzzy --save foo -q "'test" -q "'opt"
+  preset saved, run with: --preset=foo
+
+  $ ./mach try fuzzy $testargs --preset foo -xq "'test"
+  Commit message:
+  Fuzzy query='test&query='opt&query='test
+  
+  Pushed via `mach try fuzzy`
+  Calculated try_task_config.json:
+  {
+      "tasks": [
+          "test/foo-debug",
+          "test/foo-opt"
+      ],
+      "templates": {
+          "env": {
+              "TRY_SELECTOR": "fuzzy"
+          }
+      },
+      "version": 1
+  }
+  
 
 Test exact match
 

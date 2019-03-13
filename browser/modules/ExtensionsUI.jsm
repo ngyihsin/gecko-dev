@@ -271,7 +271,7 @@ var ExtensionsUI = {
       }
       resolve(this.showPermissionsPrompt(browser, strings, icon));
     } else if (topic == "webextension-defaultsearch-prompt") {
-      let {browser, name, icon, resolve, currentEngine, newEngine} = subject.wrappedJSObject;
+      let {browser, name, icon, respond, currentEngine, newEngine} = subject.wrappedJSObject;
 
       let bundle = Services.strings.createBundle(BROWSER_PROPERTIES);
 
@@ -283,7 +283,8 @@ var ExtensionsUI = {
       strings.addonName = name;
       strings.text = bundle.formatStringFromName("webext.defaultSearch.description",
                                                  ["<>", currentEngine, newEngine], 3);
-      resolve(this.showDefaultSearchPrompt(browser, strings, icon));
+
+      this.showDefaultSearchPrompt(browser, strings, icon).then(respond);
     }
   },
 
@@ -443,13 +444,20 @@ var ExtensionsUI = {
       // Show or hide private permission ui based on the pref.
       let checkbox = window.document.getElementById("addon-incognito-checkbox");
       checkbox.checked = false;
-      checkbox.hidden = allowPrivateBrowsingByDefault ||
-                        PrivateBrowsingUtils.permanentPrivateBrowsing;
+      checkbox.hidden = allowPrivateBrowsingByDefault || addon.type !== "extension";
 
       async function actionResolve() {
         if (checkbox.checked) {
           let perms = {permissions: ["internal:privateBrowsingAllowed"], origins: []};
           await ExtensionPermissions.add(addon.id, perms);
+          AMTelemetry.recordActionEvent({
+            addon,
+            object: "doorhanger",
+            action: "privateBrowsingAllowed",
+            view: "postInstall",
+            value: "on",
+          });
+
           // Reload the extension if it is already enabled.  This ensures any change
           // on the private browsing permission is properly handled.
           if (addon.isActive) {

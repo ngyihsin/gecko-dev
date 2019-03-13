@@ -760,12 +760,14 @@ bool xpc::ExtraWarningsForSystemJS() { return false; }
 static mozilla::Atomic<bool> sSharedMemoryEnabled(false);
 static mozilla::Atomic<bool> sStreamsEnabled(false);
 static mozilla::Atomic<bool> sBigIntEnabled(false);
+static mozilla::Atomic<bool> sFieldsEnabled(false);
 
 void xpc::SetPrefableRealmOptions(JS::RealmOptions& options) {
   options.creationOptions()
       .setSharedMemoryAndAtomicsEnabled(sSharedMemoryEnabled)
       .setBigIntEnabled(sBigIntEnabled)
-      .setStreamsEnabled(sStreamsEnabled);
+      .setStreamsEnabled(sStreamsEnabled)
+      .setFieldsEnabled(sFieldsEnabled);
 }
 
 static void ReloadPrefsCallback(const char* pref, XPCJSContext* xpccx) {
@@ -782,7 +784,7 @@ static void ReloadPrefsCallback(const char* pref, XPCJSContext* xpccx) {
   bool useWasmCranelift =
       Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_cranelift");
 #endif
-#ifdef ENABLE_WASM_REFTYPES
+#ifdef ENABLE_WASM_GC
   bool useWasmGc = Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_gc");
 #endif
   bool useWasmVerbose = Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_verbose");
@@ -847,6 +849,7 @@ static void ReloadPrefsCallback(const char* pref, XPCJSContext* xpccx) {
   sSharedMemoryEnabled =
       Preferences::GetBool(JS_OPTIONS_DOT_STR "shared_memory");
   sStreamsEnabled = Preferences::GetBool(JS_OPTIONS_DOT_STR "streams");
+  sFieldsEnabled = Preferences::GetBool(JS_OPTIONS_DOT_STR "experimental.fields");
 
 #ifdef DEBUG
   sExtraWarningsForSystemJS =
@@ -876,7 +879,7 @@ static void ReloadPrefsCallback(const char* pref, XPCJSContext* xpccx) {
 #ifdef ENABLE_WASM_CRANELIFT
       .setWasmCranelift(useWasmCranelift)
 #endif
-#ifdef ENABLE_WASM_REFTYPES
+#ifdef ENABLE_WASM_GC
       .setWasmGc(useWasmGc)
 #endif
       .setWasmVerbose(useWasmVerbose)

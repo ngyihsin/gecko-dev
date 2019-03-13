@@ -13,7 +13,7 @@
 import { createSelector } from "reselect";
 import { isGeneratedId } from "devtools-source-map";
 import { prefs } from "../utils/prefs";
-import { getSelectedSource } from "./sources";
+import { getSelectedSourceId } from "./sources";
 
 import type { OriginalScope } from "../utils/pause/mapScopes";
 import type { Action } from "../actions/types";
@@ -65,26 +65,31 @@ type ThreadPauseState = {
   },
   selectedFrameId: ?string,
   loadedObjects: Object,
-  shouldPauseOnExceptions: boolean,
-  shouldPauseOnCaughtExceptions: boolean,
   command: Command,
   lastCommand: Command,
   wasStepping: boolean,
-  previousLocation: ?MappedLocation,
-  skipPausing: boolean
+  previousLocation: ?MappedLocation
 };
 
 // Pause state describing all threads.
 export type PauseState = {
   currentThread: string,
   canRewind: boolean,
-  threads: { [string]: ThreadPauseState }
+  threads: { [string]: ThreadPauseState },
+  skipPausing: boolean,
+  mapScopes: boolean,
+  shouldPauseOnExceptions: boolean,
+  shouldPauseOnCaughtExceptions: boolean
 };
 
 export const createPauseState = (): PauseState => ({
   currentThread: "UnknownThread",
   threads: {},
-  canRewind: false
+  canRewind: false,
+  skipPausing: prefs.skipPausing,
+  mapScopes: prefs.mapScopes,
+  shouldPauseOnExceptions: prefs.pauseOnExceptions,
+  shouldPauseOnCaughtExceptions: prefs.pauseOnCaughtExceptions
 });
 
 const resumedPauseState = {
@@ -102,13 +107,10 @@ const resumedPauseState = {
 const createInitialPauseState = () => ({
   ...resumedPauseState,
   isWaitingOnBreak: false,
-  shouldPauseOnExceptions: prefs.pauseOnExceptions,
-  shouldPauseOnCaughtExceptions: prefs.pauseOnCaughtExceptions,
   canRewind: false,
   command: null,
   lastCommand: null,
-  previousLocation: null,
-  skipPausing: prefs.skipPausing
+  previousLocation: null
 });
 
 function getThreadPauseState(state: PauseState, thread: string) {
@@ -256,10 +258,11 @@ function update(
       // Preserving for the old debugger
       prefs.ignoreCaughtExceptions = !shouldPauseOnCaughtExceptions;
 
-      return updateThreadState({
+      return {
+        ...state,
         shouldPauseOnExceptions,
         shouldPauseOnCaughtExceptions
-      });
+      };
     }
 
     case "COMMAND":
@@ -304,7 +307,13 @@ function update(
       const { skipPausing } = action;
       prefs.skipPausing = skipPausing;
 
-      return updateThreadState({ skipPausing });
+      return { ...state, skipPausing };
+    }
+
+    case "TOGGLE_MAP_SCOPES": {
+      const { mapScopes } = action;
+      prefs.mapScopes = mapScopes;
+      return { ...state, mapScopes };
     }
   }
 
@@ -400,11 +409,11 @@ export function getIsWaitingOnBreak(state: OuterState) {
 }
 
 export function getShouldPauseOnExceptions(state: OuterState) {
-  return getCurrentPauseState(state).shouldPauseOnExceptions;
+  return state.pause.shouldPauseOnExceptions;
 }
 
 export function getShouldPauseOnCaughtExceptions(state: OuterState) {
-  return getCurrentPauseState(state).shouldPauseOnCaughtExceptions;
+  return state.pause.shouldPauseOnCaughtExceptions;
 }
 
 export function getCanRewind(state: OuterState) {
@@ -503,19 +512,26 @@ export function getFrameScope(
 }
 
 export function getSelectedScope(state: OuterState) {
-  const source = getSelectedSource(state);
+  const sourceId = getSelectedSourceId(state);
   const frameId = getSelectedFrameId(state);
 
-  if (!source) {
-    return null;
-  }
-
-  const frameScope = getFrameScope(state, source.id, frameId);
+  const frameScope = getFrameScope(state, sourceId, frameId);
   if (!frameScope) {
     return null;
   }
 
   return frameScope.scope || null;
+}
+
+export function getSelectedOriginalScope(state: OuterState) {
+  const sourceId = getSelectedSourceId(state);
+  const frameId = getSelectedFrameId(state);
+  return getOriginalFrameScope(state, sourceId, frameId);
+}
+
+export function getSelectedGeneratedScope(state: OuterState) {
+  const frameId = getSelectedFrameId(state);
+  return getGeneratedFrameScope(state, frameId);
 }
 
 export function getSelectedScopeMappings(
@@ -553,7 +569,11 @@ export const getSelectedFrame: Selector<?Frame> = createSelector(
 );
 
 export function getSkipPausing(state: OuterState) {
-  return getCurrentPauseState(state).skipPausing;
+  return state.pause.skipPausing;
+}
+
+export function getMapScopes(state: OuterState) {
+  return state.pause.mapScopes;
 }
 
 // NOTE: currently only used for chrome

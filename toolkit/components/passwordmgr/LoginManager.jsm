@@ -14,11 +14,11 @@ ChromeUtils.defineModuleGetter(this, "BrowserUtils",
 ChromeUtils.defineModuleGetter(this, "LoginHelper",
                                "resource://gre/modules/LoginHelper.jsm");
 ChromeUtils.defineModuleGetter(this, "LoginFormFactory",
-                               "resource://gre/modules/LoginManagerContent.jsm");
+                               "resource://gre/modules/LoginFormFactory.jsm");
 ChromeUtils.defineModuleGetter(this, "LoginManagerContent",
                                "resource://gre/modules/LoginManagerContent.jsm");
-ChromeUtils.defineModuleGetter(this, "UserAutoCompleteResult",
-                               "resource://gre/modules/LoginManagerContent.jsm");
+ChromeUtils.defineModuleGetter(this, "LoginAutoCompleteResult",
+                               "resource://gre/modules/LoginAutoCompleteResult.jsm");
 ChromeUtils.defineModuleGetter(this, "InsecurePasswordUtils",
                                "resource://gre/modules/InsecurePasswordUtils.jsm");
 
@@ -56,15 +56,6 @@ LoginManager.prototype = {
 
   /* ---------- private members ---------- */
 
-
-  __formFillService: null, // FormFillController, for username autocompleting
-  get _formFillService() {
-    if (!this.__formFillService) {
-      this.__formFillService = Cc["@mozilla.org/satchel/form-fill-controller;1"].
-                               getService(Ci.nsIFormFillController);
-    }
-    return this.__formFillService;
-  },
 
 
   _storage: null, // Storage component which contains the saved logins
@@ -138,7 +129,6 @@ LoginManager.prototype = {
           log.debug("Oops! Pref not handled, change ignored.");
         }
       } else if (topic == "xpcom-shutdown") {
-        delete this._pwmgr.__formFillService;
         delete this._pwmgr._storage;
         delete this._pwmgr._prefBranch;
         this._pwmgr = null;
@@ -534,7 +524,7 @@ LoginManager.prototype = {
       }
 
       this._autoCompleteLookupPromise = null;
-      let results = new UserAutoCompleteResult(aSearchString, logins, {
+      let results = new LoginAutoCompleteResult(aSearchString, logins, {
         messageManager,
         isSecure,
         isPasswordField,

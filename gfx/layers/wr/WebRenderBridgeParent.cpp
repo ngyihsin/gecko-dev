@@ -15,6 +15,7 @@
 #include "GLContextProvider.h"
 #include "nsExceptionHandler.h"
 #include "mozilla/Range.h"
+#include "mozilla/UniquePtr.h"
 #include "mozilla/layers/AnimationHelper.h"
 #include "mozilla/layers/APZSampler.h"
 #include "mozilla/layers/APZUpdater.h"
@@ -61,6 +62,25 @@ void gecko_profiler_end_marker(const char* name) {
 #ifdef MOZ_GECKO_PROFILER
   profiler_tracing("WebRender", name, JS::ProfilingCategoryPair::GRAPHICS,
                    TRACING_INTERVAL_END);
+#endif
+}
+
+void gecko_profiler_add_text_marker(const char* name, const char* text_bytes, size_t text_len, uint64_t microseconds) {
+#ifdef MOZ_GECKO_PROFILER
+  if (profiler_thread_is_being_profiled()) {
+    auto now = mozilla::TimeStamp::Now();
+    auto start = now - mozilla::TimeDuration::FromMicroseconds(microseconds);
+    profiler_add_text_marker(
+        name, nsDependentCString(text_bytes, text_len), JS::ProfilingCategoryPair::GRAPHICS, start, now);
+  }
+#endif
+}
+
+bool gecko_profiler_thread_is_being_profiled() {
+#ifdef MOZ_GECKO_PROFILER
+  return profiler_thread_is_being_profiled();
+#else
+  return false;
 #endif
 }
 
@@ -780,7 +800,7 @@ CompositorBridgeParent* WebRenderBridgeParent::GetRootCompositorBridgeParent()
   }
 
   // Otherwise, this WebRenderBridgeParent is attached to a
-  // CrossProcessCompositorBridgeParent so we have an extra level of
+  // ContentCompositorBridgeParent so we have an extra level of
   // indirection to unravel.
   CompositorBridgeParent::LayerTreeState* lts =
       CompositorBridgeParent::GetIndirectShadowTree(GetLayersId());
@@ -1052,7 +1072,10 @@ mozilla::ipc::IPCResult WebRenderBridgeParent::RecvEmptyTransaction(
             mCompositorBridge, GetLayersId(), mChildLayersObserverEpoch, true));
   }
 
-  if (txn.IsResourceUpdatesEmpty()) {
+  // Even when txn.IsResourceUpdatesEmpty() is true, there could be resource
+  // updates. It is handled by WebRenderTextureHostWrapper. In this case
+  // txn.IsRenderedFrameInvalidated() becomes true.
+  if (txn.IsResourceUpdatesEmpty() && !txn.IsRenderedFrameInvalidated()) {
     // If TransactionBuilder does not have resource updates nor display list,
     // ScheduleGenerateFrame is not triggered via SceneBuilder and there is no
     // need to update WrEpoch.
@@ -1547,6 +1570,15 @@ mozilla::ipc::IPCResult WebRenderBridgeParent::RecvSyncWithCompositor() {
 
 mozilla::ipc::IPCResult WebRenderBridgeParent::RecvSetConfirmedTargetAPZC(
     const uint64_t& aBlockId, nsTArray<ScrollableLayerGuid>&& aTargets) {
+  for (size_t i = 0; i < aTargets.Length(); i++) {
+    if (aTargets[i].mLayersId != GetLayersId()) {
+      // Guard against bad data from hijacked child processes
+      NS_ERROR(
+          "Unexpected layers id in RecvSetConfirmedTargetAPZC; dropping "
+          "message...");
+      return IPC_FAIL(this, "Bad layers id");
+    }
+  }
   if (mDestroyed) {
     return IPC_OK();
   }

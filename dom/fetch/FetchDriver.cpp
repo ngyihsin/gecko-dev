@@ -323,12 +323,14 @@ NS_IMPL_ISUPPORTS(FetchDriver, nsIStreamListener, nsIChannelEventSink,
 FetchDriver::FetchDriver(InternalRequest* aRequest, nsIPrincipal* aPrincipal,
                          nsILoadGroup* aLoadGroup,
                          nsIEventTarget* aMainThreadEventTarget,
+                         nsICookieSettings* aCookieSettings,
                          PerformanceStorage* aPerformanceStorage,
                          bool aIsTrackingFetch)
     : mPrincipal(aPrincipal),
       mLoadGroup(aLoadGroup),
       mRequest(aRequest),
       mMainThreadEventTarget(aMainThreadEventTarget),
+      mCookieSettings(aCookieSettings),
       mPerformanceStorage(aPerformanceStorage),
       mNeedToObserveOnDataAvailable(false),
       mIsTrackingFetch(aIsTrackingFetch),
@@ -422,6 +424,24 @@ nsresult FetchDriver::HttpFetch(
   rv = NS_NewURI(getter_AddRefs(uri), url, nullptr, nullptr, ios);
   NS_ENSURE_SUCCESS(rv, rv);
 
+  if (StaticPrefs::browser_tabs_remote_useCrossOriginPolicy()) {
+    // Cross-Origin policy - bug 1525036
+    nsILoadInfo::CrossOriginPolicy corsCredentials =
+        nsILoadInfo::CROSS_ORIGIN_POLICY_NULL;
+    if (mDocument && mDocument->GetBrowsingContext()) {
+      corsCredentials = mDocument->GetBrowsingContext()->CrossOriginPolicy();
+    }  // TODO Bug 1532287: else use mClientInfo
+
+    if (mRequest->Mode() == RequestMode::No_cors &&
+        corsCredentials != nsILoadInfo::CROSS_ORIGIN_POLICY_NULL) {
+      mRequest->SetMode(RequestMode::Cors);
+      mRequest->SetCredentialsMode(RequestCredentials::Same_origin);
+      if (corsCredentials == nsILoadInfo::CROSS_ORIGIN_POLICY_USE_CREDENTIALS) {
+        mRequest->SetCredentialsMode(RequestCredentials::Include);
+      }
+    }
+  }
+
   // Unsafe requests aren't allowed with when using no-core mode.
   if (mRequest->Mode() == RequestMode::No_cors && mRequest->UnsafeRequest() &&
       (!mRequest->HasSimpleMethod() ||
@@ -509,22 +529,24 @@ nsresult FetchDriver::HttpFetch(
       nsIRequest::LOAD_BACKGROUND | bypassFlag | nsIChannel::LOAD_CLASSIFY_URI;
   if (mDocument) {
     MOZ_ASSERT(mDocument->NodePrincipal() == mPrincipal);
+    MOZ_ASSERT(mDocument->CookieSettings() == mCookieSettings);
     rv = NS_NewChannel(getter_AddRefs(chan), uri, mDocument, secFlags,
                        mRequest->ContentPolicyType(),
                        nullptr,             /* aPerformanceStorage */
                        mLoadGroup, nullptr, /* aCallbacks */
                        loadFlags, ios);
   } else if (mClientInfo.isSome()) {
+    rv = NS_NewChannel(getter_AddRefs(chan), uri, mPrincipal, mClientInfo.ref(),
+                       mController, secFlags, mRequest->ContentPolicyType(),
+                       mCookieSettings, mPerformanceStorage, mLoadGroup,
+                       nullptr, /* aCallbacks */
+                       loadFlags, ios);
+  } else {
     rv =
-        NS_NewChannel(getter_AddRefs(chan), uri, mPrincipal, mClientInfo.ref(),
-                      mController, secFlags, mRequest->ContentPolicyType(),
+        NS_NewChannel(getter_AddRefs(chan), uri, mPrincipal, secFlags,
+                      mRequest->ContentPolicyType(), mCookieSettings,
                       mPerformanceStorage, mLoadGroup, nullptr, /* aCallbacks */
                       loadFlags, ios);
-  } else {
-    rv = NS_NewChannel(getter_AddRefs(chan), uri, mPrincipal, secFlags,
-                       mRequest->ContentPolicyType(), mPerformanceStorage,
-                       mLoadGroup, nullptr, /* aCallbacks */
-                       loadFlags, ios);
   }
   NS_ENSURE_SUCCESS(rv, rv);
 

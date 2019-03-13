@@ -294,6 +294,7 @@ ElementEditor.prototype = {
     this._eventBadge.title = INSPECTOR_L10N.getStr("markupView.event.tooltiptext");
     // Badges order is [event][display][custom], insert event badge before others.
     this.elt.insertBefore(this._eventBadge, this._displayBadge || this._customBadge);
+    this.markup.emit("badge-added-event");
   },
 
   updateScrollableBadge: function() {
@@ -791,7 +792,7 @@ ElementEditor.prototype = {
 
   onCustomBadgeClick: function() {
     const { url, line } = this.node.customElementLocation;
-    this.markup.toolbox.viewSourceInDebugger(url, line, "show_custom_element");
+    this.markup.toolbox.viewSourceInDebugger(url, line, null, "show_custom_element");
   },
 
   onExpandBadgeClick: function() {

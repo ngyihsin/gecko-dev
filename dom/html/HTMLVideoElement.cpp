@@ -33,6 +33,7 @@
 #include "mozilla/dom/TimeRanges.h"
 #include "mozilla/dom/VideoPlaybackQuality.h"
 #include "mozilla/dom/VideoStreamTrack.h"
+#include "mozilla/Unused.h"
 
 #include <algorithm>
 #include <limits>
@@ -50,6 +51,7 @@ namespace mozilla {
 namespace dom {
 
 static bool sVideoStatsEnabled;
+static bool sCloneElementVisuallyTesting;
 
 nsresult HTMLVideoElement::Clone(mozilla::dom::NodeInfo* aNodeInfo,
                                  nsINode** aResult) const {
@@ -133,7 +135,8 @@ nsresult HTMLVideoElement::GetVideoSize(nsIntSize* size) {
 void HTMLVideoElement::Invalidate(bool aImageSizeChanged,
                                   Maybe<nsIntSize>& aNewIntrinsicSize,
                                   bool aForceInvalidate) {
-  HTMLMediaElement::Invalidate(aImageSizeChanged, aNewIntrinsicSize, aForceInvalidate);
+  HTMLMediaElement::Invalidate(aImageSizeChanged, aNewIntrinsicSize,
+                               aForceInvalidate);
   if (mVisualCloneTarget) {
     VideoFrameContainer* container =
         mVisualCloneTarget->GetVideoFrameContainer();
@@ -180,9 +183,7 @@ nsMapRuleToAttributesFunc HTMLVideoElement::GetAttributeMappingFunction()
 void HTMLVideoElement::UnbindFromTree(bool aDeep, bool aNullParent) {
   if (mVisualCloneSource) {
     mVisualCloneSource->EndCloningVisually();
-    SetVisualCloneSource(nullptr);
   } else if (mVisualCloneTarget) {
-    mVisualCloneTarget->SetVisualCloneSource(nullptr);
     EndCloningVisually();
   }
 
@@ -385,9 +386,10 @@ void HTMLVideoElement::ReleaseVideoWakeLockIfExists() {
 
 bool HTMLVideoElement::SetVisualCloneTarget(
     HTMLVideoElement* aVisualCloneTarget) {
-  MOZ_DIAGNOSTIC_ASSERT(!aVisualCloneTarget || !aVisualCloneTarget->mUnboundFromTree,
-                        "Can't set the clone target to a disconnected video "
-                        "element.");
+  MOZ_DIAGNOSTIC_ASSERT(
+      !aVisualCloneTarget || !aVisualCloneTarget->mUnboundFromTree,
+      "Can't set the clone target to a disconnected video "
+      "element.");
   MOZ_DIAGNOSTIC_ASSERT(!mVisualCloneSource,
                         "Can't clone a video element that is already a clone.");
   if (!aVisualCloneTarget ||
@@ -400,9 +402,10 @@ bool HTMLVideoElement::SetVisualCloneTarget(
 
 bool HTMLVideoElement::SetVisualCloneSource(
     HTMLVideoElement* aVisualCloneSource) {
-  MOZ_DIAGNOSTIC_ASSERT(!aVisualCloneSource || !aVisualCloneSource->mUnboundFromTree,
-                        "Can't set the clone source to a disconnected video "
-                        "element.");
+  MOZ_DIAGNOSTIC_ASSERT(
+      !aVisualCloneSource || !aVisualCloneSource->mUnboundFromTree,
+      "Can't set the clone source to a disconnected video "
+      "element.");
   MOZ_DIAGNOSTIC_ASSERT(!mVisualCloneTarget,
                         "Can't clone a video element that is already a "
                         "clone.");
@@ -418,6 +421,8 @@ bool HTMLVideoElement::SetVisualCloneSource(
 void HTMLVideoElement::InitStatics() {
   Preferences::AddBoolVarCache(&sVideoStatsEnabled,
                                "media.video_stats.enabled");
+  Preferences::AddBoolVarCache(&sCloneElementVisuallyTesting,
+                               "media.cloneElementVisually.testing");
 }
 
 /* static */
@@ -457,6 +462,18 @@ void HTMLVideoElement::CloneElementVisually(HTMLVideoElement& aTargetVideo,
     return;
   }
 
+  // Do we already have a visual clone target? If so, shut it down.
+  if (mVisualCloneTarget) {
+    EndCloningVisually();
+  }
+
+  // If there's a poster set on the target video, clear it, otherwise
+  // it'll display over top of the cloned frames.
+  aTargetVideo.UnsetHTMLAttr(nsGkAtoms::poster, rv);
+  if (rv.Failed()) {
+    return;
+  }
+
   if (!SetVisualCloneTarget(&aTargetVideo)) {
     rv.Throw(NS_ERROR_FAILURE);
     return;
@@ -470,7 +487,17 @@ void HTMLVideoElement::CloneElementVisually(HTMLVideoElement& aTargetVideo,
 
   aTargetVideo.SetMediaInfo(mMediaInfo);
 
+  if (IsInComposedDoc() && !sCloneElementVisuallyTesting) {
+    NotifyUAWidgetSetupOrChange();
+  }
+
   MaybeBeginCloningVisually();
+}
+
+void HTMLVideoElement::StopCloningElementVisually() {
+  if (mVisualCloneTarget) {
+    EndCloningVisually();
+  }
 }
 
 void HTMLVideoElement::MaybeBeginCloningVisually() {
@@ -513,7 +540,12 @@ void HTMLVideoElement::EndCloningVisually() {
     }
   }
 
-  mVisualCloneTarget = nullptr;
+  Unused << mVisualCloneTarget->SetVisualCloneSource(nullptr);
+  Unused << SetVisualCloneTarget(nullptr);
+
+  if (IsInComposedDoc() && !sCloneElementVisuallyTesting) {
+    NotifyUAWidgetSetupOrChange();
+  }
 }
 
 }  // namespace dom
