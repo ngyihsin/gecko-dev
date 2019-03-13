@@ -60,6 +60,7 @@ export CFLAGS="-DANDROID -DTARGET_OS_GONK \
 -I$(pwd)/modules/freetype2/include \
 -I$GONK_PATH/system/core/include \
 -I$GONK_PATH/external/zlib \
+-I$GONK_PATH/hardware/libhardware/include/ \
 -I$(pwd)/modules/freetype2/include"
 
 export CPPFLAGS="-O2 -fPIC \
