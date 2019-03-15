@@ -3425,6 +3425,7 @@ void JS::TransitiveCompileOptions::copyPODTransitiveOptions(
   isProbablySystemCode = rhs.isProbablySystemCode;
   hideScriptFromDebugger = rhs.hideScriptFromDebugger;
   bigIntEnabledOption = rhs.bigIntEnabledOption;
+  fieldsEnabledOption = rhs.fieldsEnabledOption;
 };
 
 void JS::ReadOnlyCompileOptions::copyPODOptions(
@@ -3552,6 +3553,7 @@ JS::CompileOptions::CompileOptions(JSContext* cx)
   throwOnAsmJSValidationFailureOption =
       cx->options().throwOnAsmJSValidationFailure();
   bigIntEnabledOption = cx->realm()->creationOptions().getBigIntEnabled();
+  fieldsEnabledOption = cx->realm()->creationOptions().getFieldsEnabled();
 }
 
 CompileOptions& CompileOptions::setIntroductionInfoToCaller(
@@ -4278,26 +4280,28 @@ JS_PUBLIC_API JSString* JS_AtomizeAndPinStringN(JSContext* cx, const char* s,
   return atom;
 }
 
-JS_PUBLIC_API JSString* JS_NewLatin1String(JSContext* cx, JS::Latin1Char* chars,
-                                           size_t length) {
+JS_PUBLIC_API JSString* JS_NewLatin1String(
+    JSContext* cx, js::UniquePtr<JS::Latin1Char[], JS::FreePolicy> chars,
+    size_t length) {
   AssertHeapIsIdle();
   CHECK_THREAD(cx);
-  return NewString(cx, chars, length);
+  return NewString(cx, std::move(chars), length);
 }
 
-JS_PUBLIC_API JSString* JS_NewUCString(JSContext* cx, char16_t* chars,
+JS_PUBLIC_API JSString* JS_NewUCString(JSContext* cx,
+                                       JS::UniqueTwoByteChars chars,
                                        size_t length) {
   AssertHeapIsIdle();
   CHECK_THREAD(cx);
-  return NewString(cx, chars, length);
+  return NewString(cx, std::move(chars), length);
 }
 
 JS_PUBLIC_API JSString* JS_NewUCStringDontDeflate(JSContext* cx,
-                                                  char16_t* chars,
+                                                  JS::UniqueTwoByteChars chars,
                                                   size_t length) {
   AssertHeapIsIdle();
   CHECK_THREAD(cx);
-  return NewStringDontDeflate(cx, chars, length);
+  return NewStringDontDeflate(cx, std::move(chars), length);
 }
 
 JS_PUBLIC_API JSString* JS_NewUCStringCopyN(JSContext* cx, const char16_t* s,

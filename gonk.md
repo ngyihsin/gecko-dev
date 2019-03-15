@@ -23,12 +23,13 @@ for i in $NDK_DIR/platforms/android-23/arch-arm/usr/lib/*; do ln -snf $i .; done
 #undef sa_sigaction
 ```
 - run `./build-b2g.sh`
+- if you encounter issues building try running `./mach bootstrap` first and choose option 4 (GeckoView/Firefox for Android)
 
 Package the build in the emulator:
 - create a tarball with `./build-b2g.sh package`
 - unpack the resulting tarball in the B2G folder `tar -x -v -f obj-arm-unknown-linux-androideabi/dist/b2g-*.tar.gz -C ../B2G/out/target/product/generic/system/`
 - go into the B2G folder
-- rebuild the emulator with `./build.sh`
+- rebuild the emulator with `./build.sh ENABLE_DEFAULT_BOOTANIMATION=true`
 - run the emulator with `./run-emulator.sh`
 
 Note that Gecko now builds with clang > 3.8 instead of gcc. It's unclear if it's mandatory for now but it's likely that gcc builds will break sooner or later.

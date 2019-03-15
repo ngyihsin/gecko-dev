@@ -32,18 +32,20 @@ class AnonymousContent;
 namespace gfx {
 class SourceSurface;
 }
+
+namespace layers {
+class Composer2D;
 }
+
+class HwcComposer2D;
+}
+
 namespace widget {
 struct InputContext;
 struct InputContextAction;
 }
 
-namespace mozilla {
-class HwcComposer2D;
-}
-
 class nsScreenGonk;
-
 class GLCursorImageManager;
 
 class nsWindow : public nsBaseWidget
@@ -144,9 +146,7 @@ public:
   virtual LayoutDeviceIntRect GetNaturalBounds() override;
   virtual bool NeedsPaint() override;
 
-#if defined(MOZ_COMPOSITOR_2D)
-  virtual Composer2D* GetComposer2D() override;
-#endif
+  mozilla::layers::Composer2D* GetComposer2D();
 
   void ConfigureAPZControllerThread() override;
 
@@ -181,7 +181,7 @@ private:
 
   RefPtr<nsScreenGonk> mScreen;
 
-  //RefPtr<mozilla::HwcComposer2D> mComposer2D;
+  RefPtr<mozilla::HwcComposer2D> mComposer2D;
 
   // 1. This member variable would be accessed by main and compositor thread.
   // 2. Currently there is a lock in GLCursorImageManager to protect it's data

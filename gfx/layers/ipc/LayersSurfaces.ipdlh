@@ -29,6 +29,10 @@ struct OverlaySource {
   IntSize size;
 };
 
+union MaybeMagicGrallocBufferHandle {
+  null_t;
+};
+
 struct SurfaceDescriptorFileMapping {
   WindowsHandle handle;
   SurfaceFormat format;
@@ -86,6 +90,10 @@ struct SurfaceDescriptorSharedGLTexture {
   bool hasAlpha;
 };
 
+struct SurfaceDescriptorGralloc {
+  MaybeMagicGrallocBufferHandle buffer;
+  bool isOpaque;
+};
 
 union GPUVideoSubDescriptor {
   SurfaceDescriptorD3D10;
@@ -151,6 +159,7 @@ union SurfaceDescriptor {
   SurfaceTextureDescriptor;
   EGLImageDescriptor;
   SurfaceDescriptorMacIOSurface;
+  SurfaceDescriptorGralloc;
   SurfaceDescriptorSharedGLTexture;
   SurfaceDescriptorGPUVideo;
   null_t;

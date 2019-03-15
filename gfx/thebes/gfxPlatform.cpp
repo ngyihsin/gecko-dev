@@ -140,6 +140,12 @@ static const uint32_t kDefaultGlyphCacheSize = -1;
 #include "mozilla/layers/MemoryReportingMLGPU.h"
 #include "prsystem.h"
 
+namespace mozilla {
+namespace layers {
+void ShutdownTileCache();
+} // namespace layers
+} // namespace mozilla
+
 using namespace mozilla;
 using namespace mozilla::layers;
 using namespace mozilla::gl;
@@ -1279,6 +1285,7 @@ void gfxPlatform::ShutdownLayersIPC() {
     gfx::VRManagerChild::ShutDown();
     layers::CompositorManagerChild::Shutdown();
     layers::ImageBridgeChild::ShutDown();
+
     // This has to happen after shutting down the child protocols.
     layers::CompositorThreadHolder::Shutdown();
     image::ImageMemoryReporter::ShutdownForWebRender();
@@ -1536,6 +1543,18 @@ void gfxPlatform::ComputeTileSize() {
       // size, but I think everything should at least support 1024
       w = h = clamped(int32_t(RoundUpPow2(screenSize.width)) / 4, 256, 1024);
     }
+
+//#ifdef MOZ_WIDGET_GONK
+//    android::sp<android::GraphicBuffer> alloc =
+//          new android::GraphicBuffer(w, h, android::PIXEL_FORMAT_RGBA_8888,
+//                                     android::GraphicBuffer::USAGE_SW_READ_OFTEN |
+//                                     android::GraphicBuffer::USAGE_SW_WRITE_OFTEN |
+//                                     android::GraphicBuffer::USAGE_HW_TEXTURE);
+//
+//    if (alloc.get()) {
+//      w = alloc->getStride(); // We want the tiles to be gralloc stride aligned.
+//    }
+//#endif
   }
 
   // Don't allow changing the tile size after we've set it.

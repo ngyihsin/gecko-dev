@@ -50,7 +50,7 @@
 #include "mozilla/layers/LayerManagerComposite.h"
 #include "mozilla/layers/LayerTransactionChild.h"
 #include "mozilla/TouchEvents.h"
-// TODO: FIXME: #include "HwcComposer2D.h"
+#include "HwcComposer2D.h"
 #include "nsImageLoadingContent.h"
 #include "mozilla/layers/IAPZCTreeManager.h"
 #include "mozilla/layers/APZInputBridge.h"
@@ -93,14 +93,9 @@ nsWindow::nsWindow()
 
 nsWindow::~nsWindow()
 {
-#if 0
   if (mScreen->IsPrimaryScreen()) {
-// TODO: FIXME
-#if 0
     mComposer2D->SetCompositorBridgeParent(nullptr);
-#endif
   }
-#endif
 }
 
 void
@@ -469,7 +464,7 @@ nsWindow::Create(nsIWidget* aParent,
     mBounds = mScreen->GetRect();
   }
 
-  // TODO: FIXME: mComposer2D = HwcComposer2D::GetInstance();
+  mComposer2D = HwcComposer2D::GetInstance();
 
   if (!IS_TOPLEVEL()) {
     return NS_OK;
@@ -887,10 +882,7 @@ nsWindow::GetLayerManager(PLayerTransactionChild* aShadowManager,
   if (mCompositorBridgeParent) {
     mScreen->SetCompositorBridgeParent(mCompositorBridgeParent);
     if (mScreen->IsPrimaryScreen()) {
-// TODO: FIXME
-#if 0
       mComposer2D->SetCompositorBridgeParent(mCompositorBridgeParent);
-#endif
     }
   }
   MOZ_ASSERT(mLayerManager);
@@ -905,10 +897,7 @@ nsWindow::DestroyCompositor()
     mScreen->SetCompositorBridgeParent(nullptr);
     if (mScreen->IsPrimaryScreen()) {
       // Unset CompositorBridgeParent
-// TODO: FIXME
-#if 0
       mComposer2D->SetCompositorBridgeParent(nullptr);
-#endif
     }
   }
   nsBaseWidget::DestroyCompositor();
@@ -996,20 +985,15 @@ nsWindow::NeedsPaint()
   return nsIWidget::NeedsPaint();
 }
 
-// TODO: FIXME
-#if 0
-#if defined(MOZ_COMPOSITOR_2D)
-Composer2D*
+mozilla::layers::Composer2D*
 nsWindow::GetComposer2D()
 {
-  if (mScreen->GetDisplayType() == GonkDisplay::DISPLAY_VIRTUAL) {
+  if (mScreen->GetDisplayType() == DisplayType::DISPLAY_VIRTUAL) {
     return nullptr;
   }
 
   return mComposer2D;
 }
-#endif
-#endif
 
 bool
 nsWindow::IsBelongedToPrimaryScreen()

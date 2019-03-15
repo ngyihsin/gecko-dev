@@ -1487,6 +1487,7 @@ window._gBrowser = {
     triggeringPrincipal,
     csp,
     userContextId,
+    fromExternal,
   } = {}) {
     if (!aURIs.length) {
       return;
@@ -1538,6 +1539,9 @@ window._gBrowser = {
       if (!allowInheritPrincipal) {
         flags |= Ci.nsIWebNavigation.LOAD_FLAGS_DISALLOW_INHERIT_PRINCIPAL;
       }
+      if (fromExternal) {
+        flags |= Ci.nsIWebNavigation.LOAD_FLAGS_FROM_EXTERNAL;
+      }
       try {
         browser.loadURI(aURIs[0], {
           flags,
@@ -1560,6 +1564,7 @@ window._gBrowser = {
         triggeringPrincipal,
         bulkOrderedOpen: multiple,
         csp,
+        fromExternal,
       };
       if (newIndex > -1) {
         params.index = newIndex;
@@ -1581,6 +1586,7 @@ window._gBrowser = {
         triggeringPrincipal,
         bulkOrderedOpen: true,
         csp,
+        fromExternal,
       };
       if (targetTabIndex > -1) {
         params.index = ++tabNum;
@@ -4227,35 +4233,30 @@ window._gBrowser = {
       return;
     }
 
-    if (aEvent.altKey)
+    // Skip this only if something has explicitly cancelled it.
+    if (aEvent.defaultCancelled) {
       return;
+    }
 
     // Don't check if the event was already consumed because tab
     // navigation should always work for better user experience.
 
-    if (aEvent.ctrlKey && aEvent.shiftKey && !aEvent.metaKey) {
-      switch (aEvent.keyCode) {
-        case aEvent.DOM_VK_PAGE_UP:
-          this.moveTabBackward();
-          aEvent.preventDefault();
-          return;
-        case aEvent.DOM_VK_PAGE_DOWN:
-          this.moveTabForward();
-          aEvent.preventDefault();
-          return;
-      }
-    }
-
-    if (AppConstants.platform != "macosx") {
-      if (aEvent.ctrlKey && !aEvent.shiftKey && !aEvent.metaKey &&
-          aEvent.keyCode == KeyEvent.DOM_VK_F4) {
+    switch (ShortcutUtils.getSystemActionForEvent(aEvent)) {
+      case ShortcutUtils.MOVE_TAB_BACKWARD:
+        this.moveTabBackward();
+        aEvent.preventDefault();
+        return;
+      case ShortcutUtils.MOVE_TAB_FORWARD:
+        this.moveTabForward();
+        aEvent.preventDefault();
+        return;
+      case ShortcutUtils.CLOSE_TAB:
         if (gBrowser.multiSelectedTabsCount) {
           gBrowser.removeMultiSelectedTabs();
         } else if (!this.selectedTab.pinned) {
           this.removeCurrentTab({ animate: true });
         }
         aEvent.preventDefault();
-      }
     }
   },
 
@@ -4265,22 +4266,21 @@ window._gBrowser = {
       return;
     }
 
-    if (aEvent.altKey)
+    // Skip this only if something has explicitly cancelled it.
+    if (aEvent.defaultCancelled) {
       return;
+    }
 
     if (AppConstants.platform == "macosx") {
-      if (!aEvent.metaKey)
-        return;
-
-      var offset = 1;
-      switch (aEvent.charCode) {
-        case "}".charCodeAt(0):
-          offset = -1;
-        case "{".charCodeAt(0):
-          if (!RTL_UI)
-            offset *= -1;
-          this.tabContainer.advanceSelectedTab(offset, true);
+      switch (ShortcutUtils.getSystemActionForEvent(aEvent, {rtl: RTL_UI})) {
+        case ShortcutUtils.NEXT_TAB:
+          this.tabContainer.advanceSelectedTab(1, true);
           aEvent.preventDefault();
+          break;
+        case ShortcutUtils.PREVIOUS_TAB:
+          this.tabContainer.advanceSelectedTab(-1, true);
+          aEvent.preventDefault();
+          break;
       }
     }
   },

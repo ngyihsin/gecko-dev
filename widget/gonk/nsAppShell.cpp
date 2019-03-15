@@ -1171,6 +1171,9 @@ nsAppShell::nsAppShell()
     , mPowerKeyChecked(false)
 {
     gAppShell = this;
+
+    hal::Init();
+
     if (XRE_IsParentProcess()) {
         Preferences::SetCString("b2g.safe_mode", "unset");
     }
@@ -1220,6 +1223,9 @@ nsAppShell::Init()
         android::FakeSurfaceComposer::instantiate();
 #endif
         GonkPermissionService::instantiate();
+
+        /* Start boot animation */
+        mozilla::StartBootAnimation();
 
         ScreenManager& screenManager = ScreenManager::GetSingleton();
         screenManager.SetHelper(mozilla::MakeUnique<ScreenHelperGonk>());
@@ -1288,7 +1294,7 @@ nsAppShell::Observe(nsISupports* aSubject,
         mEnableDraw = true;
 
         // System is almost booting up. Stop the bootAnim now.
-        StopBootAnimation();
+        mozilla::StopBootAnimation();
 
         NotifyEvent();
         return NS_OK;

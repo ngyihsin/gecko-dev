@@ -709,7 +709,7 @@ VARCACHE_PREF(
 VARCACHE_PREF(
   "layout.cursor.block.max-size",
    layout_cursor_block_max_size,
-  uint32_t, 64
+  uint32_t, 32
 )
 
 // Debug-only pref to force enable the AccessibleCaret. If you want to
@@ -1110,6 +1110,12 @@ VARCACHE_PREF(
 VARCACHE_PREF(
   "javascript.options.bigint",
    javascript_options_bigint,
+  RelaxedAtomicBool, false
+)
+
+VARCACHE_PREF(
+  "javascript.options.experimental.fields",
+   javascript_options_experimental_fields,
   RelaxedAtomicBool, false
 )
 
@@ -2094,6 +2100,13 @@ VARCACHE_PREF(
   "browser.safebrowsing.blockedURIs.enabled",
    browser_safebrowsing_blockedURIs_enabled,
   bool, true
+)
+
+// When this pref is enabled document loads with a mismatched
+// Cross-Origin header will fail to load
+VARCACHE_PREF("browser.tabs.remote.useCrossOriginPolicy",
+              browser_tabs_remote_useCrossOriginPolicy,
+              bool, false
 )
 
 // Prevent system colors from being exposed to CSS or canvas.

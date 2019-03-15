@@ -58,6 +58,10 @@ class gfxAndroidPlatform : public gfxPlatform {
   virtual already_AddRefed<mozilla::gfx::VsyncSource>
   CreateHardwareVsyncSource() override;
 
+#ifdef MOZ_WIDGET_GONK
+    virtual bool IsInGonkEmulator() const override { return mIsInGonkEmulator; }
+#endif
+
  protected:
   bool AccelerateLayersByDefault() override { return true; }
 
@@ -69,6 +73,10 @@ class gfxAndroidPlatform : public gfxPlatform {
 
  private:
   gfxImageFormat mOffscreenFormat;
+
+#ifdef MOZ_WIDGET_GONK
+    bool mIsInGonkEmulator;
+#endif
 };
 
 #endif /* GFX_PLATFORM_ANDROID_H */
