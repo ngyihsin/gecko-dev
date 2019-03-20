@@ -567,7 +567,6 @@ class gfxPrefs final {
   DECL_GFX_PREF(Live, "image.animated.decode-on-demand.threshold-kb", ImageAnimatedDecodeOnDemandThresholdKB, uint32_t, 20480);
   DECL_GFX_PREF(Live, "image.animated.decode-on-demand.batch-size", ImageAnimatedDecodeOnDemandBatchSize, uint32_t, 6);
   DECL_GFX_PREF(Live, "image.animated.decode-on-demand.recycle", ImageAnimatedDecodeOnDemandRecycle, bool, false);
-  DECL_GFX_PREF(Once, "image.animated.generate-full-frames",   ImageAnimatedGenerateFullFrames, bool, false);
   DECL_GFX_PREF(Live, "image.animated.resume-from-last-displayed", ImageAnimatedResumeFromLastDisplayed, bool, false);
   DECL_GFX_PREF(Live, "image.cache.factor2.threshold-surfaces", ImageCacheFactor2ThresholdSurfaces, int32_t, -1);
   DECL_GFX_PREF(Live, "image.cache.max-rasterized-svg-threshold-kb", ImageCacheMaxRasterizedSVGThresholdKB, int32_t, 90*1024);
@@ -740,6 +739,7 @@ class gfxPrefs final {
   DECL_GFX_PREF(Live, "media.wmf.force.allow-p010-format", PDMWMFForceAllowP010Format, bool, false);
   DECL_GFX_PREF(Once, "media.wmf.use-sync-texture", PDMWMFUseSyncTexture, bool, true);
   DECL_GFX_PREF(Live, "media.wmf.low-latency.enabled", PDMWMFLowLatencyEnabled, bool, false);
+  DECL_GFX_PREF(Live, "media.wmf.low-latency.force-disabled", PDMWMFLowLatencyForceDisabled, bool, false);
   DECL_GFX_PREF(Live, "media.wmf.skip-blacklist", PDMWMFSkipBlacklist, bool, false);
   DECL_GFX_PREF(Live, "media.wmf.deblacklisting-for-telemetry-in-gpu-process", PDMWMFDeblacklistingForTelemetryInGPUProcess, bool, false);
   DECL_GFX_PREF(Live, "media.wmf.amd.highres.enabled", PDMWMFAMDHighResEnabled, bool, true);

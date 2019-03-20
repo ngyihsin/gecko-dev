@@ -1011,6 +1011,13 @@ VARCACHE_PREF(
   bool, false
 )
 
+// Is support for CSS contain enabled?
+VARCACHE_PREF(
+  "layout.css.contain.enabled",
+   layout_css_contain_enabled,
+  bool, false
+)
+
 // Is steps(jump-*) supported in easing functions?
 VARCACHE_PREF(
   "layout.css.step-position-jump.enabled",
@@ -1260,7 +1267,7 @@ VARCACHE_PREF(
   bool, false
 )
 
-#if defined(XP_LINUX) && defined(MOZ_GMP_SANDBOX)
+#if defined(XP_LINUX) && defined(MOZ_SANDBOX)
 // Whether to allow, on a Linux system that doesn't support the necessary
 // sandboxing features, loading Gecko Media Plugins unsandboxed.  However, EME
 // CDMs will not be loaded without sandboxing even if this pref is changed.
@@ -1295,6 +1302,8 @@ VARCACHE_PREF(
 #if defined(XP_WIN) && !defined(_ARM64_)
 # define PREF_VALUE true
 #elif defined(XP_MACOSX)
+# define PREF_VALUE true
+#elif defined(XP_UNIX)
 # define PREF_VALUE true
 #else
 # define PREF_VALUE false
@@ -1624,6 +1633,8 @@ VARCACHE_PREF(
 #if defined(XP_WIN) && !defined(_ARM64_)
 # define PREF_VALUE true
 #elif defined(XP_MACOSX)
+# define PREF_VALUE true
+#elif defined(XP_UNIX)
 # define PREF_VALUE true
 #else
 # define PREF_VALUE false

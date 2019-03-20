@@ -62,7 +62,7 @@
 #include "nsThreadUtils.h"
 #include "nsCORSListenerProxy.h"
 #include "nsApplicationCache.h"
-#include "TrackingDummyChannel.h"
+#include "ClassifierDummyChannel.h"
 
 #ifdef MOZ_TASK_TRACER
 #  include "GeckoTaskTracer.h"
@@ -2534,19 +2534,19 @@ HttpChannelChild::AsyncOpen(nsIStreamListener* aListener) {
       intercepted->NotifyController();
     };
 
-    TrackingDummyChannel::StorageAllowedState state =
-        TrackingDummyChannel::StorageAllowed(this, callback);
-    if (state == TrackingDummyChannel::eStorageGranted) {
+    ClassifierDummyChannel::StorageAllowedState state =
+        ClassifierDummyChannel::StorageAllowed(this, callback);
+    if (state == ClassifierDummyChannel::eStorageGranted) {
       callback(true);
       return NS_OK;
     }
 
-    if (state == TrackingDummyChannel::eAsyncNeeded) {
+    if (state == ClassifierDummyChannel::eAsyncNeeded) {
       // The async callback will be executed eventually.
       return NS_OK;
     }
 
-    MOZ_ASSERT(state == TrackingDummyChannel::eStorageDenied);
+    MOZ_ASSERT(state == ClassifierDummyChannel::eStorageDenied);
     // Fall through
   }
 
@@ -3781,9 +3781,10 @@ bool HttpChannelChild::ShouldInterceptURI(nsIURI* aURI, bool& aShouldUpgrade) {
   }
   OriginAttributes originAttributes;
   NS_ENSURE_TRUE(NS_GetOriginAttributes(this, originAttributes), false);
-  rv =
-      NS_ShouldSecureUpgrade(aURI, mLoadInfo, resultPrincipal, mPrivateBrowsing,
-                             mAllowSTS, originAttributes, aShouldUpgrade);
+  bool notused = false;
+  rv = NS_ShouldSecureUpgrade(aURI, mLoadInfo, resultPrincipal,
+                              mPrivateBrowsing, mAllowSTS, originAttributes,
+                              aShouldUpgrade, nullptr, notused);
   NS_ENSURE_SUCCESS(rv, false);
 
   nsCOMPtr<nsIURI> upgradedURI;

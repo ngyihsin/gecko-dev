@@ -6,6 +6,7 @@
 
 #include "mozilla/net/UrlClassifierCommon.h"
 
+#include "ClassifierDummyChannel.h"
 #include "mozilla/AntiTrackingCommon.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/net/HttpBaseChannel.h"
@@ -24,7 +25,6 @@
 #include "nsIWebProgressListener.h"
 #include "nsNetUtil.h"
 #include "nsQueryObject.h"
-#include "TrackingDummyChannel.h"
 
 namespace mozilla {
 namespace net {
@@ -114,7 +114,8 @@ bool UrlClassifierCommon::ShouldEnableClassifier(nsIChannel* aChannel) {
   }
 
   rv = channel->GetTopWindowURI(getter_AddRefs(topWinURI));
-  if (NS_WARN_IF(NS_FAILED(rv))) {
+  if (NS_FAILED(rv)) {
+    // Skipping top-level load.
     return false;
   }
 
@@ -299,7 +300,7 @@ void SetClassificationFlagsHelper(nsIChannel* aChannel,
     httpChannel->AddClassificationFlags(aClassificationFlags, aIsThirdParty);
   }
 
-  RefPtr<TrackingDummyChannel> dummyChannel = do_QueryObject(aChannel);
+  RefPtr<ClassifierDummyChannel> dummyChannel = do_QueryObject(aChannel);
   if (dummyChannel) {
     dummyChannel->AddClassificationFlags(aClassificationFlags);
   }
@@ -456,9 +457,7 @@ bool UrlClassifierCommon::IsAllowListed(
 
 // static
 bool UrlClassifierCommon::IsTrackingClassificationFlag(uint32_t aFlag) {
-  return (aFlag & nsIHttpChannel::ClassificationFlags::CLASSIFIED_TRACKING) ||
-         (aFlag &
-          nsIHttpChannel::ClassificationFlags::CLASSIFIED_FINGERPRINTING);
+  return (aFlag & nsIHttpChannel::ClassificationFlags::CLASSIFIED_ANY_TRACKING);
 }
 
 }  // namespace net
