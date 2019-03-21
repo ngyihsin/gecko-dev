@@ -427,7 +427,6 @@ pref("media.decoder-doctor.verbose", false);
 pref("media.decoder-doctor.new-issue-endpoint", "https://webcompat.com/issues/new");
 
 #ifdef MOZ_WEBRTC
-pref("media.navigator.enabled", true);
 pref("media.navigator.video.enabled", true);
 pref("media.navigator.video.default_fps",30);
 pref("media.navigator.video.use_remb", true);
@@ -452,7 +451,6 @@ pref("media.webrtc.debug.aec_dump_max_size", 4194304); // 4MB
 
 pref("media.navigator.video.default_width",0);  // adaptive default
 pref("media.navigator.video.default_height",0); // adaptive default
-pref("media.peerconnection.enabled", true);
 pref("media.peerconnection.video.enabled", true);
 pref("media.navigator.video.max_fs", 12288); // Enough for 2048x1536
 pref("media.navigator.video.max_fr", 60);
@@ -665,7 +663,7 @@ pref("media.av1.enabled", true);
 pref("media.av1.use-dav1d", true);
 #elif defined(XP_UNIX)
 pref("media.av1.enabled", true);
-pref("media.av1.use-dav1d", false);
+pref("media.av1.use-dav1d", true);
 #else
 pref("media.av1.enabled", false);
 pref("media.av1.use-dav1d", false);
@@ -938,7 +936,6 @@ pref("gfx.webrender.force-disabled", false);
 pref("gfx.webrender.force-angle", true);
 pref("gfx.webrender.dcomp-win.enabled", true);
 pref("gfx.webrender.dcomp-win-triple-buffering.enabled", true);
-pref("gfx.webrender.program-binary", true);
 pref("gfx.webrender.program-binary-disk", true);
 #endif
 
@@ -2755,6 +2752,11 @@ pref("services.settings.server", "https://firefox.settings.services.mozilla.com/
 pref("services.settings.changes.path", "/buckets/monitor/collections/changes/records");
 pref("services.settings.default_bucket", "main");
 pref("services.settings.default_signer", "remote-settings.content-signature.mozilla.org");
+
+// The percentage of clients who will report uptake telemetry as
+// events instead of just a histogram. This only applies on Release;
+// other channels always report events.
+pref("services.common.uptake.sampleRate", 1);   // 1%
 
 // Blocklist preferences
 pref("extensions.blocklist.enabled", true);

@@ -1967,13 +1967,11 @@ void FontSizePrefs::CopyFrom(const LangGroupFontPrefs& prefs) {
 
 FontSizePrefs Gecko_GetBaseSize(nsAtom* aLanguage) {
   LangGroupFontPrefs prefs;
-  RefPtr<nsAtom> langGroupAtom =
+  nsStaticAtom* langGroupAtom =
       StaticPresData::Get()->GetUncachedLangGroup(aLanguage);
-
   prefs.Initialize(langGroupAtom);
   FontSizePrefs sizes;
   sizes.CopyFrom(prefs);
-
   return sizes;
 }
 
@@ -2052,8 +2050,10 @@ GeckoFontMetrics Gecko_GetFontMetrics(RawGeckoPresContextBorrowed aPresContext,
   gfxFloat zeroWidth = fm->GetThebesFontGroup()
                            ->GetFirstValidFont()
                            ->GetMetrics(fm->Orientation())
-                           .zeroOrAveCharWidth;
-  ret.mChSize = NS_round(aPresContext->AppUnitsPerDevPixel() * zeroWidth);
+                           .zeroWidth;
+  ret.mChSize = zeroWidth >= 0.0
+                    ? NS_round(aPresContext->AppUnitsPerDevPixel() * zeroWidth)
+                    : -1.0;
   return ret;
 }
 

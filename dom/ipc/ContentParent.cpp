@@ -3009,7 +3009,7 @@ ContentParent::Observe(nsISupports* aSubject, const char* aTopic,
     // We know prefs are ASCII here.
     NS_LossyConvertUTF16toASCII strData(aData);
 
-    Pref pref(strData, /* isLocked */ false, null_t(), null_t());
+    Pref pref(strData, /* isLocked */ false, Nothing(), Nothing());
     Preferences::GetPreference(&pref);
     if (IsAlive()) {
       MOZ_ASSERT(mQueuedPrefs.IsEmpty());
@@ -4001,6 +4001,7 @@ mozilla::ipc::IPCResult ContentParent::RecvAsyncMessage(
   return IPC_OK();
 }
 
+MOZ_CAN_RUN_SCRIPT
 static int32_t AddGeolocationListener(
     nsIDOMGeoPositionCallback* watcher,
     nsIDOMGeoPositionErrorCallback* errorCallBack, bool highAccuracy) {

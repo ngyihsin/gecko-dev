@@ -376,6 +376,9 @@ class ContentChild final : public PContentChild,
 
   mozilla::ipc::IPCResult RecvGeolocationUpdate(nsIDOMGeoPosition* aPosition);
 
+  // MOZ_CAN_RUN_SCRIPT_BOUNDARY because we don't have MOZ_CAN_RUN_SCRIPT bits
+  // in IPC code yet.
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY
   mozilla::ipc::IPCResult RecvGeolocationError(const uint16_t& errorCode);
 
   mozilla::ipc::IPCResult RecvUpdateDictionaryList(
@@ -683,6 +686,9 @@ class ContentChild final : public PContentChild,
       const uint32_t& aRegistrarId, nsIURI* aURI, const uint32_t& aNewLoadFlags,
       const Maybe<LoadInfoArgs>& aLoadInfoForwarder, const uint64_t& aChannelId,
       nsIURI* aOriginalURI, const uint64_t& aIdentifier);
+
+  mozilla::ipc::IPCResult RecvStartDelayedAutoplayMediaComponents(
+      BrowsingContext* aContext);
 
 #ifdef NIGHTLY_BUILD
   // Fetch the current number of pending input events.
