@@ -226,6 +226,17 @@ var UrlbarTestUtils = {
     let urlbar = getUrlbarAbstraction(win);
     return urlbar.isPopupOpen();
   },
+
+  /**
+   * Returns the userContextId (container id) for the last search.
+   * @param {object} win The browser window
+   * @returns {Promise} resolved when fetching is complete
+   * @resolves {number} a userContextId
+   */
+  promiseUserContextId(win) {
+    let urlbar = getUrlbarAbstraction(win);
+    return urlbar.promiseUserContextId();
+  },
 };
 
 /**
@@ -340,6 +351,15 @@ class UrlbarAbstraction {
       "waiting urlbar search to complete", 100, 50);
   }
 
+  async promiseUserContextId() {
+    const defaultId = Ci.nsIScriptSecurityManager.DEFAULT_USER_CONTEXT_ID;
+    if (this.quantumbar) {
+      let context = await this.urlbar.lastQueryContextPromise;
+      return context.userContextId || defaultId;
+    }
+    return this.urlbar.userContextId || defaultId;
+  }
+
   async promiseResultAt(index) {
     if (!this.quantumbar) {
       // In the legacy address bar, old results are replaced when new results
@@ -423,11 +443,13 @@ class UrlbarAbstraction {
         context.results[index].payload.tags :
         [];
       let actions = element.getElementsByClassName("urlbarView-action");
+      let urls = element.getElementsByClassName("urlbarView-url");
       let typeIcon = element.querySelector(".urlbarView-type-icon");
       let typeIconStyle = this.window.getComputedStyle(typeIcon);
       details.displayed = {
         title: element.getElementsByClassName("urlbarView-title")[0].textContent,
         action: actions.length > 0 ? actions[0].textContent : null,
+        url: urls.length > 0 ? urls[0].textContent : null,
         typeIcon: typeIconStyle["background-image"],
       };
       let actionElement = element.getElementsByClassName("urlbarView-action")[0];
@@ -436,6 +458,7 @@ class UrlbarAbstraction {
         action: actionElement,
         row: element,
         separator: urlElement || actionElement,
+        title: element.getElementsByClassName("urlbarView-title")[0],
         url: urlElement,
       };
       if (details.type == UrlbarUtils.RESULT_TYPE.SEARCH) {
@@ -462,12 +485,14 @@ class UrlbarAbstraction {
       details.displayed = {
         title: element._titleText.textContent,
         action: action ? element._actionText.textContent : "",
+        url: element._urlText.textContent,
         typeIcon: typeIconStyle.listStyleImage,
       };
       details.element = {
         action: element._actionText,
         row: element,
         separator: element._separator,
+        title: element._titleText,
         url: element._urlText,
       };
       if (details.type == UrlbarUtils.RESULT_TYPE.SEARCH && action) {
