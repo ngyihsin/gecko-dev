@@ -170,8 +170,8 @@ pref("devtools.netmonitor.visibleColumns",
 pref("devtools.netmonitor.columnsData",
   '[{"name":"status","minWidth":30,"width":5}, {"name":"method","minWidth":30,"width":5}, {"name":"domain","minWidth":30,"width":10}, {"name":"file","minWidth":30,"width":25}, {"name":"cause","minWidth":30,"width":10},{"name":"type","minWidth":30,"width":5},{"name":"transferred","minWidth":30,"width":10},{"name":"contentSize","minWidth":30,"width":5},{"name":"waterfall","minWidth":150,"width":25}]');
 
-// Support for columns resizing is currently hidden behind this pref.
-pref("devtools.netmonitor.features.resizeColumns", false);
+// Support for columns resizing pref is now enabled (after merge date 03/18/19).
+pref("devtools.netmonitor.features.resizeColumns", true);
 
 pref("devtools.netmonitor.response.ui.limit", 10240);
 
@@ -341,6 +341,14 @@ pref("devtools.responsive.showUserAgentInput", false);
 
 // Enable new about:debugging.
 pref("devtools.aboutdebugging.new-enabled", false);
+
+// Show tab debug targets for This Firefox (on by default for local builds).
+#ifdef MOZILLA_OFFICIAL
+  pref("devtools.aboutdebugging.local-tab-debugging", false);
+#else
+  pref("devtools.aboutdebugging.local-tab-debugging", true);
+#endif
+
 // Show process debug targets.
 pref("devtools.aboutdebugging.process-debugging", false);
 // Stringified array of network locations that users can connect to.

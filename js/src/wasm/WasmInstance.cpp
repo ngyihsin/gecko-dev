@@ -1078,8 +1078,8 @@ Instance::Instance(JSContext* cx, Handle<WasmInstanceObject*> object,
                    SharedCode code, UniqueTlsData tlsDataIn,
                    HandleWasmMemoryObject memory, SharedTableVector&& tables,
                    StructTypeDescrVector&& structTypeDescrs,
-                   Handle<FunctionVector> funcImports,
-                   HandleValVector globalImportValues,
+                   const JSFunctionVector& funcImports,
+                   const ValVector& globalImportValues,
                    const WasmGlobalObjectVector& globalObjs,
                    UniqueDebugState maybeDebug)
     : realm_(cx->realm()),
@@ -1120,7 +1120,7 @@ Instance::Instance(JSContext* cx, Handle<WasmInstanceObject*> object,
 
   Tier callerTier = code_->bestTier();
   for (size_t i = 0; i < metadata(callerTier).funcImports.length(); i++) {
-    HandleFunction f = funcImports[i];
+    JSFunction* f = funcImports[i];
     const FuncImport& fi = metadata(callerTier).funcImports[i];
     FuncImportTls& import = funcImportTls(fi);
     import.fun = f;
@@ -1171,7 +1171,7 @@ Instance::Instance(JSContext* cx, Handle<WasmInstanceObject*> object,
         if (global.isIndirect()) {
           *(void**)globalAddr = globalObjs[imported]->cell();
         } else {
-          CopyValPostBarriered(globalAddr, globalImportValues[imported].get());
+          CopyValPostBarriered(globalAddr, globalImportValues[imported]);
         }
         break;
       }
@@ -1193,8 +1193,7 @@ Instance::Instance(JSContext* cx, Handle<WasmInstanceObject*> object,
             // the source global should never be indirect.
             MOZ_ASSERT(!imported.isIndirect());
 
-            RootedVal dest(cx,
-                           globalImportValues[imported.importIndex()].get());
+            RootedVal dest(cx, globalImportValues[imported.importIndex()]);
             if (global.isIndirect()) {
               void* address = globalObjs[i]->cell();
               *(void**)globalAddr = address;
@@ -1514,10 +1513,13 @@ bool Instance::callExport(JSContext* cx, uint32_t funcIndex, CallArgs args) {
     return false;
   }
 
+  ASSERT_ANYREF_IS_JSOBJECT;
+  Rooted<GCVector<JSObject*, 8, SystemAllocPolicy>> anyrefs(cx);
+
   DebugCodegen(DebugChannel::Function, "wasm-function[%d]; arguments ",
                funcIndex);
   RootedValue v(cx);
-  for (unsigned i = 0; i < func.funcType().args().length(); ++i) {
+  for (size_t i = 0; i < func.funcType().args().length(); ++i) {
     v = i < args.length() ? args[i] : UndefinedValue();
     switch (func.funcType().arg(i).code()) {
       case ValType::I32:
@@ -1555,9 +1557,13 @@ bool Instance::callExport(JSContext* cx, uint32_t funcIndex, CallArgs args) {
           DebugCodegen(DebugChannel::Function, "call to BoxAnyRef failed!\n");
           return false;
         }
-        *(void**)&exportArgs[i] = ar.get().forCompiledCode();
-        DebugCodegen(DebugChannel::Function, "ptr(%p) ",
-                     *(void**)&exportArgs[i]);
+        // We'll copy the value into the arguments array just before the call;
+        // for now tuck the value away in a rooted array.
+        ASSERT_ANYREF_IS_JSOBJECT;
+        if (!anyrefs.emplaceBack(ar.get().asJSObject())) {
+          return false;
+        }
+        DebugCodegen(DebugChannel::Function, "ptr(#%d) ", int(anyrefs.length()-1));
         break;
       }
       case ValType::NullRef: {
@@ -1576,6 +1582,21 @@ bool Instance::callExport(JSContext* cx, uint32_t funcIndex, CallArgs args) {
       callee = codeBase(tier) + func.eagerInterpEntryOffset();
     } else {
       callee = code(tier).lazyStubs().lock()->lookupInterpEntry(funcIndex);
+    }
+
+    // Copy over reference values from the rooted array, if any.
+    if (anyrefs.length() > 0) {
+      DebugCodegen(DebugChannel::Function, "; ");
+      size_t nextRef = 0;
+      for (size_t i = 0; i < func.funcType().args().length(); ++i) {
+        if (func.funcType().arg(i).isReference()) {
+          ASSERT_ANYREF_IS_JSOBJECT;
+          *(void**)&exportArgs[i] = (void*)anyrefs[nextRef++];
+          DebugCodegen(DebugChannel::Function, "ptr(#%d) = %p ", int(nextRef-1),
+                       *(void**)&exportArgs[i]);
+        }
+      }
+      anyrefs.clear();
     }
 
     // Call the per-exported-function trampoline created by GenerateEntry.
@@ -1598,6 +1619,9 @@ bool Instance::callExport(JSContext* cx, uint32_t funcIndex, CallArgs args) {
     return true;
   }
 
+  // Note that we're not rooting the return value; we depend on UnboxAnyRef()
+  // not allocating for this to be safe.  The constraint has been noted in that
+  // function.
   void* retAddr = &exportArgs[0];
 
   DebugCodegen(DebugChannel::Function, "wasm-function[%d]; returns ",

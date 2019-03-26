@@ -594,7 +594,8 @@ static inline ParseNode* FunctionStatementList(FunctionNode* funNode) {
 }
 
 static inline bool IsNormalObjectField(ParseNode* pn) {
-  return pn->isKind(ParseNodeKind::Colon) && pn->getOp() == JSOP_INITPROP &&
+  return pn->isKind(ParseNodeKind::PropertyDefinition) &&
+         pn->as<PropertyDefinition>().accessorType() == AccessorType::None &&
          BinaryLeft(pn)->isKind(ParseNodeKind::ObjectPropertyName);
 }
 
@@ -6778,8 +6779,7 @@ static bool CheckBuffer(JSContext* cx, const AsmJSMetadata& metadata,
 
 static bool GetImports(JSContext* cx, const AsmJSMetadata& metadata,
                        HandleValue globalVal, HandleValue importVal,
-                       MutableHandle<FunctionVector> funcImports,
-                       MutableHandleValVector valImports) {
+                       ImportValues* imports) {
   Rooted<FunctionVector> ffis(cx, FunctionVector(cx));
   if (!ffis.resize(metadata.numFFIs)) {
     return false;
@@ -6792,7 +6792,7 @@ static bool GetImports(JSContext* cx, const AsmJSMetadata& metadata,
         if (!ValidateGlobalVariable(cx, global, importVal, &litVal)) {
           return false;
         }
-        if (!valImports.append(Val(litVal->asLitVal()))) {
+        if (!imports->globalValues.append(Val(litVal->asLitVal()))) {
           return false;
         }
         break;
@@ -6822,7 +6822,7 @@ static bool GetImports(JSContext* cx, const AsmJSMetadata& metadata,
   }
 
   for (const AsmJSImport& import : metadata.asmJSImports) {
-    if (!funcImports.append(ffis[import.ffiIndex()])) {
+    if (!imports->funcs.append(ffis[import.ffiIndex()])) {
       return false;
     }
   }
@@ -6844,30 +6844,27 @@ static bool TryInstantiate(JSContext* cx, CallArgs args, const Module& module,
     return LinkFail(cx, "no compiler support");
   }
 
-  RootedArrayBufferObjectMaybeShared buffer(cx);
-  RootedWasmMemoryObject memory(cx);
+  Rooted<ImportValues> imports(cx);
+
   if (module.metadata().usesMemory()) {
+    RootedArrayBufferObjectMaybeShared buffer(cx);
     if (!CheckBuffer(cx, metadata, bufferVal, &buffer)) {
       return false;
     }
 
-    memory = WasmMemoryObject::create(cx, buffer, nullptr);
-    if (!memory) {
+    imports.get().memory = WasmMemoryObject::create(cx, buffer, nullptr);
+    if (!imports.get().memory) {
       return false;
     }
   }
 
-  RootedValVector valImports(cx);
-  Rooted<FunctionVector> funcs(cx, FunctionVector(cx));
-  if (!GetImports(cx, metadata, globalVal, importVal, &funcs, &valImports)) {
+  if (!GetImports(cx, metadata, globalVal, importVal, imports.address())) {
     return false;
   }
 
-  Rooted<WasmGlobalObjectVector> globalObjs(cx);
-  Rooted<WasmTableObjectVector> tables(cx);
-  if (!module.instantiate(cx, funcs, tables.get(), memory, valImports,
-                          globalObjs.get(), nullptr, instanceObj))
+  if (!module.instantiate(cx, imports.get(), nullptr, instanceObj)) {
     return false;
+  }
 
   exportObj.set(&instanceObj->exportsObj());
   return true;

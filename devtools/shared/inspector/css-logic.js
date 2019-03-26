@@ -112,14 +112,36 @@ exports.CSSRuleTypeName = {
 exports.l10n = name => styleInspectorL10N.getStr(name);
 
 /**
- * Is the given property sheet a content stylesheet?
+ * Is the given property sheet an author stylesheet?
  *
  * @param {CSSStyleSheet} sheet a stylesheet
- * @return {boolean} true if the given stylesheet is a content stylesheet,
+ * @return {boolean} true if the given stylesheet is an author stylesheet,
  * false otherwise.
  */
-exports.isContentStylesheet = function(sheet) {
-  return sheet.parsingMode !== "agent";
+exports.isAuthorStylesheet = function(sheet) {
+  return sheet.parsingMode === "author";
+};
+
+/**
+ * Is the given property sheet a user stylesheet?
+ *
+ * @param {CSSStyleSheet} sheet a stylesheet
+ * @return {boolean} true if the given stylesheet is a user stylesheet,
+ * false otherwise.
+ */
+exports.isUserStylesheet = function(sheet) {
+  return sheet.parsingMode === "user";
+};
+
+/**
+ * Is the given property sheet a agent stylesheet?
+ *
+ * @param {CSSStyleSheet} sheet a stylesheet
+ * @return {boolean} true if the given stylesheet is a agent stylesheet,
+ * false otherwise.
+ */
+exports.isAgentStylesheet = function(sheet) {
+  return sheet.parsingMode === "agent";
 };
 
 /**
@@ -166,6 +188,16 @@ exports.shortSource = function(sheet) {
 const TAB_CHARS = "\t";
 const SPACE_CHARS = " ";
 
+function getLineCountInComments(text) {
+  let count = 0;
+
+  for (const comment of text.match(/\/\*(?:.|\n)*?\*\//mg) || []) {
+    count += comment.split("\n").length + 1;
+  }
+
+  return count;
+}
+
 /**
  * Prettify minified CSS text.
  * This prettifies CSS code where there is no indentation in usual places while
@@ -189,8 +221,8 @@ function prettifyCSS(text, ruleCount) {
   const originalText = text;
   text = text.trim();
 
-  // don't attempt to prettify if there's more than one line per rule.
-  const lineCount = text.split("\n").length - 1;
+  // don't attempt to prettify if there's more than one line per rule, excluding comments.
+  const lineCount = text.split("\n").length - 1 - getLineCountInComments(text);
   if (ruleCount !== null && lineCount >= ruleCount) {
     return originalText;
   }

@@ -104,9 +104,10 @@ static bool DepthFirstSearchUse(MIRGenerator* mir,
       }
 
       if (cphi->isInWorklist() || cphi == producer) {
-        // We are already iterating over the uses of this Phi
-        // instruction. Skip it.
-        continue;
+        // We are already iterating over the uses of this Phi instruction which
+        // are part of a loop, instead of trying to handle loops, conservatively
+        // mark them as used.
+        return push(producer, use);
       }
 
       if (cphi->getUsageAnalysis() == PhiUsage::Unused) {
@@ -3870,13 +3871,6 @@ static inline MDefinition* PassthroughOperand(MDefinition* def) {
   }
   if (def->isMaybeCopyElementsForWrite()) {
     return def->toMaybeCopyElementsForWrite()->object();
-  }
-  if (!JitOptions.spectreObjectMitigationsMisc) {
-    // If Spectre mitigations are enabled, LConvertUnboxedObjectToNative
-    // needs to have its own def.
-    if (def->isConvertUnboxedObjectToNative()) {
-      return def->toConvertUnboxedObjectToNative()->object();
-    }
   }
   return nullptr;
 }
