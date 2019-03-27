@@ -1156,6 +1156,12 @@ VARCACHE_PREF(
   RelaxedAtomicBool, false
 )
 
+VARCACHE_PREF(
+  "javascript.options.experimental.await_fix",
+   javascript_options_experimental_await_fix,
+  RelaxedAtomicBool, false
+)
+
 
 //---------------------------------------------------------------------------
 // Media prefs
@@ -2187,11 +2193,6 @@ VARCACHE_PREF(
   bool, true
 )
 
-VARCACHE_PREF(
-  "security.csp.experimentalEnabled",
-   security_csp_experimentalEnabled,
-  bool, false
-)
 
 VARCACHE_PREF(
   "security.csp.enableStrictDynamic",

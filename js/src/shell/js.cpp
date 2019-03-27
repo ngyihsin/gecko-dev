@@ -505,6 +505,7 @@ static bool enableAsyncStacks = false;
 static bool enableStreams = false;
 static bool enableBigInt = false;
 static bool enableFields = false;
+static bool enableAwaitFix = false;
 #ifdef JS_GC_ZEAL
 static uint32_t gZealBits = 0;
 static uint32_t gZealFrequency = 0;
@@ -2007,7 +2008,7 @@ static bool Evaluate(JSContext* cx, unsigned argc, Value* vp) {
   bool saveBytecode = false;
   bool saveIncrementalBytecode = false;
   bool assertEqBytecode = false;
-  JS::AutoObjectVector envChain(cx);
+  JS::RootedObjectVector envChain(cx);
   RootedObject callerGlobal(cx, cx->global());
 
   options.setIntroductionType("js shell evaluate")
@@ -3649,7 +3650,7 @@ static bool Clone(JSContext* cx, unsigned argc, Value* vp) {
 
   // Should it worry us that we might be getting with wrappers
   // around with wrappers here?
-  JS::AutoObjectVector envChain(cx);
+  JS::RootedObjectVector envChain(cx);
   if (env && !env->is<GlobalObject>() && !envChain.append(env)) {
     return false;
   }
@@ -3766,7 +3767,8 @@ static void SetStandardRealmOptions(JS::RealmOptions& options) {
       .setSharedMemoryAndAtomicsEnabled(enableSharedMemory)
       .setBigIntEnabled(enableBigInt)
       .setStreamsEnabled(enableStreams)
-      .setFieldsEnabled(enableFields);
+      .setFieldsEnabled(enableFields)
+      .setAwaitFixEnabled(enableAwaitFix);
 }
 
 static MOZ_MUST_USE bool CheckRealmOptions(JSContext* cx,
@@ -6524,7 +6526,7 @@ static bool DisableSingleStepProfiling(JSContext* cx, unsigned argc,
 
   ShellContext* sc = GetShellContext(cx);
 
-  AutoValueVector elems(cx);
+  RootedValueVector elems(cx);
   for (size_t i = 0; i < sc->stacks.length(); i++) {
     JSString* stack =
         JS_NewUCStringCopyN(cx, sc->stacks[i].begin(), sc->stacks[i].length());
@@ -10163,6 +10165,7 @@ static bool SetContextOptions(JSContext* cx, const OptionParser& op) {
   enableStreams = !op.getBoolOption("no-streams");
   enableBigInt = !op.getBoolOption("no-bigint");
   enableFields = op.getBoolOption("enable-experimental-fields");
+  enableAwaitFix = op.getBoolOption("enable-experimental-await-fix");
 
   JS::ContextOptionsRef(cx)
       .setBaseline(enableBaseline)
@@ -10371,7 +10374,7 @@ static bool SetContextOptions(JSContext* cx, const OptionParser& op) {
   }
 
   if (op.getBoolOption("ion-eager")) {
-    jit::JitOptions.setEagerCompilation();
+    jit::JitOptions.setEagerIonCompilation();
   }
 
   offthreadCompilation = true;
@@ -10784,7 +10787,8 @@ int main(int argc, char** argv, char** envp) {
   SetOutputFile("JS_STDERR", &rcStderr, &gErrFile);
 
   // Start the engine.
-  if (!JS_Init()) {
+  if (const char* message = JS_InitWithFailureDiagnostic()) {
+    fprintf(gErrFile->fp, "JS_Init failed: %s\n", message);
     return 1;
   }
 
@@ -10876,6 +10880,8 @@ int main(int argc, char** argv, char** envp) {
       !op.addBoolOption('\0', "no-bigint", "Disable BigInt support") ||
       !op.addBoolOption('\0', "enable-experimental-fields",
                         "Enable fields in classes") ||
+      !op.addBoolOption('\0', "enable-experimental-await-fix",
+                        "Enable new, faster await semantics") ||
       !op.addStringOption('\0', "shared-memory", "on/off",
                           "SharedArrayBuffer and Atomics "
 #if SHARED_MEMORY_DEFAULT
@@ -11235,7 +11241,7 @@ int main(int argc, char** argv, char** envp) {
 
   EnvironmentPreparer environmentPreparer(cx);
 
-  JS_SetGCParameter(cx, JSGC_MODE, JSGC_MODE_INCREMENTAL);
+  JS_SetGCParameter(cx, JSGC_MODE, JSGC_MODE_ZONE_INCREMENTAL);
 
   JS::SetProcessLargeAllocationFailureCallback(my_LargeAllocFailCallback);
 

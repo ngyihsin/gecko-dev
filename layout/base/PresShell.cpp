@@ -5251,6 +5251,21 @@ void PresShell::SetRenderingState(const RenderingState& aState) {
     }
   }
 
+  // nsSubDocumentFrame uses a resolution different from 1.0 to determine if it
+  // needs to build a nsDisplayResolution item. So if we are going from or
+  // to 1.0 then we need to invalidate the subdoc frame so that item gets
+  // created/removed.
+  if (mResolution.valueOr(1.0) != aState.mResolution.valueOr(1.0) &&
+      (mResolution.valueOr(1.0) == 1.0 ||
+       aState.mResolution.valueOr(1.0) == 1.0)) {
+    if (nsIFrame* frame = GetRootFrame()) {
+      frame = nsLayoutUtils::GetCrossDocParentFrame(frame);
+      if (frame) {
+        frame->InvalidateFrame();
+      }
+    }
+  }
+
   mRenderFlags = aState.mRenderFlags;
   mResolution = aState.mResolution;
 }
@@ -7667,22 +7682,15 @@ nsresult PresShell::EventHandler::HandleEventWithCurrentEventInfo(
   }
 
   bool isHandlingUserInput = false;
-  if (!PrepareToDispatchEvent(aEvent, &isHandlingUserInput)) {
+  bool touchIsNew = false;
+  if (!PrepareToDispatchEvent(aEvent, aEventStatus, &isHandlingUserInput,
+                              &touchIsNew)) {
     return NS_OK;
   }
 
   // We finished preparing to dispatch the event.  So, let's record the
   // performance.
   RecordEventPreparationPerformance(aEvent);
-
-  // XXX Why don't we measure the performance of TouchManager::PreHandleEvent()
-  //     with RecordEventPreparationPerformance()?
-  bool touchIsNew = false;
-  if (!mPresShell->mTouchManager.PreHandleEvent(
-          aEvent, aEventStatus, touchIsNew, isHandlingUserInput,
-          mPresShell->mCurrentEventContent)) {
-    return NS_OK;
-  }
 
   AutoHandlingUserInputStatePusher userInpStatePusher(isHandlingUserInput,
                                                       aEvent, GetDocument());
@@ -7793,11 +7801,15 @@ nsresult PresShell::EventHandler::DispatchEvent(
       aOverrideClickTarget);
 }
 
-bool PresShell::EventHandler::PrepareToDispatchEvent(WidgetEvent* aEvent,
-                                                     bool* aIsUserInteraction) {
+bool PresShell::EventHandler::PrepareToDispatchEvent(
+    WidgetEvent* aEvent, nsEventStatus* aEventStatus, bool* aIsUserInteraction,
+    bool* aTouchIsNew) {
   MOZ_ASSERT(aEvent->IsTrusted());
+  MOZ_ASSERT(aEventStatus);
   MOZ_ASSERT(aIsUserInteraction);
+  MOZ_ASSERT(aTouchIsNew);
 
+  *aTouchIsNew = false;
   if (aEvent->IsUserAction()) {
     mPresShell->mHasHandledUserInput = true;
   }
@@ -7863,6 +7875,14 @@ bool PresShell::EventHandler::PrepareToDispatchEvent(WidgetEvent* aEvent,
       }
       return true;
     }
+    case eTouchStart:
+    case eTouchMove:
+    case eTouchEnd:
+    case eTouchCancel:
+    case eTouchPointerCancel:
+      return mPresShell->mTouchManager.PreHandleEvent(
+          aEvent, aEventStatus, *aTouchIsNew, *aIsUserInteraction,
+          mPresShell->mCurrentEventContent);
     default:
       *aIsUserInteraction = false;
       return true;
