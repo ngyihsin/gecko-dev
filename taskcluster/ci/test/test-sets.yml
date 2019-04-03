@@ -175,6 +175,7 @@ awsy:
     - awsy-base
     - awsy-dmd
     - awsy-base-dmd
+    - awsy-tp6
 
 awsy-stylo-sequential:
     - awsy-stylo-sequential
@@ -272,6 +273,9 @@ windows-talos:
 
 marionette-gpu-tests:
     - marionette-gpu
+
+marionette-media-tests:
+    - marionette-media
 
 macosx64-tests:
     - cppunit

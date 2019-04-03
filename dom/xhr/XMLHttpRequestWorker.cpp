@@ -779,8 +779,7 @@ bool Proxy::Init() {
   mXHR = new XMLHttpRequestMainThread();
   mXHR->Construct(mWorkerPrivate->GetPrincipal(),
                   ownerWindow ? ownerWindow->AsGlobal() : nullptr,
-                  mWorkerPrivate->CookieSettings(),
-                  true,
+                  mWorkerPrivate->CookieSettings(), true,
                   mWorkerPrivate->GetBaseURI(), mWorkerPrivate->GetLoadGroup(),
                   mWorkerPrivate->GetPerformanceStorage(),
                   mWorkerPrivate->CSPEventListener());
@@ -1884,7 +1883,7 @@ XMLHttpRequestUpload* XMLHttpRequestWorker::GetUpload(ErrorResult& aRv) {
   }
 
   if (!mUpload) {
-    mUpload = new XMLHttpRequestUpload();
+    mUpload = new XMLHttpRequestUpload(this);
 
     if (!mUpload) {
       aRv.Throw(NS_ERROR_FAILURE);

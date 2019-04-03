@@ -447,7 +447,7 @@ ConsoleListener::Observe(nsIConsoleMessage* aMessage) {
     nsAutoString msg, sourceName, sourceLine;
     nsCString category;
     uint32_t lineNum, colNum, flags;
-    bool fromPrivateWindow;
+    bool fromPrivateWindow, fromChromeContext;
 
     nsresult rv = scriptError->GetErrorMessage(msg);
     NS_ENSURE_SUCCESS(rv, rv);
@@ -468,6 +468,8 @@ ConsoleListener::Observe(nsIConsoleMessage* aMessage) {
     rv = scriptError->GetFlags(&flags);
     NS_ENSURE_SUCCESS(rv, rv);
     rv = scriptError->GetIsFromPrivateWindow(&fromPrivateWindow);
+    NS_ENSURE_SUCCESS(rv, rv);
+    rv = scriptError->GetIsFromChromeContext(&fromChromeContext);
     NS_ENSURE_SUCCESS(rv, rv);
 
     {
@@ -500,15 +502,15 @@ ConsoleListener::Observe(nsIConsoleMessage* aMessage) {
           return NS_ERROR_FAILURE;
         }
 
-        mChild->SendScriptErrorWithStack(msg, sourceName, sourceLine, lineNum,
-                                         colNum, flags, category,
-                                         fromPrivateWindow, cloned);
+        mChild->SendScriptErrorWithStack(
+            msg, sourceName, sourceLine, lineNum, colNum, flags, category,
+            fromPrivateWindow, fromChromeContext, cloned);
         return NS_OK;
       }
     }
 
     mChild->SendScriptError(msg, sourceName, sourceLine, lineNum, colNum, flags,
-                            category, fromPrivateWindow);
+                            category, fromPrivateWindow, fromChromeContext);
     return NS_OK;
   }
 
@@ -595,7 +597,9 @@ NS_INTERFACE_MAP_END
 mozilla::ipc::IPCResult ContentChild::RecvSetXPCOMProcessAttributes(
     const XPCOMInitData& aXPCOMInit, const StructuredCloneData& aInitialData,
     nsTArray<LookAndFeelInt>&& aLookAndFeelIntCache,
-    nsTArray<SystemFontListEntry>&& aFontList) {
+    nsTArray<SystemFontListEntry>&& aFontList,
+    const Maybe<SharedMemoryHandle>& aSharedUASheetHandle,
+    const uintptr_t& aSharedUASheetAddress) {
   if (!sShutdownCanary) {
     return IPC_OK();
   }
@@ -603,6 +607,7 @@ mozilla::ipc::IPCResult ContentChild::RecvSetXPCOMProcessAttributes(
   mLookAndFeelCache = std::move(aLookAndFeelIntCache);
   mFontList = std::move(aFontList);
   gfx::gfxVars::SetValuesForInitialize(aXPCOMInit.gfxNonDefaultVarUpdates());
+  InitSharedUASheets(aSharedUASheetHandle, aSharedUASheetAddress);
   InitXPCOM(aXPCOMInit, aInitialData);
   InitGraphicsDeviceData(aXPCOMInit.contentDeviceData());
 
@@ -1202,6 +1207,20 @@ void ContentChild::InitGraphicsDeviceData(const ContentDeviceData& aData) {
   gfxPlatform::InitChild(aData);
 }
 
+void ContentChild::InitSharedUASheets(const Maybe<SharedMemoryHandle>& aHandle,
+                                      uintptr_t aAddress) {
+  MOZ_ASSERT_IF(!aHandle, !aAddress);
+
+  if (!aAddress) {
+    return;
+  }
+
+  // Map the shared memory storing the user agent style sheets.  Do this as
+  // early as possible to maximize the chance of being able to map at the
+  // address we want.
+  nsLayoutStylesheetCache::SetSharedMemory(*aHandle, aAddress);
+}
+
 void ContentChild::InitXPCOM(
     const XPCOMInitData& aXPCOMInit,
     const mozilla::dom::ipc::StructuredCloneData& aInitialData) {
@@ -1798,9 +1817,9 @@ bool ContentChild::SendPBrowserConstructor(
     return false;
   }
 
-  return PContentChild::SendPBrowserConstructor(aActor, aTabId, aSameTabGroupAs,
-                                                aContext, aChromeFlags, aCpID,
-                                                aBrowsingContext, aIsForBrowser);
+  return PContentChild::SendPBrowserConstructor(
+      aActor, aTabId, aSameTabGroupAs, aContext, aChromeFlags, aCpID,
+      aBrowsingContext, aIsForBrowser);
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvPBrowserConstructor(
@@ -3798,7 +3817,8 @@ mozilla::ipc::IPCResult ContentChild::RecvRegisterBrowsingContextGroup(
     MOZ_ASSERT_IF(parent, parent->Group() == group);
 #endif
 
-    RefPtr<BrowsingContext> ctxt = BrowsingContext::CreateFromIPC(std::move(init), group, nullptr);
+    RefPtr<BrowsingContext> ctxt =
+        BrowsingContext::CreateFromIPC(std::move(init), group, nullptr);
 
     // FIXME: We should deal with cached & detached contexts as well.
     ctxt->Attach(/* aFromIPC */ true);

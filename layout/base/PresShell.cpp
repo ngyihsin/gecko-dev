@@ -4975,8 +4975,8 @@ void PresShell::AddPrintPreviewBackgroundItem(nsDisplayListBuilder& aBuilder,
                                               nsDisplayList& aList,
                                               nsIFrame* aFrame,
                                               const nsRect& aBounds) {
-  aList.AppendToBottom(MakeDisplayItem<nsDisplaySolidColor>(
-      &aBuilder, aFrame, aBounds, NS_RGB(115, 115, 115)));
+  aList.AppendNewToBottom<nsDisplaySolidColor>(&aBuilder, aFrame, aBounds,
+                                               NS_RGB(115, 115, 115));
 }
 
 static bool AddCanvasBackgroundColor(const nsDisplayList& aList,
@@ -5061,8 +5061,8 @@ void PresShell::AddCanvasBackgroundColorItem(
   }
 
   if (!addedScrollingBackgroundColor || forceUnscrolledItem) {
-    aList.AppendToBottom(MakeDisplayItem<nsDisplaySolidColor>(
-        &aBuilder, aFrame, aBounds, bgcolor));
+    aList.AppendNewToBottom<nsDisplaySolidColor>(&aBuilder, aFrame, aBounds,
+                                                 bgcolor);
   }
 }
 
@@ -10207,7 +10207,8 @@ void ReflowCountMgr::PaintCount(const char* aName,
 
       // We don't care about the document language or user fonts here;
       // just get a default Latin font.
-      nsFont font(eFamily_serif, nsPresContext::CSSPixelsToAppUnits(11));
+      nsFont font(StyleGenericFontFamily::Serif,
+                  nsPresContext::CSSPixelsToAppUnits(11));
       nsFontMetrics::Params params;
       params.language = nsGkAtoms::x_western;
       params.textPerf = aPresContext->GetTextPerfMetrics();

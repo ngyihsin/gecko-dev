@@ -593,7 +593,7 @@ static Matrix4x4 FrameTransformToTransformInDevice(
 
 static void ApplyAnimatedValue(
     Layer* aLayer, CompositorAnimationStorage* aStorage,
-    nsCSSPropertyID aProperty, const AnimationData& aAnimationData,
+    nsCSSPropertyID aProperty, const Maybe<TransformData>& aAnimationData,
     const nsTArray<RefPtr<RawServoAnimationValue>>& aValues) {
   MOZ_ASSERT(!aValues.IsEmpty());
 
@@ -629,7 +629,7 @@ static void ApplyAnimatedValue(
     case eCSSProperty_scale:
     case eCSSProperty_translate:
     case eCSSProperty_transform: {
-      const TransformData& transformData = aAnimationData.get_TransformData();
+      const TransformData& transformData = aAnimationData.ref();
 
       Matrix4x4 frameTransform =
           AnimationHelper::ServoAnimationValueToMatrix4x4(aValues,
@@ -719,7 +719,7 @@ static bool SampleAnimations(Layer* aLayer,
             MOZ_ASSERT(previousValue);
 #ifdef DEBUG
             const TransformData& transformData =
-                lastPropertyAnimationGroup.mAnimationData.get_TransformData();
+                lastPropertyAnimationGroup.mAnimationData.ref();
             Matrix4x4 frameTransform =
                 AnimationHelper::ServoAnimationValueToMatrix4x4(animationValues,
                                                                 transformData);
@@ -1045,13 +1045,14 @@ bool AsyncCompositionManager::ApplyAsyncContentTransformToTree(
                   if (mIsFirstPaint || FrameMetricsHaveUpdated(metrics)) {
                     if (animator) {
                       animator->UpdateRootFrameMetrics(metrics);
-                    } else if (RefPtr<UiCompositorControllerParent> uiController =
-                              UiCompositorControllerParent::
-                                  GetFromRootLayerTreeId(rootLayerTreeId)) {
+                    } else if (RefPtr<UiCompositorControllerParent>
+                                   uiController = UiCompositorControllerParent::
+                                       GetFromRootLayerTreeId(
+                                           rootLayerTreeId)) {
                       uiController->NotifyUpdateScreenMetrics(metrics);
                     }
                     mLastMetrics = metrics;
-                  } 
+                  }
                   if (mIsFirstPaint) {
                     if (animator) {
                       animator->FirstPaint();
@@ -1238,9 +1239,12 @@ bool AsyncCompositionManager::ApplyAsyncContentTransformToTree(
 }
 
 #if defined(MOZ_WIDGET_ANDROID)
-bool AsyncCompositionManager::FrameMetricsHaveUpdated(const FrameMetrics& aMetrics) {
-  return RoundedToInt(mLastMetrics.GetScrollOffset()) != RoundedToInt(aMetrics.GetScrollOffset()) 
-          || mLastMetrics.GetZoom() != aMetrics.GetZoom();;
+bool AsyncCompositionManager::FrameMetricsHaveUpdated(
+    const FrameMetrics& aMetrics) {
+  return RoundedToInt(mLastMetrics.GetScrollOffset()) !=
+             RoundedToInt(aMetrics.GetScrollOffset()) ||
+         mLastMetrics.GetZoom() != aMetrics.GetZoom();
+  ;
 }
 #endif
 

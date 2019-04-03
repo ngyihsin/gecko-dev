@@ -209,6 +209,15 @@ VARCACHE_PREF(
 )
 #undef PREF_VALUE
 
+// If this is true, it's allowed to fire "cut", "copy" and "paste" events.
+// Additionally, "input" events may expose clipboard content when inputType
+// is "insertFromPaste" or something.
+VARCACHE_PREF(
+  "dom.event.clipboardevents.enabled",
+   dom_event_clipboardevents_enabled,
+  bool, true
+)
+
 // If this is true, "keypress" event's keyCode value and charCode value always
 // become same if the event is not created/initialized by JS.
 VARCACHE_PREF(
@@ -330,11 +339,17 @@ VARCACHE_PREF(
   RelaxedAtomicBool, false
 )
 
+#ifdef NIGHTLY_BUILD
+# define PREF_VALUE  true
+#else
+# define PREF_VALUE  false
+#endif
 VARCACHE_PREF(
   "dom.webnotifications.requireuserinteraction",
    dom_webnotifications_requireuserinteraction,
-  RelaxedAtomicBool, false
+  RelaxedAtomicBool, PREF_VALUE
 )
+#undef PREF_VALUE
 
 VARCACHE_PREF(
   "dom.webnotifications.serviceworker.enabled",
@@ -1080,6 +1095,13 @@ VARCACHE_PREF(
   "layout.css.scroll-snap-v1.enabled",
    layout_css_scroll_snap_v1_enabled,
   RelaxedAtomicBool, false
+)
+
+// Are shared memory User Agent style sheets enabled?
+VARCACHE_PREF(
+  "layout.css.shared-memory-ua-sheets.enabled",
+   layout_css_shared_memory_ua_sheets_enabled,
+  bool, false
 )
 
 //---------------------------------------------------------------------------
