@@ -74,8 +74,7 @@ $HWC_DEFINE \
 -I$(pwd)/modules/freetype2/include \
 -I$GONK_PATH/system/core/include \
 -I$GONK_PATH/external/zlib \
--I$GONK_PATH/hardware/libhardware/include/ \
--I$(pwd)/modules/freetype2/include"
+-I$GONK_PATH/hardware/libhardware/include/"
 
 export CPPFLAGS="-fPIC \
 -isystem $GONK_PATH/api/cpp/include \
@@ -92,7 +91,7 @@ export ANDROID_PLATFORM=android-23
 
 export LDFLAGS="-L$GONK_PATH/out/target/product/$GONK_PRODUCT_NAME/obj/lib \
 -Wl,-rpath-link=$GONK_PATH/out/target/product/$GONK_PRODUCT_NAME/obj/lib \
---sysroot=$NDK_DIR/sysroot $GCC_LIB -ldl -lstdc++ -Wl,--no-as-needed \
+--sysroot=$SYSROOT $GCC_LIB -ldl -lstdc++ -Wl,--no-as-needed \
 -llog -lbinder -lutils -lcutils -lhardware_legacy -lhardware -lpower -lui -lgui -lsuspend"
 
 ./mach build $@
