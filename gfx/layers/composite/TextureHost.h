@@ -62,6 +62,7 @@ class SurfaceDescriptor;
 class HostIPCAllocator;
 class ISurfaceAllocator;
 class MacIOSurfaceTextureHostOGL;
+class SurfaceTextureHost;
 class TextureHostOGL;
 class TextureReadLock;
 class TextureSourceOGL;
@@ -635,6 +636,7 @@ class TextureHost : public AtomicRefCountedWithFinalize<TextureHost> {
 #ifdef MOZ_WIDGET_GONK
   virtual GrallocTextureHostOGL* AsGrallocTextureHostOGL() { return nullptr; }
 #endif
+  virtual SurfaceTextureHost* AsSurfaceTextureHost() { return nullptr; }
 
   // Create the corresponding RenderTextureHost type of this texture, and
   // register the RenderTextureHost into render thread.
