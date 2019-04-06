@@ -102,7 +102,7 @@ class MOZ_STACK_CLASS AutoSavePendingResult {
 
 // static
 already_AddRefed<nsXPCWrappedJSClass> nsXPCWrappedJSClass::GetNewOrUsed(
-    JSContext* cx, REFNSIID aIID) {
+    REFNSIID aIID) {
   XPCJSRuntime* xpcrt = nsXPConnect::GetRuntimeInstance();
   IID2WrappedJSClassMap* map = xpcrt->GetWrappedJSClassMap();
   RefPtr<nsXPCWrappedJSClass> clasp = map->Find(aIID);
@@ -111,7 +111,7 @@ already_AddRefed<nsXPCWrappedJSClass> nsXPCWrappedJSClass::GetNewOrUsed(
     const nsXPTInterfaceInfo* info = nsXPTInterfaceInfo::ByIID(aIID);
     if (info) {
       if (!info->IsBuiltinClass() && nsXPConnect::IsISupportsDescendant(info)) {
-        clasp = new nsXPCWrappedJSClass(cx, aIID, info);
+        clasp = new nsXPCWrappedJSClass(aIID, info);
         if (!clasp->mDescriptors) {
           clasp = nullptr;
         }
@@ -121,7 +121,7 @@ already_AddRefed<nsXPCWrappedJSClass> nsXPCWrappedJSClass::GetNewOrUsed(
   return clasp.forget();
 }
 
-nsXPCWrappedJSClass::nsXPCWrappedJSClass(JSContext* cx, REFNSIID aIID,
+nsXPCWrappedJSClass::nsXPCWrappedJSClass(REFNSIID aIID,
                                          const nsXPTInterfaceInfo* aInfo)
     : mRuntime(nsXPConnect::GetRuntimeInstance()),
       mInfo(aInfo),
@@ -640,7 +640,7 @@ nsresult nsXPCWrappedJSClass::CheckForException(
   /* JS might throw an expection whether the reporter was called or not */
   if (is_js_exception) {
     if (!xpc_exception) {
-      XPCConvert::JSValToXPCException(&js_exception, anInterfaceName,
+      XPCConvert::JSValToXPCException(cx, &js_exception, anInterfaceName,
                                       aPropertyName,
                                       getter_AddRefs(xpc_exception));
     }
@@ -939,8 +939,8 @@ nsXPCWrappedJSClass::CallMethod(nsXPCWrappedJS* wrapper, uint16_t methodIndex,
           !GetArraySizeFromParam(info, type, nativeParams, &array_count))
         goto pre_call_clean_up;
 
-      if (!XPCConvert::NativeData2JS(&val, pv, type, &param_iid, array_count,
-                                     nullptr))
+      if (!XPCConvert::NativeData2JS(cx, &val, pv, type, &param_iid,
+                                     array_count, nullptr))
         goto pre_call_clean_up;
     }
 

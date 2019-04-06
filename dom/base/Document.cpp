@@ -297,6 +297,7 @@
 #include "mozilla/RestyleManager.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "nsHTMLTags.h"
+#include "MobileViewportManager.h"
 #include "NodeUbiReporting.h"
 #include "nsICookieService.h"
 #include "mozilla/net/ChannelEventQueue.h"
@@ -1128,22 +1129,9 @@ void Document::SelectorCache::NotifyExpired(SelectorCacheKey* aSelector) {
   delete aSelector;
 }
 
-struct Document::FrameRequest {
-  FrameRequest(FrameRequestCallback& aCallback, int32_t aHandle)
-      : mCallback(&aCallback), mHandle(aHandle) {}
-
-  // Conversion operator so that we can append these to a
-  // FrameRequestCallbackList
-  operator const RefPtr<FrameRequestCallback>&() const { return mCallback; }
-
-  // Comparator operators to allow RemoveElementSorted with an
-  // integer argument on arrays of FrameRequest
-  bool operator==(int32_t aHandle) const { return mHandle == aHandle; }
-  bool operator<(int32_t aHandle) const { return mHandle < aHandle; }
-
-  RefPtr<FrameRequestCallback> mCallback;
-  int32_t mHandle;
-};
+Document::FrameRequest::FrameRequest(FrameRequestCallback& aCallback,
+                                     int32_t aHandle)
+    : mCallback(&aCallback), mHandle(aHandle) {}
 
 // ==================================================================
 // =
@@ -3743,9 +3731,10 @@ void Document::UpdateFrameRequestCallbackSchedulingState(
   mFrameRequestCallbacksScheduled = shouldBeScheduled;
 }
 
-void Document::TakeFrameRequestCallbacks(FrameRequestCallbackList& aCallbacks) {
-  aCallbacks.AppendElements(mFrameRequestCallbacks);
-  mFrameRequestCallbacks.Clear();
+void Document::TakeFrameRequestCallbacks(nsTArray<FrameRequest>& aCallbacks) {
+  MOZ_ASSERT(aCallbacks.IsEmpty());
+  aCallbacks.SwapElements(mFrameRequestCallbacks);
+  mCanceledFrameRequestCallbacks.clear();
   // No need to manually remove ourselves from the refresh driver; it will
   // handle that part.  But we do have to update our state.
   mFrameRequestCallbacksScheduled = false;
@@ -4941,20 +4930,24 @@ static void AssertAboutPageHasCSP(nsIURI* aDocumentURI,
 
   nsCOMPtr<nsIContentSecurityPolicy> csp;
   aPrincipal->GetCsp(getter_AddRefs(csp));
-  nsAutoString parsedPolicyStr;
+  bool foundDefaultSrc = false;
   if (csp) {
     uint32_t policyCount = 0;
     csp->GetPolicyCount(&policyCount);
-    if (policyCount > 0) {
-      csp->GetPolicyString(0, parsedPolicyStr);
+    nsAutoString parsedPolicyStr;
+    for (uint32_t i = 0; i < policyCount; ++i) {
+      csp->GetPolicyString(i, parsedPolicyStr);
+      if (parsedPolicyStr.Find("default-src") >= 0) {
+        foundDefaultSrc = true;
+        break;
+      }
     }
   }
   if (Preferences::GetBool("csp.overrule_about_uris_without_csp_whitelist")) {
-    NS_ASSERTION(parsedPolicyStr.Find("default-src") >= 0,
-                 "about: page must have a CSP");
+    NS_ASSERTION(foundDefaultSrc, "about: page must have a CSP");
     return;
   }
-  MOZ_ASSERT(parsedPolicyStr.Find("default-src") >= 0,
+  MOZ_ASSERT(foundDefaultSrc,
              "about: page must contain a CSP including default-src");
 }
 #endif
@@ -9157,7 +9150,14 @@ void Document::CancelFrameRequestCallback(int32_t aHandle) {
   // mFrameRequestCallbacks is stored sorted by handle
   if (mFrameRequestCallbacks.RemoveElementSorted(aHandle)) {
     UpdateFrameRequestCallbackSchedulingState();
+  } else {
+    Unused << mCanceledFrameRequestCallbacks.put(aHandle);
   }
+}
+
+bool Document::IsCanceledFrameRequestCallback(int32_t aHandle) const {
+  return !mCanceledFrameRequestCallbacks.empty() &&
+         mCanceledFrameRequestCallbacks.has(aHandle);
 }
 
 nsresult Document::GetStateObject(nsIVariant** aState) {
@@ -9168,15 +9168,13 @@ nsresult Document::GetStateObject(nsIVariant** aState) {
   // current state object.
 
   if (!mStateObjectCached && mStateObjectContainer) {
-    AutoJSContext cx;
-    nsIGlobalObject* sgo = GetScopeObject();
-    NS_ENSURE_TRUE(sgo, NS_ERROR_UNEXPECTED);
-    JS::Rooted<JSObject*> global(cx, sgo->GetGlobalJSObject());
-    NS_ENSURE_TRUE(global, NS_ERROR_UNEXPECTED);
-    JSAutoRealm ar(cx, global);
-
+    AutoJSAPI jsapi;
+    // Init with null is "OK" in the sense that it will just fail.
+    if (!jsapi.Init(GetScopeObject())) {
+      return NS_ERROR_UNEXPECTED;
+    }
     mStateObjectContainer->DeserializeToVariant(
-        cx, getter_AddRefs(mStateObjectCached));
+        jsapi.cx(), getter_AddRefs(mStateObjectCached));
   }
 
   NS_IF_ADDREF(*aState = mStateObjectCached);
@@ -11825,8 +11823,10 @@ void Document::FlushUserFontSet() {
 
   if (gfxPlatform::GetPlatform()->DownloadableFontsEnabled()) {
     nsTArray<nsFontFaceRuleContainer> rules;
-    if (mStyleSetFilled && !mStyleSet->AppendFontFaceRules(rules)) {
-      return;
+    RefPtr<PresShell> presShell = GetPresShell();
+    if (presShell) {
+      MOZ_ASSERT(mStyleSetFilled);
+      mStyleSet->AppendFontFaceRules(rules);
     }
 
     if (!mFontFaceSet && !rules.IsEmpty()) {
@@ -11843,7 +11843,6 @@ void Document::FlushUserFontSet() {
     // reflect that we're modifying @font-face rules.  (However,
     // without a reflow, nothing will happen to start any downloads
     // that are needed.)
-    PresShell* presShell = GetPresShell();
     if (changed && presShell) {
       if (nsPresContext* presContext = presShell->GetPresContext()) {
         presContext->UserFontSetUpdated();
@@ -12623,19 +12622,20 @@ already_AddRefed<mozilla::dom::Promise> Document::RequestStorageAccess(
       AntiTrackingCommon::AddFirstPartyStorageAccessGrantedFor(
           NodePrincipal(), inner, AntiTrackingCommon::eStorageAccessAPI,
           performFinalChecks)
-          ->Then(GetCurrentThreadSerialEventTarget(), __func__,
-                 [outer, promise] {
-                   // Step 10. Grant the document access to cookies and store
-                   // that fact for
-                   //          the purposes of future calls to
-                   //          hasStorageAccess() and requestStorageAccess().
-                   outer->SetHasStorageAccess(true);
-                   promise->MaybeResolveWithUndefined();
-                 },
-                 [outer, promise] {
-                   outer->SetHasStorageAccess(false);
-                   promise->MaybeRejectWithUndefined();
-                 });
+          ->Then(
+              GetCurrentThreadSerialEventTarget(), __func__,
+              [outer, promise] {
+                // Step 10. Grant the document access to cookies and store
+                // that fact for
+                //          the purposes of future calls to
+                //          hasStorageAccess() and requestStorageAccess().
+                outer->SetHasStorageAccess(true);
+                promise->MaybeResolveWithUndefined();
+              },
+              [outer, promise] {
+                outer->SetHasStorageAccess(false);
+                promise->MaybeRejectWithUndefined();
+              });
 
       return promise.forget();
     }
