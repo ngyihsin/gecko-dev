@@ -341,12 +341,10 @@ nsDocShell::nsDocShell(BrowsingContext* aBrowsingContext)
       mTouchEventsOverride(nsIDocShell::TOUCHEVENTS_OVERRIDE_NONE),
       mMetaViewportOverride(nsIDocShell::META_VIEWPORT_OVERRIDE_NONE),
       mFullscreenAllowed(CHECK_ATTRIBUTES),
-      mCreatingDocument(false)
+      mCreatingDocument(false),
 #ifdef DEBUG
-      ,
-      mInEnsureScriptEnv(false)
+      mInEnsureScriptEnv(false),
 #endif
-      ,
       mCreated(false),
       mAllowSubframes(true),
       mAllowPlugins(true),
@@ -9624,7 +9622,10 @@ nsresult nsDocShell::DoURILoad(nsDocShellLoadState* aLoadState,
         // page is allowed to open them without abuse regardless of allowed
         // events
         if (PopupBlocker::GetPopupControlState() <= PopupBlocker::openBlocked) {
-          popupBlocked = !PopupBlocker::TryUsePopupOpeningToken();
+          nsCOMPtr<nsINode> loadingNode =
+              mScriptGlobal->AsOuter()->GetFrameElementInternal();
+          popupBlocked = !PopupBlocker::TryUsePopupOpeningToken(
+              loadingNode ? loadingNode->NodePrincipal() : nullptr);
         } else if (mIsActive &&
                    PopupBlocker::ConsumeTimerTokenForExternalProtocolIframe()) {
           popupBlocked = false;
@@ -9831,11 +9832,6 @@ nsresult nsDocShell::DoURILoad(nsDocShellLoadState* aLoadState,
   bool isTopLevelDoc = mItemType == typeContent &&
                        (contentPolicyType == nsIContentPolicy::TYPE_DOCUMENT ||
                         GetIsMozBrowser());
-
-  if (isTopLevelDoc && GetDocument() && GetDocument()->GetChannel()) {
-    nsCOMPtr<nsILoadInfo> oldLoadInfo = GetDocument()->GetChannel()->LoadInfo();
-    loadInfo->SetOpenerPolicy(oldLoadInfo->GetOpenerPolicy());
-  }
 
   OriginAttributes attrs;
 
