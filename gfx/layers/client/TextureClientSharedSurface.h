@@ -39,17 +39,17 @@ class SharedSurfaceTextureData : public TextureData {
   explicit SharedSurfaceTextureData(UniquePtr<gl::SharedSurface> surf);
 
  public:
-  ~SharedSurfaceTextureData();
+  virtual ~SharedSurfaceTextureData();
 
-  virtual bool Lock(OpenMode) override { return false; }
+  bool Lock(OpenMode) override { return false; }
 
-  virtual void Unlock() override {}
+  void Unlock() override {}
 
-  virtual void FillInfo(TextureData::Info& aInfo) const override;
+  void FillInfo(TextureData::Info& aInfo) const override;
 
-  virtual bool Serialize(SurfaceDescriptor& aOutDescriptor) override;
+  bool Serialize(SurfaceDescriptor& aOutDescriptor) override;
 
-  virtual void Deallocate(LayersIPCChannel*) override;
+  void Deallocate(LayersIPCChannel*) override;
 
 #ifdef MOZ_WIDGET_GONK
   virtual GrallocTextureData* AsGrallocTextureData() override;
