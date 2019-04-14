@@ -3677,7 +3677,7 @@ uint32_t SVGTextFrame::GetNumberOfChars(nsIContent* aContent) {
 float SVGTextFrame::GetComputedTextLength(nsIContent* aContent) {
   UpdateGlyphPositioning();
 
-  float cssPxPerDevPx = PresContext()->AppUnitsToFloatCSSPixels(
+  float cssPxPerDevPx = nsPresContext::AppUnitsToFloatCSSPixels(
       PresContext()->AppUnitsPerDevPixel());
 
   nscoord length = 0;
@@ -3856,7 +3856,8 @@ nsresult SVGTextFrame::GetSubStringLengthSlowFallback(nsIContent* aContent,
   // but we would still need to resort to full reflow for percentage
   // positioning attributes.  For now we just do a full reflow regardless since
   // the cases that would cause us to be called are relatively uncommon.
-  PresShell()->FlushPendingNotifications(FlushType::Layout);
+  RefPtr<mozilla::PresShell> presShell = PresShell();
+  presShell->FlushPendingNotifications(FlushType::Layout);
 
   UpdateGlyphPositioning();
 

@@ -606,7 +606,12 @@ class TextureHost : public AtomicRefCountedWithFinalize<TextureHost> {
    */
   virtual bool HasIntermediateBuffer() const { return false; }
 
-  void AddCompositableRef() { ++mCompositableCount; }
+  void AddCompositableRef() {
+    ++mCompositableCount;
+    if (mCompositableCount == 1) {
+      PrepareForUse();
+    }
+  }
 
   void ReleaseCompositableRef() {
     --mCompositableCount;
@@ -707,6 +712,11 @@ class TextureHost : public AtomicRefCountedWithFinalize<TextureHost> {
   virtual void MaybeNotifyUnlocked() {}
 
   virtual void UpdatedInternal(const nsIntRegion* Region) {}
+
+  /**
+   * Called when mCompositableCount becomes from 0 to 1.
+   */
+  virtual void PrepareForUse() {}
 
   /**
    * Called when mCompositableCount becomes 0.
